@@ -64,6 +64,78 @@ ZEND_METHOD(LiteralString, __construct)
     string->value = zend_string_copy(arg);
 }
 
+int zend_literal_string_compare(zval *obj1, zval *obj2)
+{
+    zend_literal_string *literal_string1, *literal_string2;
+
+    ZEND_COMPARE_OBJECTS_FALLBACK(obj1, obj2);
+
+    literal_string1 = literal_string_from_obj(Z_OBJ_P(obj1));
+    literal_string2 = literal_string_from_obj(Z_OBJ_P(obj2));
+
+    return zendi_smart_strcmp(literal_string1->value, literal_string2->value);
+}
+
+
+static zend_result zend_literal_string_op_literal_string(uint8_t opcode, zval *result, zval *op1, zval *op2) {
+    zend_literal_string *literal_string1;
+    zend_literal_string *literal_string2;
+
+    literal_string1 = literal_string_from_obj(Z_OBJ_P(op1));
+    literal_string2 = literal_string_from_obj(Z_OBJ_P(op2));
+
+    switch(opcode) {
+        case ZEND_ADD:
+        case ZEND_SUB:
+        case ZEND_MUL:
+        case ZEND_POW:
+            // These operations are not sensible on strings
+            return FAILURE;
+        case ZEND_CONCAT:
+            // Concatenate the strings
+            zend_string *concat_result;
+
+            concat_result = zend_string_concat2(ZSTR_VAL(literal_string1->value), ZSTR_LEN(literal_string1->value),
+                                                ZSTR_VAL(literal_string2->value), ZSTR_LEN(literal_string2->value));
+            zend_literal_string *new_literal_string = literal_string_from_obj(zend_literal_string_object_create(zend_ce_literal_string));
+            new_literal_string->value = concat_result;
+            ZVAL_OBJ(result, &new_literal_string->std);
+            return SUCCESS;
+        default:
+            // For other opcode types
+            return FAILURE;
+    }
+}
+
+static zend_result zend_literal_string_op_non_literal(uint8_t opcode, zval *result, zval *op1, zval *op2) {
+    zend_literal_string *literal_string;
+    zval actual_op;
+
+    switch (opcode) {
+        case ZEND_CONCAT:
+            if (Z_TYPE_P(op1) == IS_OBJECT && Z_OBJCE_P(op1) == zend_ce_literal_string) {
+                literal_string = literal_string_from_obj(Z_OBJ_P(op1));
+                ZVAL_STR(&actual_op, literal_string->value);
+                return concat_function(result, &actual_op, op2);
+            }
+
+            return FAILURE;
+        default:
+            return FAILURE;
+    }
+}
+
+static zend_result zend_literal_string_operation(uint8_t opcode, zval *result, zval *op1, zval *op2)
+{
+    if (Z_TYPE_P(op1) == IS_OBJECT && Z_OBJCE_P(op1) == zend_ce_literal_string &&
+        Z_TYPE_P(op2) == IS_OBJECT && Z_OBJCE_P(op2) == zend_ce_literal_string) {
+        return zend_literal_string_op_literal_string(opcode, result, op1, op2);
+    }
+    else {
+        return zend_literal_string_op_non_literal(opcode, result, op1, op2);
+    }
+}
+
 void zend_register_literal_string_ce(void)
 {
     zend_ce_literal_string = register_class_LiteralString(zend_ce_stringable);
@@ -71,7 +143,6 @@ void zend_register_literal_string_ce(void)
     zend_ce_literal_string->default_object_handlers = &zend_literal_string_handlers;
 
     zend_literal_string_handlers = std_object_handlers;
-    // todo: override object handlers
+    zend_literal_string_handlers.compare = zend_literal_string_compare;
+    zend_literal_string_handlers.do_operation = zend_literal_string_operation;
 }
-
-
