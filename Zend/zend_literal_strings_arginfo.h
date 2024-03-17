@@ -1,5 +1,9 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 5315bdc345cfff42b78cfd035f14118ccbbf6a87 */
+ * Stub hash: 761ec6ee58d9cbc0741f9843df961c3c673cc336 */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_LiteralString___construct, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, string, IS_STRING, 0)
+ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_LiteralString_from, 0, 1, LiteralString, 0)
 	ZEND_ARG_TYPE_INFO(0, string, IS_STRING, 0)
@@ -9,11 +13,13 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_LiteralString___toString, 
 ZEND_END_ARG_INFO()
 
 
+ZEND_METHOD(LiteralString, __construct);
 ZEND_METHOD(LiteralString, from);
 ZEND_METHOD(LiteralString, __toString);
 
 
 static const zend_function_entry class_LiteralString_methods[] = {
+	ZEND_ME(LiteralString, __construct, arginfo_class_LiteralString___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(LiteralString, from, arginfo_class_LiteralString_from, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	ZEND_ME(LiteralString, __toString, arginfo_class_LiteralString___toString, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
