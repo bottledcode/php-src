@@ -35,6 +35,7 @@
 #include "zend_enum.h"
 #include "zend_observer.h"
 #include "zend_call_stack.h"
+#include "zend_literal_strings.h"
 
 #define SET_NODE(target, src) do { \
 		target ## _type = (src)->op_type; \
@@ -9942,6 +9943,15 @@ static zend_op *zend_compile_rope_add(znode *result, uint32_t num, znode *elem_n
 }
 /* }}} */
 
+static void zend_compile_literal(znode *result, zend_ast *ast) /* {{{ */
+{
+    ZVAL_COPY(&result->u.constant, create_literal_string_from_string(zend_ast_get_str(ast->child[0])));
+    result->op_type = IS_CONST;
+
+    zend_emit_op()
+}
+/* }}} */
+
 static void zend_compile_encaps_list(znode *result, zend_ast *ast) /* {{{ */
 {
 	uint32_t i, j;
@@ -10596,6 +10606,9 @@ static void zend_compile_expr_inner(znode *result, zend_ast *ast) /* {{{ */
 		case ZEND_AST_ENCAPS_LIST:
 			zend_compile_encaps_list(result, ast);
 			return;
+        case ZEND_AST_LITERAL:
+            zend_compile_literal(result, ast);
+            return;
 		case ZEND_AST_MAGIC_CONST:
 			zend_compile_magic_const(result, ast);
 			return;

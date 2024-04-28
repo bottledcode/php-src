@@ -16,7 +16,8 @@ struct _zend_literal_string {
 
 void zend_register_literal_string_ce(void);
 int zend_literal_string_compare(zval *obj1, zval *obj2);
-static zend_result zend_literal_string_operation(uint8_t opcode, zval *result, zval *op1, zval *op2);
+
+zval* create_literal_string_from_string(zend_string *val);
 
 END_EXTERN_C()
 
