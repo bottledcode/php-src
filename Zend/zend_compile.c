@@ -9945,7 +9945,10 @@ static zend_op *zend_compile_rope_add(znode *result, uint32_t num, znode *elem_n
 
 static void zend_compile_literal(znode *result, zend_ast *ast) /* {{{ */
 {
-    ZVAL_COPY(&result->u.constant, create_literal_string_from_string(zend_ast_get_str(ast->child[0])));
+    zval obj;
+    create_literal_string_from_string(zend_ast_get_str(ast->child[0]), &obj);
+
+    ZVAL_COPY(&result->u.constant, &obj);
     result->op_type = IS_CONST;
 }
 /* }}} */

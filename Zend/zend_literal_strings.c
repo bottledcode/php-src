@@ -10,19 +10,16 @@ typedef struct _zend_literal_string zend_literal_string;
 
 static zend_object_handlers zend_literal_string_handlers;
 
-zval* create_literal_string_from_string(zend_string *val)
+void create_literal_string_from_string(zend_string *val, zval *retVal)
 {
     struct _zend_literal_string *literalString = emalloc(sizeof(struct _zend_literal_string));
     memset(literalString, 0, sizeof(struct _zend_literal_string));
 
     zend_object_std_init(&literalString->std, zend_ce_literal_string);
+    zend_string_delref(val);
     literalString->value = zend_string_copy(val);
 
-    zval *zv;
-
-    ZVAL_OBJ(zv, &literalString->std);
-
-    return zv;
+    ZVAL_OBJ(retVal, &literalString->std);
 }
 
 static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
