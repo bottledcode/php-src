@@ -9947,8 +9947,6 @@ static void zend_compile_literal(znode *result, zend_ast *ast) /* {{{ */
 {
     ZVAL_COPY(&result->u.constant, create_literal_string_from_string(zend_ast_get_str(ast->child[0])));
     result->op_type = IS_CONST;
-
-    zend_emit_op()
 }
 /* }}} */
 
