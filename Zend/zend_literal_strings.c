@@ -37,18 +37,20 @@ static void initialize_literal_string_globals(void)
 static void zend_literal_string_free_obj(zend_object *object)
 {
 	zend_literal_string *literal_string = literal_string_from_obj(object);
+	fprintf(stderr, "Freeing zend_literal_string object: %p\n", literal_string);
 
 	if (literal_string->value) {
 		if (literal_string_mutex != NULL) {
 			tsrm_mutex_lock(literal_string_mutex);
 		}
 
-		// Remove from intern pool if exists
-		if (zend_hash_exists(&literal_string_intern_pool, literal_string->value)) {
+		// Check if the object is still in the intern pool before attempting to delete
+		zval *interned = zend_hash_find(&literal_string_intern_pool, literal_string->value);
+		if (interned) {
 			zend_hash_del(&literal_string_intern_pool, literal_string->value);
+			// Release the string only if it was removed from the pool
+			zend_string_release(literal_string->value);
 		}
-
-		zend_string_release(literal_string->value);
 
 		if (literal_string_mutex != NULL) {
 			tsrm_mutex_unlock(literal_string_mutex);
@@ -67,6 +69,7 @@ static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
 static zend_object *zend_literal_string_object_create(zend_class_entry *ce)
 {
 	zend_literal_string *literalString = emalloc(sizeof(zend_literal_string));
+	fprintf(stderr, "Allocated memory for zend_literal_string: %p\n", literalString);
 	memset(literalString, 0, sizeof(zend_literal_string));
 
 	zend_object_std_init(&literalString->std, ce);
@@ -90,7 +93,7 @@ static zend_object *literal_string_get_interned(zend_string *str)
 		tsrm_mutex_lock(literal_string_mutex);
 	}
 
-	interned = zend_hash_find(&literal_string_intern_pool, str);
+	interned = zend_hash_find(&literal_string_intern_pool, zend_string_copy(str));
 
 	if (interned != NULL) {
 		// Increment reference count before returning the object
