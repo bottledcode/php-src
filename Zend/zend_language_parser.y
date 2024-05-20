@@ -1609,11 +1609,11 @@ encaps_list:
 		encaps_list encaps_var
 			{ $$ = zend_ast_list_add($1, $2); }
 	|	encaps_list T_ENCAPSED_AND_WHITESPACE
-			{ $$ = zend_ast_list_add($1, $2); }
+			{ $$ = zend_ast_list_add($1, zend_ast_create(ZEND_AST_LITERAL, $2)); }
 	|	encaps_var
 			{ $$ = zend_ast_create_list(1, ZEND_AST_ENCAPS_LIST, $1); }
 	|	T_ENCAPSED_AND_WHITESPACE encaps_var
-			{ $$ = zend_ast_create_list(2, ZEND_AST_ENCAPS_LIST, $1, $2); }
+			{ $$ = zend_ast_create_list(2, ZEND_AST_ENCAPS_LIST, zend_ast_create(ZEND_AST_LITERAL, $1), $2); }
 ;
 
 encaps_var:

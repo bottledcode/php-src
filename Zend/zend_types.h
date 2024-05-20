@@ -189,6 +189,9 @@ typedef struct {
 #define ZEND_TYPE_IS_UNION(t) \
 	((((t).type_mask) & _ZEND_TYPE_UNION_BIT) != 0)
 
+#define ZEND_TYPE_IS_LITERAL_STRING(t) \
+    ZEND_TYPE_HAS_NAME(t) && zend_string_equals_literal(ZEND_TYPE_NAME(t), "LiteralString")
+
 #define ZEND_TYPE_USES_ARENA(t) \
 	((((t).type_mask) & _ZEND_TYPE_ARENA_BIT) != 0)
 

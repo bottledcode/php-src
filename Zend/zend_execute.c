@@ -1211,6 +1211,22 @@ static zend_always_inline bool zend_check_type_slow(
 		/* We cannot have conversions for typed refs. */
 		return 0;
 	}
+	if(Z_STR_IS_LITERAL_P(arg)) {
+		if(ZEND_TYPE_HAS_LIST(*type)) {
+			zend_type *list_type;
+			ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(*type), list_type)
+					{
+						ZEND_ASSERT(!ZEND_TYPE_HAS_LIST(*list_type));
+
+						if (ZEND_TYPE_IS_LITERAL_STRING(*list_type)) {
+							return true;
+						}
+					}
+			ZEND_TYPE_LIST_FOREACH_END();
+		} else if (ZEND_TYPE_IS_LITERAL_STRING(*type)) {
+			return true;
+		}
+	}
 	if (is_internal && is_return_type) {
 		/* For internal returns, the type has to match exactly, because we're not
 		 * going to check it for non-debug builds, and there will be no chance to
@@ -1236,6 +1252,10 @@ static zend_always_inline bool zend_check_type(
 	if (UNEXPECTED(Z_ISREF_P(arg))) {
 		ref = Z_REF_P(arg);
 		arg = Z_REFVAL_P(arg);
+	}
+
+	if (Z_STR_IS_LITERAL_P(arg)) {
+		return zend_check_type_slow(type, arg, ref, cache_slot, is_return_type, is_internal);
 	}
 
 	if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(*type, Z_TYPE_P(arg)))) {
