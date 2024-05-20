@@ -1,8 +1,8 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 6d3019bc5a91785c33c53151b358d8a95326dbbd */
+ * Stub hash: ad4cbcf515c04987b820e97cf268787aca46042c */
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_LiteralString_from, 0, 1, LiteralString, 0)
-	ZEND_ARG_TYPE_INFO(0, string, IS_STRING, 0)
+	ZEND_ARG_OBJ_INFO(0, string, LiteralString, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_METHOD(LiteralString, from);
