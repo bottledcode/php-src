@@ -11423,6 +11423,7 @@ static void zend_compile_literal_string(znode *result, zend_ast *ast) /* {{{ */
 	zend_string *str = zend_ast_get_str(ast->child[0]);
 
 	ZVAL_STR_COPY(&result->u.constant, str);
+
 	result->op_type = IS_CONST;
 }
 /* }}} */

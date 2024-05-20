@@ -734,10 +734,10 @@ static zend_always_inline uint8_t zval_get_type(const zval* pz) {
 	} while (0)
 
 #define GC_TYPE_MASK				0x0000000f
-#define GC_FLAGS_MASK				0x000003f0
-#define GC_INFO_MASK				0xfffffc00
+#define GC_FLAGS_MASK				0x000007f0
+#define GC_INFO_MASK				0xfffff800
 #define GC_FLAGS_SHIFT				0
-#define GC_INFO_SHIFT				10
+#define GC_INFO_SHIFT				11
 
 static zend_always_inline uint8_t zval_gc_type(uint32_t gc_type_info) {
 	return (gc_type_info & GC_TYPE_MASK);
@@ -818,6 +818,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 #define IS_STR_PERSISTENT			GC_PERSISTENT /* allocated using malloc */
 #define IS_STR_PERMANENT        	(1<<8)        /* relives request boundary */
 #define IS_STR_VALID_UTF8           (1<<9)        /* valid UTF-8 according to PCRE */
+#define IS_STR_LITERAL              (1<<10)       /* literal string */
 
 /* array flags */
 #define IS_ARRAY_IMMUTABLE			GC_IMMUTABLE
@@ -970,6 +971,9 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 
 #define Z_STR(zval)					(zval).value.str
 #define Z_STR_P(zval_p)				Z_STR(*(zval_p))
+
+#define Z_STR_IS_LITERAL(zval)		(Z_TYPE(zval) == IS_STRING && ZSTR_IS_LITERAL(Z_STR(zval)))
+#define Z_STR_IS_LITERAL_P(zv)		(Z_STR_IS_LITERAL(*(zv)))
 
 #define Z_STRVAL(zval)				ZSTR_VAL(Z_STR(zval))
 #define Z_STRVAL_P(zval_p)			Z_STRVAL(*(zval_p))
