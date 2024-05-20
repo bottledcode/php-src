@@ -8,7 +8,7 @@ BEGIN_EXTERN_C()
 
 struct _zend_literal_string {
 	/* The literal string value */
-	zend_string *value;
+	zend_string base;
 
 	/* PHP object handle */
 	zend_object std;

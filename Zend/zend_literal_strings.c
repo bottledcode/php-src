@@ -17,7 +17,17 @@ static int is_initialized = 0;
 
 static void initialize_literal_string_globals(void);
 static inline zend_literal_string *literal_string_from_obj(zend_object *obj);
-static zend_object *literal_string_get_interned(zend_string *str);
+static zend_string *literal_string_get_interned(zend_string *str);
+
+static inline zend_literal_string *literal_string_from_zend_string(zend_string *str)
+{
+	return (zend_literal_string *)str;
+}
+
+static inline zend_string *zend_string_from_literal_string(zend_literal_string *literal_string)
+{
+	return &literal_string->base;
+}
 
 static void initialize_literal_string_globals(void)
 {
@@ -36,19 +46,22 @@ static void initialize_literal_string_globals(void)
 
 static void zend_literal_string_free_obj(zend_object *object)
 {
-	zend_literal_string *literal_string = literal_string_from_obj(object);
-	fprintf(stderr, "Freeing zend_literal_string object: %p, value: '%.*s'\n", literal_string, (int)ZSTR_LEN(literal_string->value), ZSTR_VAL(literal_string->value));
+	zend_literal_string *literal_string = (zend_literal_string *)((char *)object - XtOffsetOf(zend_literal_string, std));
+	zend_string *str = zend_string_from_literal_string(literal_string);
 
-	if (literal_string->value) {
+	//fprintf(stderr, "Freeing zend_literal_string object: %p, value: '%.*s'\n", literal_string, (int)ZSTR_LEN(str), ZSTR_VAL(str));
+
+	if (str) {
 		if (literal_string_mutex != NULL) {
 			tsrm_mutex_lock(literal_string_mutex);
 		}
 
 		// Check if the object is still in the intern pool and if it's the last reference
-		zval *interned = zend_hash_find(&literal_string_intern_pool, literal_string->value);
+		zval *interned = zend_hash_find(&literal_string_intern_pool, str);
 		if (interned && Z_REFCOUNTED_P(interned) && Z_REFCOUNT_P(interned) == 1) {
-			if (zend_hash_del(&literal_string_intern_pool, literal_string->value) == SUCCESS) {
-				zend_string_release(literal_string->value);
+			if (zend_hash_del(&literal_string_intern_pool, str) == SUCCESS) {
+				//fprintf(stderr, "Releasing string: '%.*s'\n", (int)ZSTR_LEN(str), ZSTR_VAL(str));
+				zend_string_release(str);
 			}
 		}
 
@@ -68,19 +81,19 @@ static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
 
 static zend_object *zend_literal_string_object_create(zend_class_entry *ce)
 {
-	zend_literal_string *literalString = emalloc(sizeof(zend_literal_string));
-	fprintf(stderr, "Allocated memory for zend_literal_string: %p\n", literalString);
-	memset(literalString, 0, sizeof(zend_literal_string));
+	zend_literal_string *literal_string = emalloc(sizeof(zend_literal_string));
+	//fprintf(stderr, "Allocated memory for zend_literal_string: %p\n", literal_string);
+	memset(literal_string, 0, sizeof(zend_literal_string));
 
-	zend_object_std_init(&literalString->std, ce);
-	object_properties_init(&literalString->std, ce);
+	zend_object_std_init(&literal_string->std, ce);
+	object_properties_init(&literal_string->std, ce);
 
-	literalString->std.handlers = &zend_literal_string_handlers;
+	literal_string->std.handlers = &zend_literal_string_handlers;
 
-	return &literalString->std;
+	return &literal_string->std;
 }
 
-static zend_object *literal_string_get_interned(zend_string *str)
+static zend_string *literal_string_get_interned(zend_string *str)
 {
 	zval *interned;
 	zend_literal_string *literal_string;
@@ -93,138 +106,142 @@ static zend_object *literal_string_get_interned(zend_string *str)
 		tsrm_mutex_lock(literal_string_mutex);
 	}
 
-	interned = zend_hash_find(&literal_string_intern_pool, zend_string_copy(str));
+	interned = zend_hash_find(&literal_string_intern_pool, str);
 
 	if (interned != NULL) {
-		// Increment reference count before returning the object
 		Z_TRY_ADDREF_P(interned);
 		if (literal_string_mutex != NULL) {
 			tsrm_mutex_unlock(literal_string_mutex);
 		}
-		return Z_OBJ_P(interned);
+		return Z_STR_P(interned);
 	}
 
 	obj = zend_literal_string_object_create(zend_ce_literal_string);
-	literal_string = literal_string_from_obj(obj);
-	literal_string->value = zend_string_copy(str);
+	literal_string = (zend_literal_string *)((char *)obj - XtOffsetOf(zend_literal_string, std));
+	literal_string->base = *zend_string_copy(str); // Copy the zend_string
+
+	//fprintf(stderr, "Creating new zend_literal_string object: %p, value: '%.*s'\n", literal_string, (int)ZSTR_LEN(str), ZSTR_VAL(str));
 
 	ZVAL_OBJ(&tmp, obj);
 	Z_TRY_ADDREF(tmp); // Increment reference count before adding to hash table
-	zend_hash_add_new(&literal_string_intern_pool, literal_string->value, &tmp);
-
-	fprintf(stderr, "Creating new zend_literal_string object: %p, value: '%.*s'\n", literal_string, (int)ZSTR_LEN(literal_string->value), ZSTR_VAL(literal_string->value));
+	zend_hash_add_new(&literal_string_intern_pool, str, &tmp);
 
 	if (literal_string_mutex != NULL) {
 		tsrm_mutex_unlock(literal_string_mutex);
 	}
 
-	return obj;
+	return zend_string_from_literal_string(literal_string);
 }
 
 void create_literal_string_from_string(zend_string *val, zval *retVal)
 {
-	if (ZSTR_IS_INTERNED(val)) {
-		// Interned strings should not be manually managed
-		ZVAL_STR_COPY(retVal, val);
-	} else {
-		zend_object *obj = literal_string_get_interned(val);
-		ZVAL_OBJ(retVal, obj);
-	}
+	//if (ZSTR_IS_INTERNED(val)) {
+	//	// Interned strings should not be manually managed
+	//	ZVAL_STR_COPY(retVal, val);
+	//} else {
+		zend_string *obj = literal_string_get_interned(val);
+		ZVAL_STR(retVal, obj);
+	//}
 }
 
 ZEND_METHOD(LiteralString, from)
 {
-    zend_string *arg;
-    ZEND_PARSE_PARAMETERS_START(1, 1)
-        Z_PARAM_STR(arg)
-    ZEND_PARSE_PARAMETERS_END();
+	zend_string *arg;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+			Z_PARAM_STR(arg)
+	ZEND_PARSE_PARAMETERS_END();
 
-    zend_object *obj = literal_string_get_interned(arg);
-    RETURN_OBJ(obj);
+	zend_string *interned_str = literal_string_get_interned(arg);
+	zend_literal_string *literal_str = literal_string_from_zend_string(interned_str);
+
+	RETURN_OBJ(&literal_str->std);
 }
 
 ZEND_METHOD(LiteralString, __toString)
 {
-    if (zend_parse_parameters_none() == FAILURE) {
-        RETURN_THROWS();
-    }
+	if (zend_parse_parameters_none() == FAILURE) {
+		RETURN_THROWS();
+	}
 
-    zend_literal_string *string = (zend_literal_string *) Z_OBJ_P(ZEND_THIS);
+	zend_literal_string *string = (zend_literal_string *)Z_OBJ_P(ZEND_THIS);
+	zend_string *str = zend_string_from_literal_string(string);
 
-    RETURN_STR(zend_string_copy(string->value));
+	RETURN_STR(zend_string_copy(str));
 }
 
 ZEND_METHOD(LiteralString, __construct)
 {
-    zend_string *arg;
-    ZEND_PARSE_PARAMETERS_START(1, 1)
-        Z_PARAM_STR(arg)
-    ZEND_PARSE_PARAMETERS_END();
+	zend_string *arg;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+			Z_PARAM_STR(arg)
+	ZEND_PARSE_PARAMETERS_END();
 
-    zend_object *obj = literal_string_get_interned(arg);
-    ZVAL_OBJ(return_value, obj);
+	zend_string *interned_str = literal_string_get_interned(arg);
+	zend_literal_string *literal_str = literal_string_from_zend_string(interned_str);
+
+	ZVAL_OBJ(return_value, &literal_str->std);
 }
 
 int zend_literal_string_compare(zval *obj1, zval *obj2)
 {
-    zend_literal_string *literal_string1, *literal_string2;
+	zend_literal_string *literal_string1, *literal_string2;
 
-    ZEND_COMPARE_OBJECTS_FALLBACK(obj1, obj2);
+	ZEND_COMPARE_OBJECTS_FALLBACK(obj1, obj2);
 
-    literal_string1 = literal_string_from_obj(Z_OBJ_P(obj1));
-    literal_string2 = literal_string_from_obj(Z_OBJ_P(obj2));
+	literal_string1 = literal_string_from_zend_string(Z_STR_P(obj1));
+	literal_string2 = literal_string_from_zend_string(Z_STR_P(obj2));
 
-    return zendi_smart_strcmp(literal_string1->value, literal_string2->value);
+	return zendi_smart_strcmp(&literal_string1->base, &literal_string2->base);
 }
 
 static zend_result zend_literal_string_op_literal_string(uint8_t opcode, zval *result, zval *op1, zval *op2)
 {
-    zend_literal_string *literal_string1;
-    zend_literal_string *literal_string2;
+	zend_literal_string *literal_string1;
+	zend_literal_string *literal_string2;
 
-    literal_string1 = literal_string_from_obj(Z_OBJ_P(op1));
-    literal_string2 = literal_string_from_obj(Z_OBJ_P(op2));
+	literal_string1 = literal_string_from_zend_string(Z_STR_P(op1));
+	literal_string2 = literal_string_from_zend_string(Z_STR_P(op2));
 
-    switch(opcode) {
-        case ZEND_ADD:
-        case ZEND_SUB:
-        case ZEND_MUL:
-        case ZEND_POW:
-            // These operations are not sensible on strings
-            return FAILURE;
-        case ZEND_CONCAT:
-            // Concatenate the strings
-            zend_string *concat_result;
+	switch (opcode) {
+		case ZEND_ADD:
+		case ZEND_SUB:
+		case ZEND_MUL:
+		case ZEND_POW:
+			// These operations are not sensible on strings
+			return FAILURE;
+		case ZEND_CONCAT:
+			// Concatenate the strings
+			zend_string *concat_result;
 
-            concat_result = zend_string_concat2(ZSTR_VAL(literal_string1->value), ZSTR_LEN(literal_string1->value),
-                                                ZSTR_VAL(literal_string2->value), ZSTR_LEN(literal_string2->value));
-            zend_literal_string *new_literal_string = literal_string_from_obj(zend_literal_string_object_create(zend_ce_literal_string));
-            new_literal_string->value = concat_result;
-            ZVAL_OBJ(result, &new_literal_string->std);
-            return SUCCESS;
-        default:
-            // For other opcode types
-            return FAILURE;
-    }
+			concat_result = zend_string_concat2(ZSTR_VAL(&literal_string1->base), ZSTR_LEN(&literal_string1->base),
+												ZSTR_VAL(&literal_string2->base), ZSTR_LEN(&literal_string2->base));
+			zend_literal_string *new_literal_string = literal_string_from_zend_string((zend_string *)zend_literal_string_object_create(zend_ce_literal_string));
+			new_literal_string->base = *concat_result;
+			ZVAL_OBJ(result, &new_literal_string->std);
+			return SUCCESS;
+		default:
+			// For other opcode types
+			return FAILURE;
+	}
 }
 
 static zend_result zend_literal_string_op_non_literal(uint8_t opcode, zval *result, zval *op1, zval *op2)
 {
-    zend_literal_string *literal_string;
-    zval actual_op;
+	zend_literal_string *literal_string;
+	zval actual_op;
 
-    switch (opcode) {
-        case ZEND_CONCAT:
-            if (Z_TYPE_P(op1) == IS_OBJECT && Z_OBJCE_P(op1) == zend_ce_literal_string) {
-                literal_string = literal_string_from_obj(Z_OBJ_P(op1));
-                ZVAL_STR(&actual_op, literal_string->value);
-                return concat_function(result, &actual_op, op2);
-            }
+	switch (opcode) {
+		case ZEND_CONCAT:
+			if (Z_TYPE_P(op1) == IS_OBJECT && Z_OBJCE_P(op1) == zend_ce_literal_string) {
+				literal_string = literal_string_from_zend_string(Z_STR_P(op1));
+				ZVAL_STR(&actual_op, &literal_string->base);
+				return concat_function(result, &actual_op, op2);
+			}
 
-            return FAILURE;
-        default:
-            return FAILURE;
-    }
+			return FAILURE;
+		default:
+			return FAILURE;
+	}
 }
 
 static zend_result zend_literal_string_operation(uint8_t opcode, zval *result, zval *op1, zval *op2)
