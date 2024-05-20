@@ -27,12 +27,27 @@ static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
     return (zend_literal_string *)((char *)(obj) - XtOffsetOf(zend_literal_string, std));
 }
 
+static void zend_literal_string_free_obj(zend_object *object) {
+    zend_literal_string *literal_string = literal_string_from_obj(object);
+
+    if (literal_string->value) {
+        zend_string_release(literal_string->value);
+    }
+
+    zend_object_std_dtor(&literal_string->std);
+    efree(literal_string);
+}
+
 static zend_object *zend_literal_string_object_create(zend_class_entry *ce)
 {
     zend_literal_string *literalString = emalloc(sizeof(zend_literal_string));
     memset(literalString, 0, sizeof(zend_literal_string));
 
     zend_object_std_init(&literalString->std, ce);
+    object_properties_init(&literalString->std, ce);
+
+    literalString->std.handlers = &zend_literal_string_handlers;
+
     return &literalString->std;
 }
 
@@ -155,6 +170,8 @@ void zend_register_literal_string_ce(void)
     zend_ce_literal_string->default_object_handlers = &zend_literal_string_handlers;
 
     zend_literal_string_handlers = std_object_handlers;
+    zend_literal_string_handlers.offset = XtOffsetOf(zend_literal_string, std);
     zend_literal_string_handlers.compare = zend_literal_string_compare;
     zend_literal_string_handlers.do_operation = zend_literal_string_operation;
+    zend_literal_string_handlers.free_obj = zend_literal_string_free_obj;
 }
