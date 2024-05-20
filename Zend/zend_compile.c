@@ -10531,7 +10531,7 @@ static bool zend_is_allowed_in_const_expr(zend_ast_kind kind) /* {{{ */
 		|| kind == ZEND_AST_MAGIC_CONST || kind == ZEND_AST_COALESCE
 		|| kind == ZEND_AST_CONST_ENUM_INIT
 		|| kind == ZEND_AST_NEW || kind == ZEND_AST_ARG_LIST
-		|| kind == ZEND_AST_NAMED_ARG
+		|| kind == ZEND_AST_NAMED_ARG || kind == ZEND_AST_LITERAL
 		|| kind == ZEND_AST_PROP || kind == ZEND_AST_NULLSAFE_PROP;
 }
 /* }}} */
@@ -10902,6 +10902,16 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
 }
 /* }}} */
 
+static void zend_compile_literal_string(znode *result, zend_ast *ast) /* {{{ */
+{
+	// temp todo: properly compile string
+	zend_string *str = zend_ast_get_str(ast->child[0]);
+
+	ZVAL_STR_COPY(&result->u.constant, str);
+	result->op_type = IS_CONST;
+}
+/* }}} */
+
 static void zend_compile_expr_inner(znode *result, zend_ast *ast) /* {{{ */
 {
 	/* CG(zend_lineno) = ast->lineno; */
@@ -11039,6 +11049,9 @@ static void zend_compile_expr_inner(znode *result, zend_ast *ast) /* {{{ */
 			return;
 		case ZEND_AST_MATCH:
 			zend_compile_match(result, ast);
+			return;
+		case ZEND_AST_LITERAL:
+			zend_compile_literal_string(result, ast);
 			return;
 		default:
 			ZEND_ASSERT(0 /* not supported */);
