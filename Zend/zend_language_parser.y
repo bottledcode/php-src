@@ -1434,7 +1434,7 @@ ctor_arguments:
 dereferenceable_scalar:
 		T_ARRAY '(' array_pair_list ')'	{ $$ = $3; $$->attr = ZEND_ARRAY_SYNTAX_LONG; }
 	|	'[' array_pair_list ']'			{ $$ = $2; $$->attr = ZEND_ARRAY_SYNTAX_SHORT; }
-	|	T_CONSTANT_ENCAPSED_STRING		{ $$ = $1; }
+	|	T_CONSTANT_ENCAPSED_STRING		{ $$ = zend_ast_create(ZEND_AST_LITERAL, $1); }
 	|	'"' encaps_list '"'			 	{ $$ = $2; }
 ;
 
