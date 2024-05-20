@@ -1,5 +1,5 @@
 #!/usr/bin/env php
-<?php declare(strict_types=1);
+<?php //declare(strict_types=1);
 
 use PhpParser\Comment\Doc as DocComment;
 use PhpParser\ConstExprEvaluator;

@@ -809,6 +809,8 @@ ZEND_API bool zend_verify_scalar_type_hint(uint32_t type_mask, zval *arg, bool s
 		if (!(type_mask & MAY_BE_DOUBLE) || Z_TYPE_P(arg) != IS_LONG) {
 			return 0;
 		}
+
+		/* Literal Strings may be accepted as strings */
 	} else if (UNEXPECTED(Z_TYPE_P(arg) == IS_NULL)) {
 		/* NULL may be accepted only by nullable hints (this is already checked).
 		 * As an exception for internal functions, null is allowed for scalar types in weak mode. */

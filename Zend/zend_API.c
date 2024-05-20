@@ -732,6 +732,7 @@ ZEND_API bool ZEND_FASTCALL zend_parse_arg_str_weak(zval *arg, zend_string **des
 
 ZEND_API bool ZEND_FASTCALL zend_parse_arg_str_slow(zval *arg, zend_string **dest, uint32_t arg_num) /* {{{ */
 {
+	// check for literal string here
 	if (UNEXPECTED(ZEND_ARG_USES_STRICT_TYPES())) {
 		return 0;
 	}
