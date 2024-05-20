@@ -3,6 +3,7 @@
 #include "zend_literal_strings.h"
 #include "zend_literal_strings_arginfo.h"
 #include "zend_interfaces.h"
+#include "TSRM.h"
 
 ZEND_API zend_class_entry *zend_ce_literal_string;
 
@@ -10,32 +11,47 @@ typedef struct _zend_literal_string zend_literal_string;
 
 static zend_object_handlers zend_literal_string_handlers;
 
-void create_literal_string_from_string(zend_string *val, zval *retVal)
+static HashTable literal_string_intern_pool;
+static MUTEX_T literal_string_mutex;
+static int is_initialized = 0;
+
+static void initialize_literal_string_globals()
 {
-    struct _zend_literal_string *literalString = emalloc(sizeof(struct _zend_literal_string));
-    memset(literalString, 0, sizeof(struct _zend_literal_string));
+    if (is_initialized) {
+        return;
+    }
 
-    zend_object_std_init(&literalString->std, zend_ce_literal_string);
-    zend_string_delref(val);
-    literalString->value = zend_string_copy(val);
+    zend_hash_init(&literal_string_intern_pool, 0, NULL, ZVAL_PTR_DTOR, 1);
+    literal_string_mutex = tsrm_mutex_alloc();
+    if (literal_string_mutex == NULL) {
+        fprintf(stderr, "Failed to allocate mutex\n");
+        abort();
+    }
+    is_initialized = 1;
+}
 
-    ZVAL_OBJ(retVal, &literalString->std);
+static void zend_literal_string_free_obj(zend_object *object)
+{
+    zend_literal_string *literal_string = literal_string_from_obj(object);
+
+    if (literal_string->value) {
+        if (literal_string_mutex != NULL) {
+            tsrm_mutex_lock(literal_string_mutex);
+        }
+        if (zend_hash_del(&literal_string_intern_pool, literal_string->value) == SUCCESS) {
+            zend_string_release(literal_string->value);
+        }
+        if (literal_string_mutex != NULL) {
+            tsrm_mutex_unlock(literal_string_mutex);
+        }
+    }
+
+    zend_object_std_dtor(&literal_string->std);
 }
 
 static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
 {
     return (zend_literal_string *)((char *)(obj) - XtOffsetOf(zend_literal_string, std));
-}
-
-static void zend_literal_string_free_obj(zend_object *object) {
-    zend_literal_string *literal_string = literal_string_from_obj(object);
-
-    if (literal_string->value) {
-        zend_string_release(literal_string->value);
-    }
-
-    zend_object_std_dtor(&literal_string->std);
-    efree(literal_string);
 }
 
 static zend_object *zend_literal_string_object_create(zend_class_entry *ce)
@@ -51,6 +67,45 @@ static zend_object *zend_literal_string_object_create(zend_class_entry *ce)
     return &literalString->std;
 }
 
+static zend_object *literal_string_get_interned(zend_string *str) {
+    zval *interned;
+    zend_literal_string *literal_string;
+    zend_object *obj;
+    zval tmp;
+
+    if (use_mutex) {
+        tsrm_mutex_lock(literal_string_mutex);
+    }
+
+    interned = zend_hash_find(&literal_string_intern_pool, str);
+
+    if (interned != NULL) {
+        Z_TRY_ADDREF_P(interned);
+        if (use_mutex) {
+            tsrm_mutex_unlock(literal_string_mutex);
+        }
+        return Z_OBJ_P(interned);
+    }
+
+    obj = zend_literal_string_object_create(zend_ce_literal_string);
+    literal_string = literal_string_from_obj(obj);
+    literal_string->value = zend_string_copy(str);
+
+    ZVAL_OBJ(&tmp, obj);
+    zend_hash_add_new(&literal_string_intern_pool, literal_string->value, &tmp);
+
+    if (use_mutex) {
+        tsrm_mutex_unlock(literal_string_mutex);
+    }
+
+    return obj;
+}
+
+void create_literal_string_from_string(zend_string *val, zval *retVal) {
+    zend_object *obj = literal_string_get_interned(val);
+    ZVAL_OBJ(retVal, obj);
+}
+
 ZEND_METHOD(LiteralString, from)
 {
     zend_string *arg;
@@ -58,13 +113,7 @@ ZEND_METHOD(LiteralString, from)
         Z_PARAM_STR(arg)
     ZEND_PARSE_PARAMETERS_END();
 
-    // todo: check that arg is a literal string or throw
-    // todo: add a Z_PARAM_STR_LITERAL arg parser
-
-    // todo: return existing
-    zend_object *obj = zend_literal_string_object_create(zend_ce_literal_string);
-    zend_literal_string *str = literal_string_from_obj(obj);
-    str->value = zend_string_copy(arg);
+    zend_object *obj = literal_string_get_interned(arg);
     RETURN_OBJ(obj);
 }
 
@@ -86,9 +135,8 @@ ZEND_METHOD(LiteralString, __construct)
         Z_PARAM_STR(arg)
     ZEND_PARSE_PARAMETERS_END();
 
-    zend_literal_string *string = (zend_literal_string *) Z_OBJ_P(ZEND_THIS);
-
-    string->value = zend_string_copy(arg);
+    zend_object *obj = literal_string_get_interned(arg);
+    ZVAL_OBJ(return_value, obj);
 }
 
 int zend_literal_string_compare(zval *obj1, zval *obj2)
@@ -174,4 +222,24 @@ void zend_register_literal_string_ce(void)
     zend_literal_string_handlers.compare = zend_literal_string_compare;
     zend_literal_string_handlers.do_operation = zend_literal_string_operation;
     zend_literal_string_handlers.free_obj = zend_literal_string_free_obj;
+}
+
+PHP_MINIT_FUNCTION(literal_string) {
+        zend_hash_init(&literal_string_intern_pool, 0, NULL, ZVAL_PTR_DTOR, 1);
+        literal_string_mutex = tsrm_mutex_alloc();
+        if (literal_string_mutex == NULL) {
+            return FAILURE; // Failed to allocate mutex
+        }
+        use_mutex = 1; // Mutex is initialized, safe to use
+        return SUCCESS;
+}
+
+PHP_MSHUTDOWN_FUNCTION(literal_string) {
+        zend_hash_destroy(&literal_string_intern_pool);
+        if (literal_string_mutex != NULL) {
+            tsrm_mutex_free(literal_string_mutex);
+            literal_string_mutex = NULL;
+        }
+        use_mutex = 0; // Mutex is no longer available
+        return SUCCESS;
 }
