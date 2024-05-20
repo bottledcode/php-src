@@ -9945,13 +9945,20 @@ static zend_op *zend_compile_rope_add(znode *result, uint32_t num, znode *elem_n
 
 static void zend_compile_literal(znode *result, zend_ast *ast) /* {{{ */
 {
-    zval obj;
+	zval obj;
 	zend_string *str = zend_ast_get_str(ast->child[0]);
-    create_literal_string_from_string(str, &obj);
-	zend_string_release(str);
 
-    ZVAL_COPY(&result->u.constant, &obj);
-    result->op_type = IS_CONST;
+	// Create a LiteralString from the zend_string
+	create_literal_string_from_string(str, &obj);
+
+	// No need to release the original string if it is interned
+	if (!ZSTR_IS_INTERNED(str)) {
+		zend_string_release(str);
+	}
+
+	// Copy the resulting object into the result znode
+	ZVAL_COPY_VALUE(&result->u.constant, &obj);
+	result->op_type = IS_CONST;
 }
 /* }}} */
 

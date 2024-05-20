@@ -15,7 +15,11 @@ static HashTable literal_string_intern_pool;
 static MUTEX_T literal_string_mutex;
 static int is_initialized = 0;
 
-static void initialize_literal_string_globals()
+static void initialize_literal_string_globals(void);
+static inline zend_literal_string *literal_string_from_obj(zend_object *obj);
+static zend_object *literal_string_get_interned(zend_string *str);
+
+static void initialize_literal_string_globals(void)
 {
     if (is_initialized) {
         return;
@@ -32,21 +36,27 @@ static void initialize_literal_string_globals()
 
 static void zend_literal_string_free_obj(zend_object *object)
 {
-    zend_literal_string *literal_string = literal_string_from_obj(object);
+	zend_literal_string *literal_string = literal_string_from_obj(object);
 
-    if (literal_string->value) {
-        if (literal_string_mutex != NULL) {
-            tsrm_mutex_lock(literal_string_mutex);
-        }
-        if (zend_hash_del(&literal_string_intern_pool, literal_string->value) == SUCCESS) {
-            zend_string_release(literal_string->value);
-        }
-        if (literal_string_mutex != NULL) {
-            tsrm_mutex_unlock(literal_string_mutex);
-        }
-    }
+	if (literal_string->value) {
+		if (literal_string_mutex != NULL) {
+			tsrm_mutex_lock(literal_string_mutex);
+		}
 
-    zend_object_std_dtor(&literal_string->std);
+		// Remove from intern pool if exists
+		if (zend_hash_exists(&literal_string_intern_pool, literal_string->value)) {
+			zend_hash_del(&literal_string_intern_pool, literal_string->value);
+		}
+
+		zend_string_release(literal_string->value);
+
+		if (literal_string_mutex != NULL) {
+			tsrm_mutex_unlock(literal_string_mutex);
+		}
+	}
+
+	zend_object_std_dtor(&literal_string->std);
+	efree(literal_string); // Free the allocated memory
 }
 
 static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
@@ -56,54 +66,65 @@ static inline zend_literal_string *literal_string_from_obj(zend_object *obj)
 
 static zend_object *zend_literal_string_object_create(zend_class_entry *ce)
 {
-    zend_literal_string *literalString = emalloc(sizeof(zend_literal_string));
-    memset(literalString, 0, sizeof(zend_literal_string));
+	zend_literal_string *literalString = emalloc(sizeof(zend_literal_string));
+	memset(literalString, 0, sizeof(zend_literal_string));
 
-    zend_object_std_init(&literalString->std, ce);
-    object_properties_init(&literalString->std, ce);
+	zend_object_std_init(&literalString->std, ce);
+	object_properties_init(&literalString->std, ce);
 
-    literalString->std.handlers = &zend_literal_string_handlers;
+	literalString->std.handlers = &zend_literal_string_handlers;
 
-    return &literalString->std;
+	return &literalString->std;
 }
 
-static zend_object *literal_string_get_interned(zend_string *str) {
-    zval *interned;
-    zend_literal_string *literal_string;
-    zend_object *obj;
-    zval tmp;
+static zend_object *literal_string_get_interned(zend_string *str)
+{
+	zval *interned;
+	zend_literal_string *literal_string;
+	zend_object *obj;
+	zval tmp;
 
-    if (use_mutex) {
-        tsrm_mutex_lock(literal_string_mutex);
-    }
+	initialize_literal_string_globals();
 
-    interned = zend_hash_find(&literal_string_intern_pool, str);
+	if (literal_string_mutex != NULL) {
+		tsrm_mutex_lock(literal_string_mutex);
+	}
 
-    if (interned != NULL) {
-        Z_TRY_ADDREF_P(interned);
-        if (use_mutex) {
-            tsrm_mutex_unlock(literal_string_mutex);
-        }
-        return Z_OBJ_P(interned);
-    }
+	interned = zend_hash_find(&literal_string_intern_pool, str);
 
-    obj = zend_literal_string_object_create(zend_ce_literal_string);
-    literal_string = literal_string_from_obj(obj);
-    literal_string->value = zend_string_copy(str);
+	if (interned != NULL) {
+		// Increment reference count before returning the object
+		Z_TRY_ADDREF_P(interned);
+		if (literal_string_mutex != NULL) {
+			tsrm_mutex_unlock(literal_string_mutex);
+		}
+		return Z_OBJ_P(interned);
+	}
 
-    ZVAL_OBJ(&tmp, obj);
-    zend_hash_add_new(&literal_string_intern_pool, literal_string->value, &tmp);
+	obj = zend_literal_string_object_create(zend_ce_literal_string);
+	literal_string = literal_string_from_obj(obj);
+	literal_string->value = zend_string_copy(str);
 
-    if (use_mutex) {
-        tsrm_mutex_unlock(literal_string_mutex);
-    }
+	ZVAL_OBJ(&tmp, obj);
+	Z_TRY_ADDREF(tmp); // Increment reference count before adding to hash table
+	zend_hash_add_new(&literal_string_intern_pool, literal_string->value, &tmp);
 
-    return obj;
+	if (literal_string_mutex != NULL) {
+		tsrm_mutex_unlock(literal_string_mutex);
+	}
+
+	return obj;
 }
 
-void create_literal_string_from_string(zend_string *val, zval *retVal) {
-    zend_object *obj = literal_string_get_interned(val);
-    ZVAL_OBJ(retVal, obj);
+void create_literal_string_from_string(zend_string *val, zval *retVal)
+{
+	if (ZSTR_IS_INTERNED(val)) {
+		// Interned strings should not be manually managed
+		ZVAL_STR_COPY(retVal, val);
+	} else {
+		zend_object *obj = literal_string_get_interned(val);
+		ZVAL_OBJ(retVal, obj);
+	}
 }
 
 ZEND_METHOD(LiteralString, from)
@@ -151,8 +172,8 @@ int zend_literal_string_compare(zval *obj1, zval *obj2)
     return zendi_smart_strcmp(literal_string1->value, literal_string2->value);
 }
 
-
-static zend_result zend_literal_string_op_literal_string(uint8_t opcode, zval *result, zval *op1, zval *op2) {
+static zend_result zend_literal_string_op_literal_string(uint8_t opcode, zval *result, zval *op1, zval *op2)
+{
     zend_literal_string *literal_string1;
     zend_literal_string *literal_string2;
 
@@ -182,7 +203,8 @@ static zend_result zend_literal_string_op_literal_string(uint8_t opcode, zval *r
     }
 }
 
-static zend_result zend_literal_string_op_non_literal(uint8_t opcode, zval *result, zval *op1, zval *op2) {
+static zend_result zend_literal_string_op_non_literal(uint8_t opcode, zval *result, zval *op1, zval *op2)
+{
     zend_literal_string *literal_string;
     zval actual_op;
 
@@ -205,8 +227,7 @@ static zend_result zend_literal_string_operation(uint8_t opcode, zval *result, z
     if (Z_TYPE_P(op1) == IS_OBJECT && Z_OBJCE_P(op1) == zend_ce_literal_string &&
         Z_TYPE_P(op2) == IS_OBJECT && Z_OBJCE_P(op2) == zend_ce_literal_string) {
         return zend_literal_string_op_literal_string(opcode, result, op1, op2);
-    }
-    else {
+    } else {
         return zend_literal_string_op_non_literal(opcode, result, op1, op2);
     }
 }
@@ -224,22 +245,21 @@ void zend_register_literal_string_ce(void)
     zend_literal_string_handlers.free_obj = zend_literal_string_free_obj;
 }
 
-PHP_MINIT_FUNCTION(literal_string) {
-        zend_hash_init(&literal_string_intern_pool, 0, NULL, ZVAL_PTR_DTOR, 1);
-        literal_string_mutex = tsrm_mutex_alloc();
-        if (literal_string_mutex == NULL) {
-            return FAILURE; // Failed to allocate mutex
-        }
-        use_mutex = 1; // Mutex is initialized, safe to use
-        return SUCCESS;
+PHP_MINIT_FUNCTION(literal_string)
+{
+		// Initialization code
+		return SUCCESS;
 }
 
-PHP_MSHUTDOWN_FUNCTION(literal_string) {
-        zend_hash_destroy(&literal_string_intern_pool);
-        if (literal_string_mutex != NULL) {
-            tsrm_mutex_free(literal_string_mutex);
-            literal_string_mutex = NULL;
-        }
-        use_mutex = 0; // Mutex is no longer available
-        return SUCCESS;
+PHP_MSHUTDOWN_FUNCTION(literal_string)
+{
+		if (is_initialized) {
+			zend_hash_destroy(&literal_string_intern_pool);
+			if (literal_string_mutex != NULL) {
+				tsrm_mutex_free(literal_string_mutex);
+				literal_string_mutex = NULL;
+			}
+			is_initialized = 0;
+		}
+		return SUCCESS;
 }
