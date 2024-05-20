@@ -7,11 +7,11 @@
 BEGIN_EXTERN_C()
 
 struct _zend_literal_string {
-    /* PHP object handle */
-    zend_object std;
+	/* The literal string value */
+	zend_string *value;
 
-    /* The literal string value */
-    zend_string *value;
+	/* PHP object handle */
+	zend_object std;
 };
 
 void zend_register_literal_string_ce(void);

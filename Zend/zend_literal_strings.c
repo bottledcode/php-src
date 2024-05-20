@@ -37,19 +37,19 @@ static void initialize_literal_string_globals(void)
 static void zend_literal_string_free_obj(zend_object *object)
 {
 	zend_literal_string *literal_string = literal_string_from_obj(object);
-	fprintf(stderr, "Freeing zend_literal_string object: %p\n", literal_string);
+	fprintf(stderr, "Freeing zend_literal_string object: %p, value: '%.*s'\n", literal_string, (int)ZSTR_LEN(literal_string->value), ZSTR_VAL(literal_string->value));
 
 	if (literal_string->value) {
 		if (literal_string_mutex != NULL) {
 			tsrm_mutex_lock(literal_string_mutex);
 		}
 
-		// Check if the object is still in the intern pool before attempting to delete
+		// Check if the object is still in the intern pool and if it's the last reference
 		zval *interned = zend_hash_find(&literal_string_intern_pool, literal_string->value);
-		if (interned) {
-			zend_hash_del(&literal_string_intern_pool, literal_string->value);
-			// Release the string only if it was removed from the pool
-			zend_string_release(literal_string->value);
+		if (interned && Z_REFCOUNTED_P(interned) && Z_REFCOUNT_P(interned) == 1) {
+			if (zend_hash_del(&literal_string_intern_pool, literal_string->value) == SUCCESS) {
+				zend_string_release(literal_string->value);
+			}
 		}
 
 		if (literal_string_mutex != NULL) {
@@ -111,6 +111,8 @@ static zend_object *literal_string_get_interned(zend_string *str)
 	ZVAL_OBJ(&tmp, obj);
 	Z_TRY_ADDREF(tmp); // Increment reference count before adding to hash table
 	zend_hash_add_new(&literal_string_intern_pool, literal_string->value, &tmp);
+
+	fprintf(stderr, "Creating new zend_literal_string object: %p, value: '%.*s'\n", literal_string, (int)ZSTR_LEN(literal_string->value), ZSTR_VAL(literal_string->value));
 
 	if (literal_string_mutex != NULL) {
 		tsrm_mutex_unlock(literal_string_mutex);
