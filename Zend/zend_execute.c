@@ -1254,10 +1254,6 @@ static zend_always_inline bool zend_check_type(
 		arg = Z_REFVAL_P(arg);
 	}
 
-	if (Z_STR_IS_LITERAL_P(arg)) {
-		return zend_check_type_slow(type, arg, ref, cache_slot, is_return_type, is_internal);
-	}
-
 	if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(*type, Z_TYPE_P(arg)))) {
 		return 1;
 	}
