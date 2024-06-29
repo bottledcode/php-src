@@ -1026,7 +1026,7 @@ static bool zend_check_and_resolve_property_or_class_constant_class_type(
 static zend_always_inline bool i_zend_check_property_type(const zend_property_info *info, zval *property, bool strict)
 {
 	ZEND_ASSERT(!Z_ISREF_P(property));
-	if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(info->type, Z_TYPE_P(property)))) {
+	if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(info->type, Z_TYPE_P(property))) || EXPECTED(Z_STR_IS_LITERAL_P(property))) {
 		return 1;
 	}
 
