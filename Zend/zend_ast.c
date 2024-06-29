@@ -622,6 +622,13 @@ ZEND_API zend_result ZEND_FASTCALL zend_ast_evaluate_inner(
 			ZVAL_COPY(result, zv);
 			break;
 		}
+		case ZEND_AST_LITERAL:
+		{
+			zval *zv = zend_ast_get_zval(ast->child[0]);
+
+			ZVAL_COPY(result, zv);
+			break;
+		}
 		case ZEND_AST_CONSTANT:
 		{
 			zend_string *name = zend_ast_get_constant_name(ast);
