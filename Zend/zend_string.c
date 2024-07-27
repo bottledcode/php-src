@@ -106,7 +106,7 @@ ZEND_API void zend_interned_strings_init(void)
 	str = zend_string_alloc(sizeof("")-1, 1);
 	ZSTR_VAL(str)[0] = '\000';
 	zend_empty_string = zend_new_interned_string_permanent(str);
-	GC_ADD_FLAGS(zend_empty_string, IS_STR_VALID_UTF8);
+	GC_ADD_FLAGS(zend_empty_string, IS_STR_VALID_UTF8 | IS_STR_LITERAL);
 
 	s[1] = 0;
 	for (i = 0; i < 256; i++) {
@@ -115,6 +115,7 @@ ZEND_API void zend_interned_strings_init(void)
 		if (i < 0x80) {
 			GC_ADD_FLAGS(zend_one_char_string[i], IS_STR_VALID_UTF8);
 		}
+		GC_ADD_FLAGS(zend_one_char_string[i], GC_FLAGS(zend_one_char_string[i]) | IS_STR_LITERAL);
 	}
 
 	/* known strings */
@@ -122,7 +123,7 @@ ZEND_API void zend_interned_strings_init(void)
 	for (i = 0; i < (sizeof(known_strings) / sizeof(known_strings[0])) - 1; i++) {
 		str = zend_string_init(known_strings[i], strlen(known_strings[i]), 1);
 		zend_known_strings[i] = zend_new_interned_string_permanent(str);
-		GC_ADD_FLAGS(zend_known_strings[i], IS_STR_VALID_UTF8);
+		GC_ADD_FLAGS(zend_known_strings[i], IS_STR_VALID_UTF8 | IS_STR_LITERAL);
 	}
 }
 
