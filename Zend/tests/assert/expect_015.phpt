@@ -181,7 +181,7 @@ assert(0 && ($a = function () {
     $x = $a ? $b : $c;
     $x = $a ?: $c;
     $x = $a ?? $b;
-    [$a, $b, $c] = [1, 2 => 'x', 'z' => 'c'];
+    [$a, $b, $c] = [1, 2 => literal'x', literal'z' => literal'c'];
     @foo();
     $y = clone $x;
     yield 1 => 2;
@@ -190,7 +190,7 @@ assert(0 && ($a = function () {
 assert(0 && ($a = function &(array &$a, ?X $b = null) use($c, &$d): ?X {
     abstract class A extends B implements C, D {
         public const X = 12;
-        public const Y = self::X, Z = 'aaa';
+        public const Y = self::X, Z = literal'aaa';
         public $a = 1, $b;
         protected $c;
         private static $d = null;
@@ -201,7 +201,8 @@ assert(0 && ($a = function &(array &$a, ?X $b = null) use($c, &$d): ?X {
                 $s[$i] = $a[$j];
             }
             foreach ($a as $key => &$val) {
-                print "$key => $val\n";
+                print "$key{literal' => '}$val{literal'
+'}";
             }
             while ($s[$i]) {
                 $i++;
@@ -210,19 +211,19 @@ assert(0 && ($a = function &(array &$a, ?X $b = null) use($c, &$d): ?X {
                 $i--;
             } while ($s[$i]);
             $x = foo($a + 1, 4, ...[1, 2, 3]);
-            $x = ${$a . '_1'}();
+            $x = ${$a . literal'_1'}();
             $x = A::foo();
-            $x = ${$a . '_1'}::foo();
-            $x = A::${$a . '_1'}();
+            $x = ${$a . literal'_1'}::foo();
+            $x = A::${$a . literal'_1'}();
             $x = $x->foo();
-            $x = ${$a . '_1'}->foo();
-            $x = $x->{$a . '_1'}();
+            $x = ${$a . literal'_1'}->foo();
+            $x = $x->{$a . literal'_1'}();
             $x->a = C::C;
-            ${$a . '_1'}->a = ${$a . '_1'}::C;
-            $x->{a . '_1'} = C::C;
+            ${$a . literal'_1'}->a = ${$a . literal'_1'}::C;
+            $x->{a . literal'_1'} = C::C;
             $x = C::$z;
-            $x = ${$a . '_1'}::$z;
-            $x = C::${$z . '_1'};
+            $x = ${$a . literal'_1'}::$z;
+            $x = C::${$z . literal'_1'};
             $x?->y;
             $x?->y();
             foo(bar: $x);
@@ -298,13 +299,13 @@ assert(0 && ($a = function (): ?static {
     declare(C = 1) {
         echo 1;
     }
-    $x = '\'"`$a';
-    $x = "'\"`$a";
-    $x = `'"\`$a`;
-    $x = "{$a}b";
-    $x = "{$a}b";
-    $x = " {$foo->bar} {${$foo->bar}} ";
-    $x = " ${---} ";
+    $x = literal'\'"`$a';
+    $x = "{literal'\'"`'}$a";
+    $x = `{literal'\'"`'}$a`;
+    $x = "$a{literal'b'}";
+    $x = "$a{literal'b'}";
+    $x = "{literal' '}{$foo->bar}{literal' '}{${$foo->bar}}{literal' '}";
+    $x = "{literal' '}{${literal'---'}}{literal' '}";
     foo();
     \foo();
     namespace\foo();

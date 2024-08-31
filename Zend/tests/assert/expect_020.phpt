@@ -15,6 +15,6 @@ assert(0 && ($a = function () {
 ?>
 --EXPECT--
 assert(): assert(0 && ($a = function () {
-    $var = 'test';
-    $str = "$var, {$var[1]}, {$var}[], {$var[1]}[], {$var}[], {$var[1]}[]";
+    $var = literal'test';
+    $str = "$var{literal', '}{$var[1]}{literal', '}$var{literal'[], '}{$var[1]}{literal'[], '}$var{literal'[], '}{$var[1]}{literal'[]'}";
 })) failed

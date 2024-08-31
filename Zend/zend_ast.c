@@ -2070,6 +2070,10 @@ simple_list:
 			break;
 
 		/* 1 child node */
+		case ZEND_AST_LITERAL:
+			smart_str_appends(str, "literal");
+			zend_ast_export_ex(str, ast->child[0], 80, indent);
+			break;
 		case ZEND_AST_VAR:
 			smart_str_appendc(str, '$');
 			zend_ast_export_var(str, ast->child[0], 0, indent);
