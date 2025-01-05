@@ -18,6 +18,11 @@ ZEND_METHOD(LiteralString, from)
 			Z_PARAM_STR(arg)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (!ZSTR_IS_LITERAL(arg)) {
+		zend_argument_value_error(1, "must be a literal string");
+		RETURN_THROWS();
+	}
+
 	cpy = zend_string_copy(arg);
 	ZSTR_SET_LITERAL(&cpy);
 
