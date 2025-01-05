@@ -210,3 +210,5 @@ function gc_disable(): void {}
  * @refcount 1
  */
 function gc_status(): array {}
+
+function is_literal_string(string $s): bool {}

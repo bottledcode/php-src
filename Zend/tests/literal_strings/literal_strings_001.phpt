@@ -28,6 +28,9 @@ function call(string $s, string $func): string {
 $lit = LiteralString::from("hello");
 $lit = 'hello';
 
+var_dump(is_literal_string($lit));
+var_dump(is_literal_string($argv[1]));
+
 var_dump(call($lit, 'str'));
 var_dump(call($lit, 'lst'));
 var_dump(call($lit, 'lstr'));
@@ -43,6 +46,8 @@ var_dump(call($ls, 'lst'));
 var_dump(call($ls, 'lstr'));
 ?>
 --EXPECT--
+bool(true)
+bool(false)
 string(5) "hello"
 string(5) "hello"
 string(5) "hello"

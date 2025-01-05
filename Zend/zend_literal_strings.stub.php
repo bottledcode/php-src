@@ -6,5 +6,6 @@
  * @strict-properties
  */
 final class LiteralString {
-    public static function from(string $string): string {}
+	private function __construct() {}
+	public static function from(string $string): string {}
 }

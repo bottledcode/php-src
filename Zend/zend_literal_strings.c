@@ -24,9 +24,31 @@ ZEND_METHOD(LiteralString, from)
 	RETURN_STR(cpy);
 }
 
+ZEND_METHOD(LiteralString, __construct)
+{
+	// Throw an exception if the constructor is called
+	zend_throw_exception(zend_type_error, "Cannot instantiate LiteralString", 0);
+}
+
+ZEND_FUNCTION(is_literal_string)
+{
+  	zval *arg;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+			Z_PARAM_ZVAL(arg)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (Z_TYPE_P(arg) == IS_STRING && ZSTR_IS_LITERAL(Z_STR_P(arg))) {
+		RETURN_TRUE;
+	} else {
+		RETURN_FALSE;
+	}
+}
+
 void zend_register_literal_string_ce(void)
 {
 	zend_ce_literal_string = register_class_LiteralString();
+	// register the function is_literal_string
+
 
 	zend_literal_string_handlers = std_object_handlers;
 }
