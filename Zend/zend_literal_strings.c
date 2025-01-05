@@ -27,7 +27,7 @@ ZEND_METHOD(LiteralString, from)
 ZEND_METHOD(LiteralString, __construct)
 {
 	// Throw an exception if the constructor is called
-	zend_throw_exception(zend_type_error, "Cannot instantiate LiteralString", 0);
+	zend_throw_error(NULL, "Cannot instantiate LiteralString");
 }
 
 ZEND_FUNCTION(is_literal_string)

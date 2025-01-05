@@ -1,5 +1,5 @@
 --TEST--
-instanceof works
+is_literal_string works
 --ARGS--
 test
 --FILE--
