@@ -1,13 +1,18 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: fb2eeb9560252f439935f1ffa75ba925a23d51f1 */
+ * Stub hash: 1af70b2e93fb3082807eaf24c32c059d97184871 */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_LiteralString___construct, 0, 0, 0)
+ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_LiteralString_from, 0, 1, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, string, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_METHOD(LiteralString, __construct);
 ZEND_METHOD(LiteralString, from);
 
 static const zend_function_entry class_LiteralString_methods[] = {
+	ZEND_ME(LiteralString, __construct, arginfo_class_LiteralString___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(LiteralString, from, arginfo_class_LiteralString_from, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	ZEND_FE_END
 };

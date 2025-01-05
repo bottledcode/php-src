@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 3dbc84896823c9aaa9ac8aeef8841266920c3e50 */
+ * Stub hash: e39d55191e241da37a019926acd5f6dbe63e323f */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_exit, 0, 0, IS_NEVER, 0)
 	ZEND_ARG_TYPE_MASK(0, status, MAY_BE_STRING|MAY_BE_LONG, "0")
@@ -223,6 +223,10 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_gc_status arginfo_func_get_args
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_is_literal_string, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, s, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 
 ZEND_FRAMELESS_FUNCTION(property_exists, 2);
 static const zend_frameless_function_info frameless_function_infos_property_exists[] = {
@@ -297,6 +301,7 @@ ZEND_FUNCTION(gc_enabled);
 ZEND_FUNCTION(gc_enable);
 ZEND_FUNCTION(gc_disable);
 ZEND_FUNCTION(gc_status);
+ZEND_FUNCTION(is_literal_string);
 
 static const zend_function_entry ext_functions[] = {
 	ZEND_FE(exit, arginfo_exit)
@@ -361,6 +366,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(gc_enable, arginfo_gc_enable)
 	ZEND_FE(gc_disable, arginfo_gc_disable)
 	ZEND_FE(gc_status, arginfo_gc_status)
+	ZEND_FE(is_literal_string, arginfo_is_literal_string)
 	ZEND_FE_END
 };
 
