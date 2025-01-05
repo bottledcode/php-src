@@ -1,5 +1,5 @@
 --TEST--
-substring is a literal
+substring is not a literal
 --FILE--
 <?php
 $a = "hello world";
