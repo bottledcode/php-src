@@ -9,10 +9,10 @@ class Outer {
     }
 }
 
-var_dump(class_exists('Outer:>Middle'));
-var_dump(class_exists('Outer:>Middle:>Inner'));
-var_dump(class_exists(Outer:>Middle::class));
-var_dump(class_exists(Outer:>Middle:>Inner::class));
+var_dump(class_exists('Outer\Middle'));
+var_dump(class_exists('Outer\Middle\Inner'));
+var_dump(class_exists(Outer\Middle::class));
+var_dump(class_exists(Outer\Middle\Inner::class));
 ?>
 --EXPECT--
 bool(true)

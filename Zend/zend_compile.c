@@ -1104,14 +1104,8 @@ static zend_string *zend_prefix_with_outer_class(zend_string *name) {
 
 	zend_string *ns = CG(active_class_entry)->name;
 
-	// If the current ns is the current name, return the ns.
-	// we only need to check if ns[len(ns) - len(name) + 1] == '\\' and the end of ns is name.
-	if (ZSTR_LEN(ns) >= ZSTR_LEN(name) && ZSTR_VAL(ns)[ZSTR_LEN(ns) - ZSTR_LEN(name) - 1] == '\\'
-		&& memcmp(ZSTR_VAL(ns) + ZSTR_LEN(ns) - ZSTR_LEN(name), ZSTR_VAL(name), ZSTR_LEN(name)) == 0) {
-		return zend_string_copy(ns);
-		}
-
-	return zend_concat_names(ZSTR_VAL(ns), ZSTR_LEN(ns), ZSTR_VAL(name), ZSTR_LEN(name));
+	// encode the orginal scope
+	return zend_string_concat3(ZSTR_VAL(ns), ZSTR_LEN(ns), "|", 1, ZSTR_VAL(name), ZSTR_LEN(name));
 }
 
 static zend_string *zend_prefix_with_ns(zend_string *name) {

@@ -13,15 +13,15 @@ class Outer {
         }
         class Inner {
             public function test() {
-                Outer:>Middle::test();
+                Middle::test();
                 $t = new Outer();
                 $t->test();
             }
         }
     }
 }
-new Outer:>Middle:>Inner()->test();
+new Outer\Middle\Inner()->test();
 ?>
 --EXPECT--
-Outer:>Middle::test
+Outer\Middle::test
 Outer::test

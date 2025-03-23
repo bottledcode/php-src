@@ -7,7 +7,7 @@ class User {
     public private(set) string $name;
     public private(set) string $email;
 
-    private function __construct(self:>Builder $builder) {
+    private function __construct(Builder $builder) {
         $this->name = $builder->name;
         $this->email = $builder->email;
     }
@@ -29,7 +29,7 @@ class User {
     }
 }
 
-$user = new User:>Builder()->withName('Rob')->withEmail('rob@example.com')->build();
+$user = new User\Builder()->withName('Rob')->withEmail('rob@example.com')->build();
 var_dump($user);
 ?>
 --EXPECT--

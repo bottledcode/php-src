@@ -431,7 +431,6 @@ ZEND_API void destroy_zend_class(zval *zv)
 				zend_hash_release(ce->backed_enum_table);
 			}
 			if (ce->required_scope) {
-				ce->required_scope->refcount--;
 				ce->required_scope = NULL;
 			}
 			break;

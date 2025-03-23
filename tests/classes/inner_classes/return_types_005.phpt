@@ -7,7 +7,7 @@ class Outer {
     protected class Inner {}
 
     public static function getInner(): Inner {
-        return new self:>Inner();
+        return new Inner();
     }
 }
 

@@ -12,18 +12,18 @@ class Outer {
         class Inner {
             public static function test() {
                 var_dump(Outer::$j = 5);
-                var_dump(Outer:>Middle::$j = 42);
+                var_dump(Middle::$j = 42);
                 $foo = new Outer();
                 $foo->i = 42;
                 var_dump($foo);
-                $foo = new Outer:>Middle();
+                $foo = new Middle();
                 $foo->i = 42;
                 var_dump($foo);
             }
         }
     }
 }
-Outer:>Middle:>Inner::test();
+Outer\Middle\Inner::test();
 ?>
 --EXPECT--
 int(5)
@@ -32,7 +32,7 @@ object(Outer)#1 (1) {
   ["i":"Outer":private]=>
   int(42)
 }
-object(Outer:>Middle)#2 (1) {
-  ["i":"Outer:>Middle":private]=>
+object(Outer\Middle)#2 (1) {
+  ["i":"Outer\Middle":private]=>
   int(42)
 }

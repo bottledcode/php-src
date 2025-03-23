@@ -14,7 +14,7 @@ class Outer {
         }
     }
 }
-new Outer:>Middle:>Inner()->test();
+new Outer\Middle\Inner()->test();
 ?>
 --EXPECT--
-Foo\Outer:>Middle:>Inner
+Foo\Outer\Middle\Inner
