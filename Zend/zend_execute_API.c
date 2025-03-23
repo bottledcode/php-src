@@ -1174,6 +1174,10 @@ static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, 
 	const char *unqualified_name = strrchr(ZSTR_VAL(requested_name), '|');
 	if (unqualified_name == NULL) {
 		unqualified_name = strrchr(ZSTR_VAL(requested_name), '\\');
+		if (unqualified_name == NULL) {
+			// there is not a nested class here...
+			return NULL;
+		}
 	}
 
 	zend_string *inner_name = zend_string_init(unqualified_name + 1, ZSTR_LEN(requested_name) - (unqualified_name - ZSTR_VAL(requested_name) + 1), 0);
@@ -1299,10 +1303,13 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 	/* Check to see if our current scope is an outer class; if it is, we need to check the outer class's
      * namespace for the class we're looking for. */
 	if (!(flags & ZEND_FETCH_CLASS_NO_INNER)) {
-		if (!key) {
-			zend_string_release_ex(lc_name, 0);
+		ce = zend_resolve_nested_class(name, flags);
+		if (ce) {
+			if (!key) {
+				zend_string_release_ex(lc_name, 0);
+			}
+			return ce;
 		}
-		return zend_resolve_nested_class(name, flags);
 	}
 
 	if ((flags & ZEND_FETCH_CLASS_NO_AUTOLOAD) || zend_is_compiling()) {
