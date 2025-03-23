@@ -1185,7 +1185,11 @@ static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, 
 	scope_name = zend_string_init(ZSTR_VAL(requested_name), unqualified_name - ZSTR_VAL(requested_name) + 1, 0);
 	scope_name->val[scope_name->len - 1] = '\\'; // todo: there is probably a better way
 
-	requested_name = zend_string_concat2(ZSTR_VAL(scope_name), ZSTR_LEN(scope_name), ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
+	if (ZSTR_LEN(scope_name) == ZSTR_LEN(inner_name) + 1 && zend_string_starts_with_ci(scope_name, inner_name)) {
+		requested_name = zend_string_copy(inner_name);
+	} else {
+		requested_name = zend_string_concat2(ZSTR_VAL(scope_name), ZSTR_LEN(scope_name), ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
+	}
 
 	while ((separator = strrchr(ZSTR_VAL(scope_name), '\\'))) {
 		const size_t outer_len = separator - ZSTR_VAL(scope_name);
