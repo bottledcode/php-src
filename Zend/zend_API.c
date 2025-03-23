@@ -1816,6 +1816,21 @@ static zend_always_inline zend_result _object_and_properties_init(zval *arg, zen
 		return FAILURE;
 	}
 
+	if (class_type->required_scope) {
+		const zend_class_entry *scope = zend_get_executed_scope();
+		if (scope == NULL) {
+			zend_error(E_ERROR, "Cannot instantiate \"%s\" from the global scope", ZSTR_VAL(class_type->name));
+		}
+
+		if (class_type->required_scope_absolute) {
+			if (scope != class_type->required_scope && scope->lexical_scope != class_type->required_scope) {
+				zend_error(E_ERROR, "Cannot instantiate private \"%s\" from \"%s\"", ZSTR_VAL(class_type->name), ZSTR_VAL(scope->name));
+			}
+		} else if (!instanceof_function(scope, class_type->required_scope) && !instanceof_function(scope->lexical_scope, class_type->required_scope)) {
+			zend_error(E_ERROR, "Cannot instantiate protected \"%s\" from \"%s\"", ZSTR_VAL(class_type->name), ZSTR_VAL(scope->name));
+		}
+	}
+
 	if (UNEXPECTED(!(class_type->ce_flags & ZEND_ACC_CONSTANTS_UPDATED))) {
 		if (UNEXPECTED(zend_update_class_constants(class_type) != SUCCESS)) {
 			ZVAL_NULL(arg);

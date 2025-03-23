@@ -1217,21 +1217,16 @@ static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, 
 		zend_string *shorter_scope = zend_string_init(ZSTR_VAL(scope_name), outer_len, 0);
 		zend_string_release(scope_name);
 		scope_name = shorter_scope;
-
-		if (!outer_ce) {
-			// we have reached the namespace/global scope so nothing to do here
-			break;
-		}
 	}
 
 	// handle the edge case where the class is in the global scope
-	if (separator == NULL) {
+	//if (separator == NULL) {
 		ce = zend_lookup_class_ex(inner_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
 		zend_string_release(scope_name);
 		zend_string_release(inner_name);
 		zend_string_release(requested_name);
 		return ce;
-	}
+	//}
 
 	zend_string_release(scope_name);
 

@@ -9170,6 +9170,12 @@ HashTable *inner_class_queue = NULL;
 
 static void zend_defer_class_decl(zend_ast *ast)
 {
+	ZEND_ASSERT(CG(active_class_entry));
+
+	if (CG(active_op_array)->function_name) {
+		zend_error_noreturn(E_COMPILE_ERROR, "Class declarations may not be declared inside functions");
+	}
+
 	if (inner_class_queue == NULL) {
 		ALLOC_HASHTABLE(inner_class_queue);
 		zend_hash_init(inner_class_queue, 0, NULL, ZVAL_PTR_DTOR, 0);

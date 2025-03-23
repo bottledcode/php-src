@@ -13,4 +13,4 @@ var_dump($line);
 --EXPECTF--
 autoload(inner_classes)
 
-Fatal error: Cannot access private inner class 'inner_classes\Line' in %s
+Fatal error: Cannot instantiate "inner_classes\Line" from the global scope in %s on line %d
