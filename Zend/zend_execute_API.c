@@ -1166,6 +1166,79 @@ ZEND_API bool zend_is_valid_class_name(zend_string *name) {
 	return 1;
 }
 
+static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, uint32_t flags) {
+	zend_class_entry *ce = NULL;
+	char *separator;
+	zend_string *scope_name = zend_string_copy(requested_name);
+
+	const char *unqualified_name = strrchr(ZSTR_VAL(scope_name), '\\');
+	zend_string *inner_name = zend_string_init(unqualified_name, ZSTR_LEN(scope_name) - (unqualified_name - ZSTR_VAL(scope_name)), 0);
+
+	while ((separator = strrchr(ZSTR_VAL(scope_name), '\\'))) {
+		const size_t outer_len = separator - ZSTR_VAL(scope_name);
+
+		zend_string *outer_class_name = zend_string_init(ZSTR_VAL(scope_name), outer_len, 0);
+		const zend_class_entry *outer_ce = zend_lookup_class_ex(outer_class_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+
+		if (outer_ce) {
+			// Outer class found; now explicitly check the requested class again
+			ce = zend_lookup_class_ex(requested_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+			if (ce) {
+				zend_string_release(scope_name);
+				zend_string_release(outer_class_name);
+				zend_string_release(inner_name);
+				return ce;
+			}
+
+			// Check if the class is in the outer scope
+			zend_string *outer_name = zend_string_concat2(ZSTR_VAL(outer_class_name), ZSTR_LEN(outer_class_name), ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
+			ce = zend_lookup_class_ex(outer_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+			zend_string_release(outer_name);
+			zend_string_release(outer_class_name);
+			if (ce) {
+				zend_string_release(scope_name);
+				zend_string_release(inner_name);
+				return ce;
+			}
+
+			// Continue moving upwards (perhaps the inner class is further up)
+			zend_string *shorter_scope = zend_string_init(ZSTR_VAL(scope_name), outer_len, 0);
+			zend_string_release(scope_name);
+			scope_name = shorter_scope;
+		} else {
+			// Outer class isn't found: reached namespace level.
+			zend_string_release(scope_name);
+			zend_string_release(outer_class_name);
+			zend_string_release(inner_name);
+			break;
+		}
+	}
+
+	// handle the edge case where the class is in the global scope
+	if (separator == NULL) {
+		separator = strrchr(ZSTR_VAL(requested_name), '\\');
+		if (separator) {
+			zend_string_release(scope_name);
+			// set scope name to just the separator minus the first character
+			scope_name = zend_string_init(separator + 1, ZSTR_LEN(requested_name) - (separator - ZSTR_VAL(requested_name) + 1), 0);
+		} else {
+			zend_string_release(scope_name);
+			zend_string_release(inner_name);
+			return NULL;
+		}
+		ce = zend_lookup_class_ex(scope_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+		zend_string_release(scope_name);
+		zend_string_release(inner_name);
+		return ce;
+	}
+
+	zend_string_release(scope_name);
+	zend_string_release(inner_name);
+
+	// Final lookup directly at namespace/global scope
+	return zend_lookup_class_ex(requested_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+}
+
 ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *key, uint32_t flags) /* {{{ */
 {
 	zend_class_entry *ce = NULL;
@@ -1225,7 +1298,15 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 		return ce;
 	}
 
-	/* The compiler is not-reentrant. Make sure we autoload only during run-time. */
+	/* Check to see if our current scope is an outer class; if it is, we need to check the outer class's
+     * namespace for the class we're looking for. */
+	if (!(flags & ZEND_FETCH_CLASS_NO_INNER)) {
+		if (!key) {
+			zend_string_release_ex(lc_name, 0);
+		}
+		return zend_resolve_nested_class(name, flags);
+	}
+
 	if ((flags & ZEND_FETCH_CLASS_NO_AUTOLOAD) || zend_is_compiling()) {
 		if (!key) {
 			zend_string_release_ex(lc_name, 0);

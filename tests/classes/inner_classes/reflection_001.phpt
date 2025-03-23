@@ -12,7 +12,7 @@ class Outer {
 }
 
 $outer = new \ReflectionClass(Outer::class);
-$ref = new \ReflectionClass('n\s\Outer:>Middle:>Inner');
+$ref = new \ReflectionClass('n\s\Outer\Middle\Inner');
 var_dump($ref->getName());
 var_dump($ref->getShortName());
 var_dump($ref->isInnerClass());
@@ -22,8 +22,8 @@ var_dump($ref->isProtected());
 var_dump($ref->isPublic());
 ?>
 --EXPECT--
-string(24) "n\s\Outer:>Middle:>Inner"
-string(20) "Outer:>Middle:>Inner"
+string(22) "n\s\Outer\Middle\Inner"
+string(5) "Inner"
 bool(true)
 bool(false)
 bool(false)

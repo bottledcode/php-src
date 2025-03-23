@@ -6,13 +6,13 @@ private return types
 class Outer {
     private class Inner {}
 
-    public static function getInner(): self:>Inner {
-        return new self:>Inner();
+    public static function getInner(): Inner {
+        return new Inner();
     }
 }
 
 $r = Outer::getInner();
-function test($r): Outer:>Inner {
+function test($r): Outer\Inner {
     return $r;
 }
 var_dump($r);

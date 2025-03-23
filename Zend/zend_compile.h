@@ -1028,14 +1028,15 @@ ZEND_API zend_string *zend_type_to_string(zend_type type);
 #define ZEND_FETCH_CLASS_EXCEPTION   0x0200
 #define ZEND_FETCH_CLASS_ALLOW_UNLINKED 0x0400
 #define ZEND_FETCH_CLASS_ALLOW_NEARLY_LINKED 0x0800
+#define ZEND_FETCH_CLASS_NO_INNER    0x1000
 
 /* These should not clash with ZEND_ACC_PPP_MASK and ZEND_ACC_PPP_SET_MASK */
 #define ZEND_PARAM_REF      (1<<3)
 #define ZEND_PARAM_VARIADIC (1<<4)
 
-#define ZEND_NAME_FQ       0
-#define ZEND_NAME_NOT_FQ   1
-#define ZEND_NAME_RELATIVE 2
+#define ZEND_NAME_FQ          0
+#define ZEND_NAME_NOT_FQ      1
+#define ZEND_NAME_RELATIVE    2
 
 /* ZEND_FETCH_ flags in class name AST of new const expression must not clash with ZEND_NAME_ flags */
 #define ZEND_CONST_EXPR_NEW_FETCH_TYPE_SHIFT 2

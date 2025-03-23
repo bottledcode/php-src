@@ -3,7 +3,10 @@ no outer class
 --FILE--
 <?php
 
-new Outer:>Inner();
+new Outer\Inner();
 ?>
 --EXPECTF--
-Fatal error: Outer class 'Outer' not found for inner class Outer:>Inner in %s on line %d
+Fatal error: Uncaught Error: Class "Outer\Inner" not found in %s:%d
+Stack trace:
+#0 {main}
+  thrown in %s on line %d
