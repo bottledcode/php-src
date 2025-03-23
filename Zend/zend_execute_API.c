@@ -1210,9 +1210,17 @@ static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, 
 		}
 
 		// Check if the class is in the outer scope
-		zend_string *outer_name = zend_string_concat3(ZSTR_VAL(outer_class_name), ZSTR_LEN(outer_class_name), "\\", 1, ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
-		ce = zend_lookup_class_ex(outer_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
-		zend_string_release(outer_name);
+		char *outer_name = strrchr(ZSTR_VAL(outer_class_name), '\\');
+		zend_string *outer_name_z;
+		if (!outer_name) {
+			outer_name_z = zend_string_copy(inner_name);
+		} else {
+			zend_string *tmp = zend_string_init(ZSTR_VAL(outer_class_name), outer_name - ZSTR_VAL(outer_class_name), 0);
+			outer_name_z = zend_string_concat3(ZSTR_VAL(tmp), ZSTR_LEN(tmp), "\\", 1, ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
+			zend_string_release(tmp);
+		}
+		ce = zend_lookup_class_ex(outer_name_z, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+		zend_string_release(outer_name_z);
 		zend_string_release(outer_class_name);
 		if (ce) {
 			zend_string_release(scope_name);
@@ -1226,15 +1234,6 @@ static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, 
 		zend_string_release(scope_name);
 		scope_name = shorter_scope;
 	}
-
-	// handle the edge case where the class is in the global scope
-	//if (separator == NULL) {
-		ce = zend_lookup_class_ex(inner_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
-		zend_string_release(scope_name);
-		zend_string_release(inner_name);
-		zend_string_release(requested_name);
-		return ce;
-	//}
 
 	zend_string_release(scope_name);
 
