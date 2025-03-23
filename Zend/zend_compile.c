@@ -1443,6 +1443,12 @@ static zend_string *resolve_class_name(zend_string *name, zend_class_entry *scop
 		}
 	}
 
+	char *nested = strrchr(ZSTR_VAL(name), '|');
+	if (nested) {
+		/* The original scope is encoded in the name. */
+		return zend_string_init(nested + 1, ZSTR_LEN(name) - (nested - ZSTR_VAL(name)) - 1, 0);
+	}
+
 	/* The resolved name for anonymous classes contains null bytes. Cut off everything after the
 	 * null byte here, to avoid larger parts of the type being omitted by printing code later. */
 	size_t len = strlen(ZSTR_VAL(name));

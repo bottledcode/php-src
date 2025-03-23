@@ -486,6 +486,13 @@ ZEND_API zend_internal_attribute *zend_internal_attribute_register(zend_class_en
 
 ZEND_API zend_internal_attribute *zend_internal_attribute_get(zend_string *lcname)
 {
+	const char *inner = strrchr(ZSTR_VAL(lcname), '|');
+	if (inner) {
+		lcname = zend_string_init(inner + 1, strlen(inner) - 1, 0);
+		zend_internal_attribute *attr = zend_internal_attribute_get(lcname);
+		zend_string_release(lcname);
+		return attr;
+	}
 	return zend_hash_find_ptr(&internal_attributes, lcname);
 }
 
