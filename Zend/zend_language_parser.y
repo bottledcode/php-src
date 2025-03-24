@@ -232,7 +232,6 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token T_DOLLAR_OPEN_CURLY_BRACES "'${'"
 %token T_CURLY_OPEN      "'{$'"
 %token T_PAAMAYIM_NEKUDOTAYIM "'::'"
-%token T_INNER_REF       "':>'"
 %token T_NS_SEPARATOR    "'\\'"
 %token T_ELLIPSIS        "'...'"
 %token T_COALESCE        "'??'"
@@ -877,14 +876,7 @@ type_expr_without_static:
 type_without_static:
 		T_ARRAY						{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_ARRAY); }
 	|	T_CALLABLE					{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_CALLABLE); }
-	|	inner_type_without_static	{ $$ = $1; }
-;
-
-inner_type_without_static:
-		inner_type_without_static T_INNER_REF name
-			{ $$ = zend_ast_create(ZEND_AST_INNER_CLASS, $1, $3); }
-	| 	name
-			{ $$ = $1; }
+	|	name						{ $$ = $1; }
 ;
 
 union_type_without_static_element:
@@ -1433,8 +1425,6 @@ class_name:
 			{ zval zv; ZVAL_INTERNED_STR(&zv, ZSTR_KNOWN(ZEND_STR_STATIC));
 			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ); }
 	|	name { $$ = $1; }
-	| class_name T_INNER_REF name
-			{ $$ = zend_ast_create(ZEND_AST_INNER_CLASS, $1, $3); }
 ;
 
 class_name_reference:
