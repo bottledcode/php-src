@@ -26,10 +26,10 @@ void spl_add_class_name(zval *list, zend_class_entry *pce, int allow, int ce_fla
 	if (!allow || (allow > 0 && (pce->ce_flags & ce_flags)) || (allow < 0 && !(pce->ce_flags & ce_flags))) {
 		zval *tmp;
 
-		if ((tmp = zend_hash_find(Z_ARRVAL_P(list), pce->name)) == NULL) {
+		if ((tmp = zend_hash_find(Z_ARRVAL_P(list), (zend_string *)pce->name)) == NULL) {
 			zval t;
-			ZVAL_STR_COPY(&t, pce->name);
-			zend_hash_add(Z_ARRVAL_P(list), pce->name, &t);
+			ZVAL_STR_COPY(&t, (zend_string *)pce->name);
+			zend_hash_add(Z_ARRVAL_P(list), (zend_string *)pce->name, &t);
 		}
 	}
 }
@@ -54,7 +54,7 @@ void spl_add_traits(zval *list, zend_class_entry * pce, int allow, int ce_flags)
 
 	for (uint32_t num_traits = 0; num_traits < pce->num_traits; num_traits++) {
 		trait = zend_fetch_class_by_name(pce->trait_names[num_traits].name,
-			pce->trait_names[num_traits].lc_name, ZEND_FETCH_CLASS_TRAIT);
+			pce->trait_names[num_traits].resolved_name, ZEND_FETCH_CLASS_TRAIT);
 		ZEND_ASSERT(trait);
 		spl_add_class_name(list, trait, allow, ce_flags);
 	}
@@ -86,8 +86,8 @@ void spl_set_private_debug_info_property(
 )
 {
 	zend_string *mangled_named = zend_mangle_property_name(
-		ZSTR_VAL(ce->name),
-		ZSTR_LEN(ce->name),
+		ZSTR_VAL((zend_string *)ce->name),
+		ZSTR_LEN((zend_string *)ce->name),
 		property,
 		property_len,
 		/* persistent */ false

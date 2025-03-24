@@ -37,7 +37,7 @@
 #define PHP_STMT_GET_OBJ \
 	pdo_stmt_t *stmt = Z_PDO_STMT_P(ZEND_THIS); \
 	if (!stmt->dbh) { \
-		zend_throw_error(NULL, "%s object is uninitialized", ZSTR_VAL(Z_OBJ(EX(This))->ce->name)); \
+		zend_throw_error(NULL, "%s object is uninitialized", ZSTR_VAL((zend_string *)Z_OBJ(EX(This))->ce->name)); \
 		RETURN_THROWS(); \
 	} \
 
@@ -2162,7 +2162,7 @@ zend_object_iterator *pdo_stmt_iter_get(zend_class_entry *ce, zval *object, int 
 
 	pdo_stmt_t *stmt = Z_PDO_STMT_P(object);
 	if (!stmt->dbh) {
-		zend_throw_error(NULL, "%s object is uninitialized", ZSTR_VAL(ce->name));
+		zend_throw_error(NULL, "%s object is uninitialized", ZSTR_VAL((zend_string *)ce->name));
 		return NULL;
 	}
 

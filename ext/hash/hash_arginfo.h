@@ -248,8 +248,10 @@ static void register_hash_symbols(int module_number)
 static zend_class_entry *register_class_HashContext(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "HashContext", class_HashContext_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "HashContext");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_HashContext_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	return class_entry;

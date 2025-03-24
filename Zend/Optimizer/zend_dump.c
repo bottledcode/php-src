@@ -221,9 +221,9 @@ static void zend_dump_type_info(uint32_t info, zend_class_entry *ce, int is_inst
 		fprintf(stderr, "class");
 		if (ce) {
 			if (is_instanceof) {
-				fprintf(stderr, " (instanceof %s)", ce->name->val);
+				fprintf(stderr, " (instanceof %s)", ((zend_string *)ce->name)->val);
 			} else {
-				fprintf(stderr, " (%s)", ce->name->val);
+				fprintf(stderr, " (%s)", ((zend_string *)ce->name)->val);
 			}
 		}
 	} else if ((info & MAY_BE_ANY) == MAY_BE_ANY) {
@@ -356,9 +356,9 @@ static void zend_dump_type_info(uint32_t info, zend_class_entry *ce, int is_inst
 			fprintf(stderr, "object");
 			if (ce) {
 				if (is_instanceof) {
-					fprintf(stderr, " (instanceof %s)", ce->name->val);
+					fprintf(stderr, " (instanceof %s)", ((zend_string *)ce->name)->val);
 				} else {
-					fprintf(stderr, " (%s)", ce->name->val);
+					fprintf(stderr, " (%s)", ((zend_string *)ce->name)->val);
 				}
 			}
 		}
@@ -932,7 +932,7 @@ void zend_dump_op_array_name(const zend_op_array *op_array)
 {
 	if (op_array->function_name) {
 		if (op_array->scope && op_array->scope->name) {
-			fprintf(stderr, "%s::%s", op_array->scope->name->val, op_array->function_name->val);
+			fprintf(stderr, "%s::%s", ((zend_string *)op_array->scope->name)->val, op_array->function_name->val);
 		} else {
 			fprintf(stderr, "%s", op_array->function_name->val);
 		}

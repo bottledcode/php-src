@@ -242,10 +242,10 @@ static bool create_driver_specific_pdo_object(pdo_driver_t *driver, zend_class_e
 				zend_throw_exception_ex(pdo_exception_ce, 0,
 					"%s::%s() cannot be used for connecting to the \"%s\" driver, "
 					"either call %s::%s() or PDO::%s() instead",
-					ZSTR_VAL(called_scope->name),
+					ZSTR_VAL((zend_string *)called_scope->name),
 					new_zval_object ? "connect" : "__construct",
 					driver->driver_name,
-					ZSTR_VAL(ce_based_on_driver_name->name),
+					ZSTR_VAL((zend_string *)ce_based_on_driver_name->name),
 					new_zval_object ? "connect" : "__construct",
 					new_zval_object ? "connect" : "__construct"
 				);
@@ -261,7 +261,7 @@ static bool create_driver_specific_pdo_object(pdo_driver_t *driver, zend_class_e
 			zend_throw_exception_ex(pdo_exception_ce, 0,
 				"%s::%s() cannot be used for connecting to an unknown driver, "
 				"call PDO::%s() instead",
-				ZSTR_VAL(called_scope->name),
+				ZSTR_VAL((zend_string *)called_scope->name),
 				new_zval_object ? "connect" : "__construct",
 				new_zval_object ? "connect" : "__construct"
 			);
@@ -280,10 +280,10 @@ static bool create_driver_specific_pdo_object(pdo_driver_t *driver, zend_class_e
 			zend_throw_exception_ex(pdo_exception_ce, 0,
 				"%s::%s() cannot be used for connecting to the \"%s\" driver, "
 				"either call %s::%s() or PDO::%s() instead",
-				ZSTR_VAL(called_scope->name),
+				ZSTR_VAL((zend_string *)called_scope->name),
 				new_zval_object ? "connect" : "__construct",
 				driver->driver_name,
-				ZSTR_VAL(ce_based_on_driver_name->name),
+				ZSTR_VAL((zend_string *)ce_based_on_driver_name->name),
 				new_zval_object ? "connect" : "__construct",
 				new_zval_object ? "connect" : "__construct"
 			);

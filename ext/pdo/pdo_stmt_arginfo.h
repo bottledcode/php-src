@@ -135,8 +135,10 @@ static const zend_function_entry class_PDOStatement_methods[] = {
 static zend_class_entry *register_class_PDOStatement(zend_class_entry *class_entry_IteratorAggregate)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "PDOStatement", class_PDOStatement_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "PDOStatement");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_PDOStatement_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 	zend_class_implements(class_entry, 1, class_entry_IteratorAggregate);
 
@@ -152,8 +154,10 @@ static zend_class_entry *register_class_PDOStatement(zend_class_entry *class_ent
 static zend_class_entry *register_class_PDORow(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "PDORow", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "PDORow");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval property_queryString_default_value;

@@ -367,7 +367,7 @@ static zval *zend_weakmap_read_dimension(zend_object *object, zval *offset, int 
 	if (zv == NULL) {
 		if (type != BP_VAR_IS) {
 			zend_throw_error(NULL,
-				"Object %s#%d not contained in WeakMap", ZSTR_VAL(obj_addr->ce->name), obj_addr->handle);
+				"Object %s#%d not contained in WeakMap", ZSTR_VAL((zend_string *)obj_addr->ce->name), obj_addr->handle);
 			return NULL;
 		}
 		return NULL;
@@ -802,4 +802,3 @@ void zend_register_weakref_ce(void) /* {{{ */
 	zend_weakmap_handlers.clone_obj = zend_weakmap_clone_obj;
 }
 /* }}} */
-

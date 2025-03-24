@@ -1147,8 +1147,10 @@ static void register_libsodium_symbols(int module_number)
 static zend_class_entry *register_class_SodiumException(zend_class_entry *class_entry_Exception)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SodiumException", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "SodiumException");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, 0);
 
 	return class_entry;

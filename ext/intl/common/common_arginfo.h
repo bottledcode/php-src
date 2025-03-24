@@ -177,8 +177,10 @@ static void register_common_symbols(int module_number)
 static zend_class_entry *register_class_IntlIterator(zend_class_entry *class_entry_Iterator)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlIterator", class_IntlIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "IntlIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 	zend_class_implements(class_entry, 1, class_entry_Iterator);
 

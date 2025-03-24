@@ -56,8 +56,10 @@ static void register_dir_symbols(int module_number)
 static zend_class_entry *register_class_Directory(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Directory", class_Directory_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "Directory");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Directory_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval property_path_default_value;

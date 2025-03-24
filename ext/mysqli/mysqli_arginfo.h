@@ -1192,8 +1192,10 @@ static void register_mysqli_symbols(int module_number)
 static zend_class_entry *register_class_mysqli_driver(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "mysqli_driver", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_driver");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zval property_client_info_default_value;
@@ -1226,8 +1228,10 @@ static zend_class_entry *register_class_mysqli_driver(void)
 static zend_class_entry *register_class_mysqli(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "mysqli", class_mysqli_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "mysqli");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval property_affected_rows_default_value;
@@ -1413,8 +1417,10 @@ static zend_class_entry *register_class_mysqli(void)
 static zend_class_entry *register_class_mysqli_result(zend_class_entry *class_entry_IteratorAggregate)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "mysqli_result", class_mysqli_result_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_result");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_result_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 1, class_entry_IteratorAggregate);
 
@@ -1452,8 +1458,10 @@ static zend_class_entry *register_class_mysqli_result(zend_class_entry *class_en
 static zend_class_entry *register_class_mysqli_stmt(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "mysqli_stmt", class_mysqli_stmt_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_stmt");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_stmt_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval property_affected_rows_default_value;
@@ -1522,8 +1530,10 @@ static zend_class_entry *register_class_mysqli_stmt(void)
 static zend_class_entry *register_class_mysqli_warning(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "mysqli_warning", class_mysqli_warning_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_warning");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_warning_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zval property_message_default_value;
@@ -1548,8 +1558,10 @@ static zend_class_entry *register_class_mysqli_warning(void)
 static zend_class_entry *register_class_mysqli_sql_exception(zend_class_entry *class_entry_RuntimeException)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "mysqli_sql_exception", class_mysqli_sql_exception_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_sql_exception");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_sql_exception_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_RuntimeException, ZEND_ACC_FINAL);
 
 	zval property_sqlstate_default_value;

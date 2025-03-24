@@ -2391,7 +2391,7 @@ send_again:
 				FREE_OP(opline->op1_type, opline->op1.var);
 				if (!EG(exception)) {
 					zend_throw_exception_ex(
-						NULL, 0, "Object of type %s did not create an Iterator", ZSTR_VAL(ce->name)
+						NULL, 0, "Object of type %s did not create an Iterator", ZSTR_VAL((zend_string *)ce->name)
 					);
 				}
 				HANDLE_EXCEPTION();
@@ -2450,7 +2450,7 @@ send_again:
 						zend_error(
 							E_WARNING, "Cannot pass by-reference argument %d of %s%s%s()"
 							" by unpacking a Traversable, passing by-value instead", arg_num,
-							EX(call)->func->common.scope ? ZSTR_VAL(EX(call)->func->common.scope->name) : "",
+							EX(call)->func->common.scope ? ZSTR_VAL((zend_string *)EX(call)->func->common.scope->name) : "",
 							EX(call)->func->common.scope ? "::" : "",
 							ZSTR_VAL(EX(call)->func->common.function_name)
 						);
@@ -2476,7 +2476,7 @@ send_again:
 						zend_error(
 							E_WARNING, "Cannot pass by-reference argument %d of %s%s%s()"
 							" by unpacking a Traversable, passing by-value instead", arg_num,
-							EX(call)->func->common.scope ? ZSTR_VAL(EX(call)->func->common.scope->name) : "",
+							EX(call)->func->common.scope ? ZSTR_VAL((zend_string *)EX(call)->func->common.scope->name) : "",
 							EX(call)->func->common.scope ? "::" : "",
 							ZSTR_VAL(EX(call)->func->common.function_name)
 						);
@@ -2771,7 +2771,7 @@ add_unpack_again:
 				FREE_OP(opline->op1_type, opline->op1.var);
 				if (!EG(exception)) {
 					zend_throw_exception_ex(
-						NULL, 0, "Object of type %s did not create an Iterator", ZSTR_VAL(ce->name)
+						NULL, 0, "Object of type %s did not create an Iterator", ZSTR_VAL((zend_string *)ce->name)
 					);
 				}
 				HANDLE_EXCEPTION();
@@ -5122,7 +5122,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CLONE_SPEC_CONST_
 	clone = ce->clone;
 	clone_call = zobj->handlers->clone_obj;
 	if (UNEXPECTED(clone_call == NULL)) {
-		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL(ce->name));
+		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL((zend_string *)ce->name));
 
 		ZVAL_UNDEF(EX_VAR(opline->result.var));
 		HANDLE_EXCEPTION();
@@ -5837,7 +5837,7 @@ yield_from_try_again:
 
 			if (UNEXPECTED(!iter) || UNEXPECTED(EG(exception))) {
 				if (!EG(exception)) {
-					zend_throw_error(NULL, "Object of type %s did not create an Iterator", ZSTR_VAL(ce->name));
+					zend_throw_error(NULL, "Object of type %s did not create an Iterator", ZSTR_VAL((zend_string *)ce->name));
 				}
 				UNDEF_RESULT();
 				HANDLE_EXCEPTION();
@@ -6669,20 +6669,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_INNER_CLASS_SPEC_CONST_C
 
 	inner_class_name = Z_STR_P(RT_CONSTANT(opline, opline->op2));
 
-	if (UNEXPECTED(ZSTR_LEN(outer_ce->name) + ZSTR_LEN(inner_class_name) + 2 > ZSTR_MAX_LEN)) {
+	if (UNEXPECTED(ZSTR_LEN((zend_string *)outer_ce->name) + ZSTR_LEN(inner_class_name) + 2 > ZSTR_MAX_LEN)) {
 		zend_error(E_ERROR, "Class name is too long");
 		HANDLE_EXCEPTION();
 	}
 
 	full_class_name = zend_string_concat3(
-		ZSTR_VAL(outer_ce->name), ZSTR_LEN(outer_ce->name),
+		ZSTR_VAL((zend_string *)outer_ce->name), ZSTR_LEN((zend_string *)outer_ce->name),
 		":>", 2,
 		ZSTR_VAL(inner_class_name), ZSTR_LEN(inner_class_name)
 	);
 
 	inner_ce = zend_lookup_class(full_class_name);
 	if (!inner_ce) {
-		zend_error(E_ERROR, "Inner class '%s' not found in outer class %s", ZSTR_VAL(full_class_name), ZSTR_VAL(outer_ce->name));
+		zend_error(E_ERROR, "Inner class '%s' not found in outer class %s", ZSTR_VAL(full_class_name), ZSTR_VAL((zend_string *)outer_ce->name));
 		HANDLE_EXCEPTION();
 	}
 
@@ -7472,7 +7472,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_C
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -7703,7 +7703,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_CONS
 		constant_name = Z_STR_P(constant_zv);
 		/* Magic 'class' for constant OP2 is caught at compile-time */
 		if (IS_CONST != IS_CONST && UNEXPECTED(zend_string_equals_literal_ci(constant_name, "class"))) {
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), ce->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)ce->name);
 
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -7715,14 +7715,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_CONS
 			c = Z_PTR_P(zv);
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
-				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 				HANDLE_EXCEPTION();
 			}
 
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
-				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 				HANDLE_EXCEPTION();
@@ -7760,7 +7760,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_CONS
 			}
 		} else {
 			zend_throw_error(NULL, "Undefined constant %s::%s",
-				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 			HANDLE_EXCEPTION();
@@ -8863,7 +8863,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_CONS
 		constant_name = Z_STR_P(constant_zv);
 		/* Magic 'class' for constant OP2 is caught at compile-time */
 		if ((IS_TMP_VAR|IS_VAR|IS_CV) != IS_CONST && UNEXPECTED(zend_string_equals_literal_ci(constant_name, "class"))) {
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), ce->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)ce->name);
 			FREE_OP(opline->op2_type, opline->op2.var);
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -8875,14 +8875,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_CONS
 			c = Z_PTR_P(zv);
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
-				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
 			}
 
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
-				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -8920,7 +8920,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_CONS
 			}
 		} else {
 			zend_throw_error(NULL, "Undefined constant %s::%s",
-				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 			FREE_OP(opline->op2_type, opline->op2.var);
 			HANDLE_EXCEPTION();
@@ -10046,7 +10046,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_C
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -10804,7 +10804,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_C
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -10906,15 +10906,15 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_VERIFY_RETURN_TYP
 		if (Z_TYPE_P(retval_ptr) == IS_OBJECT && Z_OBJCE_P(retval_ptr)->required_scope) {
 			if (EX(func)->common.fn_flags & ZEND_ACC_PUBLIC) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute) {
-					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				} else {
-					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			} else if (EX(func)->common.fn_flags & ZEND_ACC_PROTECTED) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute && Z_OBJCE_P(retval_ptr)->required_scope != EX(func)->common.scope) {
-					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			}
@@ -11496,7 +11496,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_CO
 			HANDLE_EXCEPTION();
 		} else {
 			zend_error(E_DEPRECATED, "Calling get_class() without arguments is deprecated");
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), EX(func)->common.scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)EX(func)->common.scope->name);
 			if (UNEXPECTED(EG(exception))) {
 				HANDLE_EXCEPTION();
 			}
@@ -11509,7 +11509,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_CO
 		op1 = RT_CONSTANT(opline, opline->op1);
 		while (1) {
 			if (Z_TYPE_P(op1) == IS_OBJECT) {
-				ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op1)->name);
+				ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op1)->name);
 			} else if ((IS_CONST & (IS_VAR|IS_CV)) != 0 && Z_TYPE_P(op1) == IS_REFERENCE) {
 				op1 = Z_REFVAL_P(op1);
 				continue;
@@ -11642,12 +11642,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_PARENT_PROPERTY_HOOK_CALL
 
 	zend_property_info *prop_info = zend_hash_find_ptr(&parent_ce->properties_info, property_name);
 	if (!prop_info) {
-		zend_throw_error(NULL, "Undefined property %s::$%s", ZSTR_VAL(parent_ce->name), ZSTR_VAL(property_name));
+		zend_throw_error(NULL, "Undefined property %s::$%s", ZSTR_VAL((zend_string *)parent_ce->name), ZSTR_VAL(property_name));
 		UNDEF_RESULT();
 		HANDLE_EXCEPTION();
 	}
 	if (prop_info->flags & ZEND_ACC_PRIVATE) {
-		zend_throw_error(NULL, "Cannot access private property %s::$%s", ZSTR_VAL(parent_ce->name), ZSTR_VAL(property_name));
+		zend_throw_error(NULL, "Cannot access private property %s::$%s", ZSTR_VAL((zend_string *)parent_ce->name), ZSTR_VAL(property_name));
 		UNDEF_RESULT();
 		HANDLE_EXCEPTION();
 	}
@@ -12556,7 +12556,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_C
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -15397,7 +15397,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CLONE_SPEC_TMPVAR_HANDLER(ZEND
 	clone = ce->clone;
 	clone_call = zobj->handlers->clone_obj;
 	if (UNEXPECTED(clone_call == NULL)) {
-		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL(ce->name));
+		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL((zend_string *)ce->name));
 		zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 		ZVAL_UNDEF(EX_VAR(opline->result.var));
 		HANDLE_EXCEPTION();
@@ -15563,7 +15563,7 @@ yield_from_try_again:
 
 			if (UNEXPECTED(!iter) || UNEXPECTED(EG(exception))) {
 				if (!EG(exception)) {
-					zend_throw_error(NULL, "Object of type %s did not create an Iterator", ZSTR_VAL(ce->name));
+					zend_throw_error(NULL, "Object of type %s did not create an Iterator", ZSTR_VAL((zend_string *)ce->name));
 				}
 				UNDEF_RESULT();
 				HANDLE_EXCEPTION();
@@ -15724,7 +15724,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_TMPVAR_H
 			}
 		}
 
-		ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op)->name);
+		ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op)->name);
 		zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 		ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
 	}
@@ -15742,7 +15742,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_TMPVAR_H
 
 	switch (fetch_type) {
 		case ZEND_FETCH_CLASS_SELF:
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)scope->name);
 			break;
 		case ZEND_FETCH_CLASS_PARENT:
 			if (UNEXPECTED(scope->parent == NULL)) {
@@ -15752,7 +15752,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_TMPVAR_H
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				HANDLE_EXCEPTION();
 			}
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), scope->parent->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)scope->parent->name);
 			break;
 		case ZEND_FETCH_CLASS_STATIC:
 			if (Z_TYPE(EX(This)) == IS_OBJECT) {
@@ -15760,7 +15760,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_TMPVAR_H
 			} else {
 				called_scope = Z_CE(EX(This));
 			}
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), called_scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)called_scope->name);
 			break;
 		EMPTY_SWITCH_DEFAULT_CASE()
 	}
@@ -16306,20 +16306,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_INNER_CLASS_SPEC_TMPVAR_
 
 	inner_class_name = Z_STR_P(RT_CONSTANT(opline, opline->op2));
 
-	if (UNEXPECTED(ZSTR_LEN(outer_ce->name) + ZSTR_LEN(inner_class_name) + 2 > ZSTR_MAX_LEN)) {
+	if (UNEXPECTED(ZSTR_LEN((zend_string *)outer_ce->name) + ZSTR_LEN(inner_class_name) + 2 > ZSTR_MAX_LEN)) {
 		zend_error(E_ERROR, "Class name is too long");
 		HANDLE_EXCEPTION();
 	}
 
 	full_class_name = zend_string_concat3(
-		ZSTR_VAL(outer_ce->name), ZSTR_LEN(outer_ce->name),
+		ZSTR_VAL((zend_string *)outer_ce->name), ZSTR_LEN((zend_string *)outer_ce->name),
 		":>", 2,
 		ZSTR_VAL(inner_class_name), ZSTR_LEN(inner_class_name)
 	);
 
 	inner_ce = zend_lookup_class(full_class_name);
 	if (!inner_ce) {
-		zend_error(E_ERROR, "Inner class '%s' not found in outer class %s", ZSTR_VAL(full_class_name), ZSTR_VAL(outer_ce->name));
+		zend_error(E_ERROR, "Inner class '%s' not found in outer class %s", ZSTR_VAL(full_class_name), ZSTR_VAL((zend_string *)outer_ce->name));
 		HANDLE_EXCEPTION();
 	}
 
@@ -19091,7 +19091,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_TMPVAR_UNUSED_H
 			HANDLE_EXCEPTION();
 		} else {
 			zend_error(E_DEPRECATED, "Calling get_class() without arguments is deprecated");
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), EX(func)->common.scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)EX(func)->common.scope->name);
 			if (UNEXPECTED(EG(exception))) {
 				HANDLE_EXCEPTION();
 			}
@@ -19104,7 +19104,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_TMPVAR_UNUSED_H
 		op1 = _get_zval_ptr_var(opline->op1.var EXECUTE_DATA_CC);
 		while (1) {
 			if (Z_TYPE_P(op1) == IS_OBJECT) {
-				ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op1)->name);
+				ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op1)->name);
 			} else if (((IS_TMP_VAR|IS_VAR) & (IS_VAR|IS_CV)) != 0 && Z_TYPE_P(op1) == IS_REFERENCE) {
 				op1 = Z_REFVAL_P(op1);
 				continue;
@@ -21763,15 +21763,15 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_VERIFY_RETURN_TYPE_SPEC_TMP_UN
 		if (Z_TYPE_P(retval_ptr) == IS_OBJECT && Z_OBJCE_P(retval_ptr)->required_scope) {
 			if (EX(func)->common.fn_flags & ZEND_ACC_PUBLIC) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute) {
-					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				} else {
-					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			} else if (EX(func)->common.fn_flags & ZEND_ACC_PROTECTED) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute && Z_OBJCE_P(retval_ptr)->required_scope != EX(func)->common.scope) {
-					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			}
@@ -23411,7 +23411,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FE_FETCH_RW_SPEC_VAR_HANDLER(Z
 									if (UNEXPECTED(prop_info->flags & ZEND_ACC_READONLY)) {
 										zend_throw_error(NULL,
 											"Cannot acquire reference to readonly property %s::$%s",
-											ZSTR_VAL(prop_info->ce->name), ZSTR_VAL(p->key));
+											ZSTR_VAL((zend_string *)prop_info->ce->name), ZSTR_VAL(p->key));
 										UNDEF_RESULT();
 										HANDLE_EXCEPTION();
 									}
@@ -25712,7 +25712,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_V
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -26100,7 +26100,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_VAR_
 		constant_name = Z_STR_P(constant_zv);
 		/* Magic 'class' for constant OP2 is caught at compile-time */
 		if (IS_CONST != IS_CONST && UNEXPECTED(zend_string_equals_literal_ci(constant_name, "class"))) {
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), ce->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)ce->name);
 
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -26112,14 +26112,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_VAR_
 			c = Z_PTR_P(zv);
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
-				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 				HANDLE_EXCEPTION();
 			}
 
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
-				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 				HANDLE_EXCEPTION();
@@ -26157,7 +26157,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_VAR_
 			}
 		} else {
 			zend_throw_error(NULL, "Undefined constant %s::%s",
-				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 			HANDLE_EXCEPTION();
@@ -26669,7 +26669,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_VAR_
 		constant_name = Z_STR_P(constant_zv);
 		/* Magic 'class' for constant OP2 is caught at compile-time */
 		if ((IS_TMP_VAR|IS_VAR|IS_CV) != IS_CONST && UNEXPECTED(zend_string_equals_literal_ci(constant_name, "class"))) {
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), ce->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)ce->name);
 			FREE_OP(opline->op2_type, opline->op2.var);
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -26681,14 +26681,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_VAR_
 			c = Z_PTR_P(zv);
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
-				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
 			}
 
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
-				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -26726,7 +26726,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_VAR_
 			}
 		} else {
 			zend_throw_error(NULL, "Undefined constant %s::%s",
-				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 			FREE_OP(opline->op2_type, opline->op2.var);
 			HANDLE_EXCEPTION();
@@ -28645,7 +28645,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_V
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -30155,7 +30155,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_V
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -30257,15 +30257,15 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_VERIFY_RETURN_TYPE_SPEC_VAR_UN
 		if (Z_TYPE_P(retval_ptr) == IS_OBJECT && Z_OBJCE_P(retval_ptr)->required_scope) {
 			if (EX(func)->common.fn_flags & ZEND_ACC_PUBLIC) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute) {
-					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				} else {
-					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			} else if (EX(func)->common.fn_flags & ZEND_ACC_PROTECTED) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute && Z_OBJCE_P(retval_ptr)->required_scope != EX(func)->common.scope) {
-					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			}
@@ -33112,7 +33112,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_V
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -33698,7 +33698,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CLONE_SPEC_UNUSED_HANDLER(ZEND
 	clone = ce->clone;
 	clone_call = zobj->handlers->clone_obj;
 	if (UNEXPECTED(clone_call == NULL)) {
-		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL(ce->name));
+		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL((zend_string *)ce->name));
 
 		ZVAL_UNDEF(EX_VAR(opline->result.var));
 		HANDLE_EXCEPTION();
@@ -33741,7 +33741,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_UNUSED_H
 			}
 		}
 
-		ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op)->name);
+		ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op)->name);
 
 		ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
 	}
@@ -33759,7 +33759,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_UNUSED_H
 
 	switch (fetch_type) {
 		case ZEND_FETCH_CLASS_SELF:
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)scope->name);
 			break;
 		case ZEND_FETCH_CLASS_PARENT:
 			if (UNEXPECTED(scope->parent == NULL)) {
@@ -33769,7 +33769,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_UNUSED_H
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				HANDLE_EXCEPTION();
 			}
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), scope->parent->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)scope->parent->name);
 			break;
 		case ZEND_FETCH_CLASS_STATIC:
 			if (Z_TYPE(EX(This)) == IS_OBJECT) {
@@ -33777,7 +33777,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_UNUSED_H
 			} else {
 				called_scope = Z_CE(EX(This));
 			}
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), called_scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)called_scope->name);
 			break;
 		EMPTY_SWITCH_DEFAULT_CASE()
 	}
@@ -34061,20 +34061,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_INNER_CLASS_SPEC_UNUSED_
 
 	inner_class_name = Z_STR_P(RT_CONSTANT(opline, opline->op2));
 
-	if (UNEXPECTED(ZSTR_LEN(outer_ce->name) + ZSTR_LEN(inner_class_name) + 2 > ZSTR_MAX_LEN)) {
+	if (UNEXPECTED(ZSTR_LEN((zend_string *)outer_ce->name) + ZSTR_LEN(inner_class_name) + 2 > ZSTR_MAX_LEN)) {
 		zend_error(E_ERROR, "Class name is too long");
 		HANDLE_EXCEPTION();
 	}
 
 	full_class_name = zend_string_concat3(
-		ZSTR_VAL(outer_ce->name), ZSTR_LEN(outer_ce->name),
+		ZSTR_VAL((zend_string *)outer_ce->name), ZSTR_LEN((zend_string *)outer_ce->name),
 		":>", 2,
 		ZSTR_VAL(inner_class_name), ZSTR_LEN(inner_class_name)
 	);
 
 	inner_ce = zend_lookup_class(full_class_name);
 	if (!inner_ce) {
-		zend_error(E_ERROR, "Inner class '%s' not found in outer class %s", ZSTR_VAL(full_class_name), ZSTR_VAL(outer_ce->name));
+		zend_error(E_ERROR, "Inner class '%s' not found in outer class %s", ZSTR_VAL(full_class_name), ZSTR_VAL((zend_string *)outer_ce->name));
 		HANDLE_EXCEPTION();
 	}
 
@@ -35485,7 +35485,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_U
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -35628,7 +35628,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_UNUS
 		constant_name = Z_STR_P(constant_zv);
 		/* Magic 'class' for constant OP2 is caught at compile-time */
 		if (IS_CONST != IS_CONST && UNEXPECTED(zend_string_equals_literal_ci(constant_name, "class"))) {
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), ce->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)ce->name);
 
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -35640,14 +35640,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_UNUS
 			c = Z_PTR_P(zv);
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
-				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 				HANDLE_EXCEPTION();
 			}
 
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
-				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 				HANDLE_EXCEPTION();
@@ -35685,7 +35685,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_UNUS
 			}
 		} else {
 			zend_throw_error(NULL, "Undefined constant %s::%s",
-				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 			HANDLE_EXCEPTION();
@@ -35987,7 +35987,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_UNUS
 		constant_name = Z_STR_P(constant_zv);
 		/* Magic 'class' for constant OP2 is caught at compile-time */
 		if ((IS_TMP_VAR|IS_VAR|IS_CV) != IS_CONST && UNEXPECTED(zend_string_equals_literal_ci(constant_name, "class"))) {
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), ce->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)ce->name);
 			FREE_OP(opline->op2_type, opline->op2.var);
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -35999,14 +35999,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_UNUS
 			c = Z_PTR_P(zv);
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
-				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
 			}
 
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
-				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -36044,7 +36044,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_CONSTANT_SPEC_UNUS
 			}
 		} else {
 			zend_throw_error(NULL, "Undefined constant %s::%s",
-				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZSTR_VAL((zend_string *)ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 			FREE_OP(opline->op2_type, opline->op2.var);
 			HANDLE_EXCEPTION();
@@ -37654,7 +37654,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_U
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -38065,7 +38065,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_U
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -38167,15 +38167,15 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_VERIFY_RETURN_TYPE_SPEC_UNUSED
 		if (Z_TYPE_P(retval_ptr) == IS_OBJECT && Z_OBJCE_P(retval_ptr)->required_scope) {
 			if (EX(func)->common.fn_flags & ZEND_ACC_PUBLIC) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute) {
-					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				} else {
-					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			} else if (EX(func)->common.fn_flags & ZEND_ACC_PROTECTED) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute && Z_OBJCE_P(retval_ptr)->required_scope != EX(func)->common.scope) {
-					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			}
@@ -38531,7 +38531,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_UNUSED_UNUSED_H
 			HANDLE_EXCEPTION();
 		} else {
 			zend_error(E_DEPRECATED, "Calling get_class() without arguments is deprecated");
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), EX(func)->common.scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)EX(func)->common.scope->name);
 			if (UNEXPECTED(EG(exception))) {
 				HANDLE_EXCEPTION();
 			}
@@ -38544,7 +38544,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_UNUSED_UNUSED_H
 		op1 = NULL;
 		while (1) {
 			if (Z_TYPE_P(op1) == IS_OBJECT) {
-				ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op1)->name);
+				ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op1)->name);
 			} else if ((IS_UNUSED & (IS_VAR|IS_CV)) != 0 && Z_TYPE_P(op1) == IS_REFERENCE) {
 				op1 = Z_REFVAL_P(op1);
 				continue;
@@ -38567,9 +38567,9 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CALLED_CLASS_SPEC_UNUSED_U
 	USE_OPLINE
 
 	if (Z_TYPE(EX(This)) == IS_OBJECT) {
-		ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE(EX(This))->name);
+		ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE(EX(This))->name);
 	} else if (Z_CE(EX(This))) {
-		ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_CE(EX(This))->name);
+		ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_CE(EX(This))->name);
 	} else {
 		ZEND_ASSERT(!EX(func)->common.scope);
 		SAVE_OPLINE();
@@ -40317,7 +40317,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_INIT_STATIC_METHOD_CALL_SPEC_U
 			HANDLE_EXCEPTION();
 		}
 		if (Z_TYPE(EX(This)) == IS_OBJECT && Z_OBJ(EX(This))->ce != ce->constructor->common.scope && (ce->constructor->common.fn_flags & ZEND_ACC_PRIVATE)) {
-			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL(ce->name));
+			zend_throw_error(NULL, "Cannot call private %s::__construct()", ZSTR_VAL((zend_string *)ce->name));
 			HANDLE_EXCEPTION();
 		}
 		fbc = ce->constructor;
@@ -41320,7 +41320,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CLONE_SPEC_CV_HANDLER(ZEND_OPC
 	clone = ce->clone;
 	clone_call = zobj->handlers->clone_obj;
 	if (UNEXPECTED(clone_call == NULL)) {
-		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL(ce->name));
+		zend_throw_error(NULL, "Trying to clone an uncloneable object of class %s", ZSTR_VAL((zend_string *)ce->name));
 
 		ZVAL_UNDEF(EX_VAR(opline->result.var));
 		HANDLE_EXCEPTION();
@@ -41916,7 +41916,7 @@ yield_from_try_again:
 
 			if (UNEXPECTED(!iter) || UNEXPECTED(EG(exception))) {
 				if (!EG(exception)) {
-					zend_throw_error(NULL, "Object of type %s did not create an Iterator", ZSTR_VAL(ce->name));
+					zend_throw_error(NULL, "Object of type %s did not create an Iterator", ZSTR_VAL((zend_string *)ce->name));
 				}
 				UNDEF_RESULT();
 				HANDLE_EXCEPTION();
@@ -42077,7 +42077,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_CV_HANDL
 			}
 		}
 
-		ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op)->name);
+		ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op)->name);
 
 		ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
 	}
@@ -42095,7 +42095,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_CV_HANDL
 
 	switch (fetch_type) {
 		case ZEND_FETCH_CLASS_SELF:
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)scope->name);
 			break;
 		case ZEND_FETCH_CLASS_PARENT:
 			if (UNEXPECTED(scope->parent == NULL)) {
@@ -42105,7 +42105,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_CV_HANDL
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				HANDLE_EXCEPTION();
 			}
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), scope->parent->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)scope->parent->name);
 			break;
 		case ZEND_FETCH_CLASS_STATIC:
 			if (Z_TYPE(EX(This)) == IS_OBJECT) {
@@ -42113,7 +42113,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FETCH_CLASS_NAME_SPEC_CV_HANDL
 			} else {
 				called_scope = Z_CE(EX(This));
 			}
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), called_scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)called_scope->name);
 			break;
 		EMPTY_SWITCH_DEFAULT_CASE()
 	}
@@ -50986,15 +50986,15 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_VERIFY_RETURN_TYPE_SPEC_CV_UNU
 		if (Z_TYPE_P(retval_ptr) == IS_OBJECT && Z_OBJCE_P(retval_ptr)->required_scope) {
 			if (EX(func)->common.fn_flags & ZEND_ACC_PUBLIC) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute) {
-					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				} else {
-					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Public method %s cannot return protected class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			} else if (EX(func)->common.fn_flags & ZEND_ACC_PROTECTED) {
 				if (Z_OBJCE_P(retval_ptr)->required_scope_absolute && Z_OBJCE_P(retval_ptr)->required_scope != EX(func)->common.scope) {
-					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL(Z_OBJCE_P(retval_ptr)->name));
+					zend_type_error("Protected method %s cannot return private class %s", ZSTR_VAL(EX(func)->common.function_name), ZSTR_VAL((zend_string *)Z_OBJCE_P(retval_ptr)->name));
 					HANDLE_EXCEPTION();
 				}
 			}
@@ -51768,7 +51768,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_CV_UNUSED_HANDL
 			HANDLE_EXCEPTION();
 		} else {
 			zend_error(E_DEPRECATED, "Calling get_class() without arguments is deprecated");
-			ZVAL_STR_COPY(EX_VAR(opline->result.var), EX(func)->common.scope->name);
+			ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)EX(func)->common.scope->name);
 			if (UNEXPECTED(EG(exception))) {
 				HANDLE_EXCEPTION();
 			}
@@ -51781,7 +51781,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_GET_CLASS_SPEC_CV_UNUSED_HANDL
 		op1 = EX_VAR(opline->op1.var);
 		while (1) {
 			if (Z_TYPE_P(op1) == IS_OBJECT) {
-				ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_OBJCE_P(op1)->name);
+				ZVAL_STR_COPY(EX_VAR(opline->result.var), (zend_string *)Z_OBJCE_P(op1)->name);
 			} else if ((IS_CV & (IS_VAR|IS_CV)) != 0 && Z_TYPE_P(op1) == IS_REFERENCE) {
 				op1 = Z_REFVAL_P(op1);
 				continue;

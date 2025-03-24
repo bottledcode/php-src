@@ -1369,7 +1369,7 @@ PHP_METHOD(SplFileInfo, getPathInfo)
 	if (ce == NULL) {
 		ce = intern->info_class;
 	} else if (!instanceof_function(ce, spl_ce_SplFileInfo)) {
-		zend_argument_type_error(1, "must be a class name derived from %s or null, %s given", ZSTR_VAL(spl_ce_SplFileInfo->name), ZSTR_VAL(ce->name));
+		zend_argument_type_error(1, "must be a class name derived from %s or null, %s given", ZSTR_VAL((zend_string *)spl_ce_SplFileInfo->name), ZSTR_VAL((zend_string *)ce->name));
 		RETURN_THROWS();
 	}
 
@@ -1971,7 +1971,7 @@ static zend_result spl_filesystem_file_read_line_ex(zval * this_ptr, spl_filesys
 
 		if (Z_TYPE(retval) != IS_STRING) {
 			zend_type_error("%s::getCurrentLine(): Return value must be of type string, %s returned",
-				ZSTR_VAL(Z_OBJCE_P(this_ptr)->name), zend_zval_value_name(&retval));
+				ZSTR_VAL((zend_string *)Z_OBJCE_P(this_ptr)->name), zend_zval_value_name(&retval));
 			zval_ptr_dtor(&retval);
 			return FAILURE;
 		}

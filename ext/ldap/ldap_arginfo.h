@@ -830,8 +830,10 @@ static void register_ldap_symbols(int module_number)
 static zend_class_entry *register_class_LDAP_Connection(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "LDAP", "Connection", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("LDAP", "Connection"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -840,8 +842,10 @@ static zend_class_entry *register_class_LDAP_Connection(void)
 static zend_class_entry *register_class_LDAP_Result(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "LDAP", "Result", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("LDAP", "Result"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -850,8 +854,10 @@ static zend_class_entry *register_class_LDAP_Result(void)
 static zend_class_entry *register_class_LDAP_ResultEntry(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "LDAP", "ResultEntry", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("LDAP", "ResultEntry"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;

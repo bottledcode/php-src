@@ -487,7 +487,7 @@ static char *cli_completion_generator_class(const char *text, size_t textlen, in
 	char *retval = cli_completion_generator_ht(text, textlen, state, EG(class_table), (void**)&ce);
 	if (retval) {
 		rl_completion_append_character = '\0';
-		retval = strdup(ZSTR_VAL(ce->name));
+		retval = strdup(ZSTR_VAL((zend_string *)ce->name));
 	}
 
 	return retval;
@@ -575,10 +575,10 @@ TODO:
 			zend_string_release_ex(class_name, 0);
 		}
 		if (ce && retval) {
-			size_t len = ZSTR_LEN(ce->name) + 2 + strlen(retval) + 1;
+			size_t len = ZSTR_LEN((zend_string *)ce->name) + 2 + strlen(retval) + 1;
 			char *tmp = malloc(len);
 
-			snprintf(tmp, len, "%s::%s", ZSTR_VAL(ce->name), retval);
+			snprintf(tmp, len, "%s::%s", ZSTR_VAL((zend_string *)ce->name), retval);
 			free(retval);
 			retval = tmp;
 		}

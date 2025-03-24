@@ -164,7 +164,7 @@ again:
 			zend_class_entry *ce = Z_OBJCE_P(struc);
 			if (ce->ce_flags & ZEND_ACC_ENUM) {
 				zval *case_name_zval = zend_enum_fetch_case_name(Z_OBJ_P(struc));
-				php_printf("%senum(%s::%s)\n", COMMON, ZSTR_VAL(ce->name), Z_STRVAL_P(case_name_zval));
+				php_printf("%senum(%s::%s)\n", COMMON, ZSTR_VAL((zend_string *)ce->name), Z_STRVAL_P(case_name_zval));
 				return;
 			}
 			zend_object *zobj = Z_OBJ_P(struc);
@@ -614,7 +614,7 @@ again:
 				smart_str_appendl(buf, "(object) array(\n", 16);
 			} else {
 				smart_str_appendc(buf, '\\');
-				smart_str_append(buf, ce->name);
+				smart_str_append(buf, (zend_string *)ce->name);
 				if (is_enum) {
 					zend_object *zobj = Z_OBJ_P(struc);
 					zval *case_name_zval = zend_enum_fetch_case_name(zobj);
@@ -836,7 +836,7 @@ static HashTable* php_var_serialize_call_sleep(zend_object *obj, zend_function *
 
 	if (Z_TYPE(retval) != IS_ARRAY) {
 		zval_ptr_dtor(&retval);
-		php_error_docref(NULL, E_WARNING, "%s::__sleep() should return an array only containing the names of instance-variables to serialize", ZSTR_VAL(obj->ce->name));
+		php_error_docref(NULL, E_WARNING, "%s::__sleep() should return an array only containing the names of instance-variables to serialize", ZSTR_VAL((zend_string *)obj->ce->name));
 		return NULL;
 	}
 
@@ -858,7 +858,7 @@ static int php_var_serialize_call_magic_serialize(zval *retval, zval *obj) /* {{
 
 	if (Z_TYPE_P(retval) != IS_ARRAY) {
 		zval_ptr_dtor(retval);
-		zend_type_error("%s::__serialize() must return an array", ZSTR_VAL(Z_OBJCE_P(obj)->name));
+		zend_type_error("%s::__serialize() must return an array", ZSTR_VAL((zend_string *)Z_OBJCE_P(obj)->name));
 		return FAILURE;
 	}
 
@@ -914,7 +914,7 @@ static int php_var_serialize_get_sleep_props(
 		if (Z_TYPE_P(name_val) != IS_STRING) {
 			php_error_docref(NULL, E_WARNING,
 					"%s::__sleep() should return an array only containing the names of instance-variables to serialize",
-					ZSTR_VAL(ce->name));
+					ZSTR_VAL((zend_string *)ce->name));
 		}
 
 		name = zval_get_tmp_string(name_val, &tmp_name);
@@ -930,7 +930,7 @@ static int php_var_serialize_get_sleep_props(
 		}
 
 		priv_name = zend_mangle_property_name(
-			ZSTR_VAL(ce->name), ZSTR_LEN(ce->name),
+			ZSTR_VAL((zend_string *)ce->name), ZSTR_LEN((zend_string *)ce->name),
 			ZSTR_VAL(name), ZSTR_LEN(name), ce->type & ZEND_INTERNAL_CLASS);
 		if (php_var_serialize_try_add_sleep_prop(ht, props, priv_name, name, struc) == SUCCESS) {
 			zend_tmp_string_release(tmp_name);
@@ -1116,7 +1116,7 @@ again:
 
 				if (ce->ce_flags & ZEND_ACC_NOT_SERIALIZABLE) {
 					zend_throw_exception_ex(NULL, 0, "Serialization of '%s' is not allowed",
-						ZSTR_VAL(ce->name));
+						ZSTR_VAL((zend_string *)ce->name));
 					return;
 				}
 
@@ -1181,15 +1181,15 @@ again:
 
 					if (ce->serialize(struc, &serialized_data, &serialized_length, (zend_serialize_data *)var_hash) == SUCCESS) {
 						char b1[32], b2[32];
-						char *s1 = zend_print_long_to_buf(b1 + sizeof(b1) - 1, ZSTR_LEN(Z_OBJCE_P(struc)->name));
+						char *s1 = zend_print_long_to_buf(b1 + sizeof(b1) - 1, ZSTR_LEN((zend_string *)Z_OBJCE_P(struc)->name));
 						size_t l1 = b1 + sizeof(b1) - 1 - s1;
 						char *s2 = zend_print_long_to_buf(b2 + sizeof(b2) - 1, serialized_length);
 						size_t l2 = b2 + sizeof(b2) - 1 - s2;
-						char *res = smart_str_extend(buf, 2 + l1 + 2 + ZSTR_LEN(Z_OBJCE_P(struc)->name) + 2 + l2 + 2 + serialized_length + 1);
+						char *res = smart_str_extend(buf, 2 + l1 + 2 + ZSTR_LEN((zend_string *)Z_OBJCE_P(struc)->name) + 2 + l2 + 2 + serialized_length + 1);
 						res = zend_mempcpy(res, "C:", 2);
 						res = zend_mempcpy(res, s1, l1);
 						res = zend_mempcpy(res, ":\"", 2);
-						res = zend_mempcpy(res, ZSTR_VAL(Z_OBJCE_P(struc)->name), ZSTR_LEN(Z_OBJCE_P(struc)->name));
+						res = zend_mempcpy(res, ZSTR_VAL((zend_string *)Z_OBJCE_P(struc)->name), ZSTR_LEN((zend_string *)Z_OBJCE_P(struc)->name));
 						res = zend_mempcpy(res, "\":", 2);
 						res = zend_mempcpy(res, s2, l2);
 						res = zend_mempcpy(res, ":{", 2);

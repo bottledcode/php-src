@@ -1080,7 +1080,7 @@ ZEND_METHOD(Generator, __debugInfo)
 
 	zval val;
 	if (func->common.scope) {
-		zend_string *class_name = func->common.scope->name;
+		zend_string *class_name = (zend_string *)func->common.scope->name;
 		zend_string *func_name = func->common.function_name;
 		zend_string *combined = zend_string_concat3(
 			ZSTR_VAL(class_name), ZSTR_LEN(class_name),

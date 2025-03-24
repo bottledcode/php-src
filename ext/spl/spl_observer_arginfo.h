@@ -233,8 +233,10 @@ static const zend_function_entry class_MultipleIterator_methods[] = {
 static zend_class_entry *register_class_SplObserver(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SplObserver", class_SplObserver_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "SplObserver");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplObserver_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -243,8 +245,10 @@ static zend_class_entry *register_class_SplObserver(void)
 static zend_class_entry *register_class_SplSubject(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SplSubject", class_SplSubject_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "SplSubject");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplSubject_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -253,8 +257,10 @@ static zend_class_entry *register_class_SplSubject(void)
 static zend_class_entry *register_class_SplObjectStorage(zend_class_entry *class_entry_Countable, zend_class_entry *class_entry_SeekableIterator, zend_class_entry *class_entry_Serializable, zend_class_entry *class_entry_ArrayAccess)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SplObjectStorage", class_SplObjectStorage_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "SplObjectStorage");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplObjectStorage_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 4, class_entry_Countable, class_entry_SeekableIterator, class_entry_Serializable, class_entry_ArrayAccess);
 
@@ -264,8 +270,10 @@ static zend_class_entry *register_class_SplObjectStorage(zend_class_entry *class
 static zend_class_entry *register_class_MultipleIterator(zend_class_entry *class_entry_Iterator)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "MultipleIterator", class_MultipleIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "MultipleIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_MultipleIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 1, class_entry_Iterator);
 

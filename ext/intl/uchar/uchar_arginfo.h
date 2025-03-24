@@ -304,8 +304,10 @@ static const zend_function_entry class_IntlChar_methods[] = {
 static zend_class_entry *register_class_IntlChar(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlChar", class_IntlChar_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "IntlChar");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlChar_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval const_UNICODE_VERSION_value;

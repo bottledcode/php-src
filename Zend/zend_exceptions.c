@@ -63,8 +63,8 @@ static int zend_implement_throwable(zend_class_entry *interface, zend_class_entr
 	while (root->parent) {
 		root = root->parent;
 	}
-	if (zend_string_equals_literal(root->name, "Exception")
-			|| zend_string_equals_literal(root->name, "Error")) {
+	if (zend_string_equals_literal((zend_string *)root->name, "Exception")
+			|| zend_string_equals_literal((zend_string *)root->name, "Error")) {
 		return SUCCESS;
 	}
 
@@ -75,8 +75,8 @@ static int zend_implement_throwable(zend_class_entry *interface, zend_class_entr
 			? "%s %s cannot implement interface %s, extend Exception or Error instead"
 			: "%s %s cannot implement interface %s",
 		zend_get_object_type_uc(class_type),
-		ZSTR_VAL(class_type->name),
-		ZSTR_VAL(interface->name));
+		ZSTR_VAL((zend_string *)class_type->name),
+		ZSTR_VAL((zend_string *)interface->name));
 	return FAILURE;
 }
 /* }}} */
@@ -693,7 +693,7 @@ ZEND_METHOD(Exception, __toString)
 			? zend_string_copy(Z_STR(trace))
 			: ZSTR_INIT_LITERAL("#0 {main}\n", false);
 
-		zend_string *name = Z_OBJCE_P(exception)->name;
+		zend_string *name = (zend_string *)Z_OBJCE_P(exception)->name;
 
 		if (ZSTR_LEN(message) > 0) {
 			zval message_zv;
@@ -926,7 +926,7 @@ ZEND_API ZEND_COLD zend_result zend_exception_error(zend_object *ex, int severit
 		zend_call_known_instance_method_with_0_params(ex->ce->__tostring, ex, &tmp);
 		if (!EG(exception)) {
 			if (Z_TYPE(tmp) != IS_STRING) {
-				zend_error(E_WARNING, "%s::__toString() must return a string", ZSTR_VAL(ce_exception->name));
+				zend_error(E_WARNING, "%s::__toString() must return a string", ZSTR_VAL((zend_string *)ce_exception->name));
 			} else {
 				zend_update_property_ex(i_get_exception_base(ex), ex, ZSTR_KNOWN(ZEND_STR_STRING), &tmp);
 			}
@@ -945,7 +945,7 @@ ZEND_API ZEND_COLD zend_result zend_exception_error(zend_object *ex, int severit
 
 			zend_error_va(E_WARNING, (file && ZSTR_LEN(file) > 0) ? file : NULL, line,
 				"Uncaught %s in exception handling during call to %s::__toString()",
-				ZSTR_VAL(Z_OBJCE(zv)->name), ZSTR_VAL(ce_exception->name));
+				ZSTR_VAL((zend_string *)Z_OBJCE(zv)->name), ZSTR_VAL((zend_string *)ce_exception->name));
 
 			if (file) {
 				zend_string_release_ex(file, 0);
@@ -966,7 +966,7 @@ ZEND_API ZEND_COLD zend_result zend_exception_error(zend_object *ex, int severit
 		/* We successfully unwound, nothing more to do.
 		 * We still return FAILURE in this case, as further execution should still be aborted. */
 	} else {
-		zend_error(severity, "Uncaught exception %s", ZSTR_VAL(ce_exception->name));
+		zend_error(severity, "Uncaught exception %s", ZSTR_VAL((zend_string *)ce_exception->name));
 	}
 
 	OBJ_RELEASE(ex);

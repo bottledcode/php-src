@@ -54,8 +54,10 @@ static const zend_function_entry class_COMPersistHelper_methods[] = {
 static zend_class_entry *register_class_COMPersistHelper(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "COMPersistHelper", class_COMPersistHelper_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "COMPersistHelper");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_COMPersistHelper_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	return class_entry;

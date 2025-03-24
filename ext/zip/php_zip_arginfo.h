@@ -578,8 +578,10 @@ static void register_php_zip_symbols(int module_number)
 static zend_class_entry *register_class_ZipArchive(zend_class_entry *class_entry_Countable)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZipArchive", class_ZipArchive_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZipArchive");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZipArchive_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 1, class_entry_Countable);
 

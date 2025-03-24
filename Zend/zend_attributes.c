@@ -73,22 +73,22 @@ static void validate_allow_dynamic_properties(
 {
 	if (scope->ce_flags & ZEND_ACC_TRAIT) {
 		zend_error_noreturn(E_ERROR, "Cannot apply #[AllowDynamicProperties] to trait %s",
-			ZSTR_VAL(scope->name)
+			ZSTR_VAL((zend_string *)scope->name)
 		);
 	}
 	if (scope->ce_flags & ZEND_ACC_INTERFACE) {
 		zend_error_noreturn(E_ERROR, "Cannot apply #[AllowDynamicProperties] to interface %s",
-			ZSTR_VAL(scope->name)
+			ZSTR_VAL((zend_string *)scope->name)
 		);
 	}
 	if (scope->ce_flags & ZEND_ACC_READONLY_CLASS) {
 		zend_error_noreturn(E_ERROR, "Cannot apply #[AllowDynamicProperties] to readonly class %s",
-			ZSTR_VAL(scope->name)
+			ZSTR_VAL((zend_string *)scope->name)
 		);
 	}
 	if (scope->ce_flags & ZEND_ACC_ENUM) {
 		zend_error_noreturn(E_ERROR, "Cannot apply #[AllowDynamicProperties] to enum %s",
-			ZSTR_VAL(scope->name)
+			ZSTR_VAL((zend_string *)scope->name)
 		);
 	}
 	scope->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
@@ -459,13 +459,13 @@ ZEND_API zend_internal_attribute *zend_mark_internal_attribute(zend_class_entry 
 	}
 
 	ZEND_HASH_FOREACH_PTR(ce->attributes, attr) {
-		if (zend_string_equals(attr->name, zend_ce_attribute->name)) {
+		if (zend_string_equals(attr->name, (zend_string *)zend_ce_attribute->name)) {
 			internal_attr = pemalloc(sizeof(zend_internal_attribute), 1);
 			internal_attr->ce = ce;
 			internal_attr->flags = Z_LVAL(attr->args[0].value);
 			internal_attr->validator = NULL;
 
-			zend_string *lcname = zend_string_tolower_ex(ce->name, 1);
+			zend_string *lcname = zend_string_tolower_ex((zend_string *)ce->name, 1);
 			zend_hash_update_ptr(&internal_attributes, lcname, internal_attr);
 			zend_string_release(lcname);
 
@@ -478,7 +478,7 @@ ZEND_API zend_internal_attribute *zend_mark_internal_attribute(zend_class_entry 
 
 ZEND_API zend_internal_attribute *zend_internal_attribute_register(zend_class_entry *ce, uint32_t flags)
 {
-	zend_attribute *attr = zend_add_class_attribute(ce, zend_ce_attribute->name, 1);
+	zend_attribute *attr = zend_add_class_attribute(ce, (zend_string *)zend_ce_attribute->name, 1);
 	ZVAL_LONG(&attr->args[0].value, flags);
 
 	return zend_mark_internal_attribute(ce);

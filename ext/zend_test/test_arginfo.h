@@ -581,8 +581,10 @@ static void register_test_symbols(int module_number)
 static zend_class_entry *register_class__ZendTestInterface(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "_ZendTestInterface", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestInterface");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_interface(&ce);
 
 	zval const_DUMMY_value;
@@ -598,8 +600,10 @@ static zend_class_entry *register_class__ZendTestInterface(void)
 static zend_class_entry *register_class__ZendTestClass(zend_class_entry *class_entry__ZendTestInterface)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "_ZendTestClass", class__ZendTestClass_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestClass");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class__ZendTestClass_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -745,8 +749,10 @@ static zend_class_entry *register_class__ZendTestClass(zend_class_entry *class_e
 static zend_class_entry *register_class__ZendTestMagicCall(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "_ZendTestMagicCall", class__ZendTestMagicCall_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestMagicCall");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class__ZendTestMagicCall_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -759,8 +765,10 @@ static zend_class_entry *register_class__ZendTestMagicCall(void)
 static zend_class_entry *register_class__ZendTestMagicCallForward(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "_ZendTestMagicCallForward", class__ZendTestMagicCallForward_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestMagicCallForward");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class__ZendTestMagicCallForward_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -773,8 +781,10 @@ static zend_class_entry *register_class__ZendTestMagicCallForward(void)
 static zend_class_entry *register_class__ZendTestChildClass(zend_class_entry *class_entry__ZendTestClass)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "_ZendTestChildClass", class__ZendTestChildClass_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestChildClass");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class__ZendTestChildClass_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry__ZendTestClass, 0);
 #else
@@ -787,8 +797,10 @@ static zend_class_entry *register_class__ZendTestChildClass(zend_class_entry *cl
 static zend_class_entry *register_class_ZendAttributeTest(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendAttributeTest", class_ZendAttributeTest_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendAttributeTest");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendAttributeTest_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -840,8 +852,10 @@ static zend_class_entry *register_class_ZendAttributeTest(void)
 static zend_class_entry *register_class__ZendTestTrait(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "_ZendTestTrait", class__ZendTestTrait_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestTrait");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class__ZendTestTrait_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_TRAIT);
 #else
@@ -874,8 +888,10 @@ static zend_class_entry *register_class__ZendTestTrait(void)
 static zend_class_entry *register_class_ZendTestAttribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestAttribute", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 #else
@@ -896,8 +912,10 @@ static zend_class_entry *register_class_ZendTestAttribute(void)
 static zend_class_entry *register_class_ZendTestAttributeWithArguments(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestAttributeWithArguments", class_ZendTestAttributeWithArguments_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestAttributeWithArguments");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestAttributeWithArguments_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 #else
@@ -928,8 +946,10 @@ static zend_class_entry *register_class_ZendTestAttributeWithArguments(void)
 static zend_class_entry *register_class_ZendTestRepeatableAttribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestRepeatableAttribute", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestRepeatableAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 #else
@@ -950,8 +970,10 @@ static zend_class_entry *register_class_ZendTestRepeatableAttribute(void)
 static zend_class_entry *register_class_ZendTestParameterAttribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestParameterAttribute", class_ZendTestParameterAttribute_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestParameterAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestParameterAttribute_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 #else
@@ -978,8 +1000,10 @@ static zend_class_entry *register_class_ZendTestParameterAttribute(void)
 static zend_class_entry *register_class_ZendTestPropertyAttribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestPropertyAttribute", class_ZendTestPropertyAttribute_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestPropertyAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestPropertyAttribute_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 #else
@@ -1010,8 +1034,10 @@ static zend_class_entry *register_class_ZendTestPropertyAttribute(void)
 static zend_class_entry *register_class_ZendTestClassWithMethodWithParameterAttribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestClassWithMethodWithParameterAttribute", class_ZendTestClassWithMethodWithParameterAttribute_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestClassWithMethodWithParameterAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestClassWithMethodWithParameterAttribute_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -1041,8 +1067,10 @@ static zend_class_entry *register_class_ZendTestClassWithMethodWithParameterAttr
 static zend_class_entry *register_class_ZendTestChildClassWithMethodWithParameterAttribute(zend_class_entry *class_entry_ZendTestClassWithMethodWithParameterAttribute)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestChildClassWithMethodWithParameterAttribute", class_ZendTestChildClassWithMethodWithParameterAttribute_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestChildClassWithMethodWithParameterAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestChildClassWithMethodWithParameterAttribute_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_ZendTestClassWithMethodWithParameterAttribute, 0);
 #else
@@ -1064,8 +1092,10 @@ static zend_class_entry *register_class_ZendTestChildClassWithMethodWithParamete
 static zend_class_entry *register_class_ZendTestClassWithPropertyAttribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestClassWithPropertyAttribute", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestClassWithPropertyAttribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -1089,8 +1119,10 @@ static zend_class_entry *register_class_ZendTestClassWithPropertyAttribute(void)
 static zend_class_entry *register_class_ZendTestForbidDynamicCall(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ZendTestForbidDynamicCall", class_ZendTestForbidDynamicCall_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "ZendTestForbidDynamicCall");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestForbidDynamicCall_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 #else
@@ -1167,8 +1199,10 @@ static zend_class_entry *register_class_ZendTestIntEnum(void)
 static zend_class_entry *register_class_ZendTestNS_Foo(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "ZendTestNS", "Foo", class_ZendTestNS_Foo_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("ZendTestNS", "Foo"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestNS_Foo_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -1181,8 +1215,10 @@ static zend_class_entry *register_class_ZendTestNS_Foo(void)
 static zend_class_entry *register_class_ZendTestNS_UnlikelyCompileError(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "ZendTestNS", "UnlikelyCompileError", class_ZendTestNS_UnlikelyCompileError_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("ZendTestNS", "UnlikelyCompileError"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestNS_UnlikelyCompileError_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -1195,8 +1231,10 @@ static zend_class_entry *register_class_ZendTestNS_UnlikelyCompileError(void)
 static zend_class_entry *register_class_ZendTestNS_NotUnlikelyCompileError(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "ZendTestNS", "NotUnlikelyCompileError", class_ZendTestNS_NotUnlikelyCompileError_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("ZendTestNS", "NotUnlikelyCompileError"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestNS_NotUnlikelyCompileError_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -1209,8 +1247,10 @@ static zend_class_entry *register_class_ZendTestNS_NotUnlikelyCompileError(void)
 static zend_class_entry *register_class_ZendTestNS2_Foo(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "ZendTestNS2", "Foo", class_ZendTestNS2_Foo_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("ZendTestNS2", "Foo"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestNS2_Foo_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else
@@ -1230,8 +1270,10 @@ static zend_class_entry *register_class_ZendTestNS2_Foo(void)
 static zend_class_entry *register_class_ZendTestNS2_ZendSubNS_Foo(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "ZendTestNS2\\ZendSubNS", "Foo", class_ZendTestNS2_ZendSubNS_Foo_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("ZendTestNS2\\ZendSubNS", "Foo"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ZendTestNS2_ZendSubNS_Foo_methods);
 #if (PHP_VERSION_ID >= 80400)
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 #else

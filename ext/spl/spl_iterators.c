@@ -517,7 +517,7 @@ static zend_result spl_get_iterator_from_aggregate(zval *retval, zend_class_entr
 			|| !instanceof_function(Z_OBJCE_P(retval), zend_ce_traversable)) {
 		zend_throw_exception_ex(spl_ce_LogicException, 0,
 			"%s::getIterator() must return an object that implements Traversable",
-			ZSTR_VAL(ce->name));
+			ZSTR_VAL((zend_string *)ce->name));
 		zval_ptr_dtor(retval);
 		return FAILURE;
 	}
@@ -897,7 +897,7 @@ static zend_function *spl_recursive_it_get_method(zend_object **zobject, zend_st
 	zval                    *zobj;
 
 	if (!object->iterators) {
-		zend_throw_error(NULL, "The %s instance wasn't initialized properly", ZSTR_VAL((*zobject)->ce->name));
+		zend_throw_error(NULL, "The %s instance wasn't initialized properly", ZSTR_VAL((zend_string *)(*zobject)->ce->name));
 		return NULL;
 	}
 	zobj = &object->iterators[level].zobject;
@@ -1243,7 +1243,7 @@ static zend_function *spl_dual_it_get_method(zend_object **object, zend_string *
 	if (intern->dit_type == DIT_Unknown) { \
 		/* TODO Normal Error? */ \
 		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "Classes derived from %s must call %s::__construct()", \
-				ZSTR_VAL((spl_ce_##classname)->name), ZSTR_VAL((spl_ce_##classname)->name)); \
+				ZSTR_VAL((zend_string *)(spl_ce_##classname)->name), ZSTR_VAL((zend_string *)(spl_ce_##classname)->name)); \
 		RETURN_THROWS(); \
 	}
 
@@ -1274,7 +1274,7 @@ static spl_dual_it_object* spl_dual_it_construct(INTERNAL_FUNCTION_PARAMETERS, z
 	intern = Z_SPLDUAL_IT_P(ZEND_THIS);
 
 	if (intern->dit_type != DIT_Unknown) {
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s::getIterator() must be called exactly once per instance", ZSTR_VAL(ce_base->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s::getIterator() must be called exactly once per instance", ZSTR_VAL((zend_string *)ce_base->name));
 		return NULL;
 	}
 
@@ -2390,7 +2390,7 @@ PHP_METHOD(CachingIterator, __toString)
 	SPL_FETCH_AND_CHECK_DUAL_IT(intern, ZEND_THIS);
 
 	if (!(intern->u.caching.flags & (CIT_CALL_TOSTRING|CIT_TOSTRING_USE_KEY|CIT_TOSTRING_USE_CURRENT|CIT_TOSTRING_USE_INNER)))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not fetch string value (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not fetch string value (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 
@@ -2424,7 +2424,7 @@ PHP_METHOD(CachingIterator, offsetSet)
 	SPL_FETCH_AND_CHECK_DUAL_IT(intern, ZEND_THIS);
 
 	if (!(intern->u.caching.flags & CIT_FULL_CACHE))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 
@@ -2447,7 +2447,7 @@ PHP_METHOD(CachingIterator, offsetGet)
 	SPL_FETCH_AND_CHECK_DUAL_IT(intern, ZEND_THIS);
 
 	if (!(intern->u.caching.flags & CIT_FULL_CACHE))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 
@@ -2473,7 +2473,7 @@ PHP_METHOD(CachingIterator, offsetUnset)
 	}
 
 	if (!(intern->u.caching.flags & CIT_FULL_CACHE))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 
@@ -2494,7 +2494,7 @@ PHP_METHOD(CachingIterator, offsetExists)
 	SPL_FETCH_AND_CHECK_DUAL_IT(intern, ZEND_THIS);
 
 	if (!(intern->u.caching.flags & CIT_FULL_CACHE))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 
@@ -2512,7 +2512,7 @@ PHP_METHOD(CachingIterator, getCache)
 	SPL_FETCH_AND_CHECK_DUAL_IT(intern, ZEND_THIS);
 
 	if (!(intern->u.caching.flags & CIT_FULL_CACHE))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 
@@ -2577,7 +2577,7 @@ PHP_METHOD(CachingIterator, count)
 	SPL_FETCH_AND_CHECK_DUAL_IT(intern, ZEND_THIS);
 
 	if (!(intern->u.caching.flags & CIT_FULL_CACHE))	{
-		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+		zend_throw_exception_ex(spl_ce_BadMethodCallException, 0, "%s does not use a full cache (see CachingIterator::__construct)", ZSTR_VAL((zend_string *)Z_OBJCE_P(ZEND_THIS)->name));
 		RETURN_THROWS();
 	}
 

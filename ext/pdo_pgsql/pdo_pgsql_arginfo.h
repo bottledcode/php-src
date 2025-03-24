@@ -84,8 +84,10 @@ static const zend_function_entry class_Pdo_Pgsql_methods[] = {
 static zend_class_entry *register_class_Pdo_Pgsql(zend_class_entry *class_entry_PDO)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "Pdo", "Pgsql", class_Pdo_Pgsql_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("Pdo", "Pgsql"));
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Pdo_Pgsql_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_PDO, ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval const_ATTR_DISABLE_PREPARES_value;

@@ -320,7 +320,7 @@ zval *dom_token_list_read_dimension(zend_object *object, zval *offset, int type,
 	bool failed;
 	zend_long index = dom_token_list_offset_convert_to_long(offset, &failed);
 	if (UNEXPECTED(failed)) {
-		zend_illegal_container_offset(object->ce->name, offset, type);
+		zend_illegal_container_offset((zend_string *)object->ce->name, offset, type);
 		return NULL;
 	} else {
 		dom_token_list_item_read(php_dom_token_list_from_obj(object), rv, index);

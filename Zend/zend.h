@@ -82,6 +82,21 @@ struct _zend_unserialize_data;
 typedef struct _zend_serialize_data zend_serialize_data;
 typedef struct _zend_unserialize_data zend_unserialize_data;
 
+typedef enum _zend_name_resolution_kind {
+	ZEND_NAME_LEXICAL_SCOPE,
+	ZEND_NAME_NAMESPACE,
+} zend_name_resolution_kind;
+
+typedef struct _zend_namespaced_name {
+	zend_string *name;
+	zend_string *resolved_name;
+	zend_name_resolution_kind kind;
+	union {
+		zend_class_entry *lexical_scope;
+		zend_string *namespace_name;
+	};
+} zend_namespaced_name;
+
 typedef struct _zend_class_name {
 	zend_string *name;
 	zend_string *lc_name;
@@ -146,11 +161,11 @@ struct _zend_inheritance_cache_entry {
 
 struct _zend_class_entry {
 	char type;
-	zend_string *name;
+	zend_namespaced_name *name;
 	/* class_entry or string depending on ZEND_ACC_LINKED */
 	union {
 		zend_class_entry *parent;
-		zend_string *parent_name;
+		zend_namespaced_name *parent_name;
 	};
 	int refcount;
 	uint32_t ce_flags;
@@ -214,10 +229,10 @@ struct _zend_class_entry {
 	/* class_entry or string(s) depending on ZEND_ACC_LINKED */
 	union {
 		zend_class_entry **interfaces;
-		zend_class_name *interface_names;
+		zend_namespaced_name *interface_names;
 	};
 
-	zend_class_name *trait_names;
+	zend_namespaced_name *trait_names;
 	zend_trait_alias **trait_aliases;
 	zend_trait_precedence **trait_precedences;
 	HashTable *attributes;

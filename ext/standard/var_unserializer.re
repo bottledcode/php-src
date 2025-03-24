@@ -548,7 +548,7 @@ static int is_property_visibility_changed(zend_class_entry *ce, zval *key)
 			existing_propinfo = zend_hash_find_ptr(&ce->properties_info, Z_STR_P(key));
 		} else {
 			if (!strcmp(unmangled_class, "*")
-			 || !strcasecmp(unmangled_class, ZSTR_VAL(ce->name))) {
+			 || !strcasecmp(unmangled_class, ZSTR_VAL((zend_string *)ce->name))) {
 				existing_propinfo = zend_hash_str_find_ptr(
 					&ce->properties_info, unmangled_prop, unmangled_prop_len);
 			}
@@ -562,7 +562,7 @@ static int is_property_visibility_changed(zend_class_entry *ce, zval *key)
 			} else {
 				php_error_docref(NULL, E_WARNING,
 					"Cannot unserialize value for virtual property %s::$%s",
-					ZSTR_VAL(existing_propinfo->ce->name), Z_STRVAL_P(key));
+					ZSTR_VAL((zend_string *)existing_propinfo->ce->name), Z_STRVAL_P(key));
 				zval_ptr_dtor_str(key);
 				return -1;
 			}
@@ -642,12 +642,12 @@ declared_property:
 				if (EXPECTED(!ret)) {
 					if (UNEXPECTED(obj->ce->ce_flags & ZEND_ACC_NO_DYNAMIC_PROPERTIES)) {
 						zend_throw_error(NULL, "Cannot create dynamic property %s::$%s",
-							ZSTR_VAL(obj->ce->name), zend_get_unmangled_property_name(Z_STR_P(&key)));
+							ZSTR_VAL((zend_string *)obj->ce->name), zend_get_unmangled_property_name(Z_STR_P(&key)));
 						zval_ptr_dtor_str(&key);
 						goto failure;
 					} else if (!(obj->ce->ce_flags & ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES)) {
 						zend_error(E_DEPRECATED, "Creation of dynamic property %s::$%s is deprecated",
-							ZSTR_VAL(obj->ce->name), zend_get_unmangled_property_name(Z_STR_P(&key)));
+							ZSTR_VAL((zend_string *)obj->ce->name), zend_get_unmangled_property_name(Z_STR_P(&key)));
 						if (EG(exception)) {
 							zval_ptr_dtor_str(&key);
 							goto failure;
@@ -771,7 +771,7 @@ static inline int object_custom(UNSERIALIZE_PARAMETER, zend_class_entry *ce)
 	}
 
 	if (ce->unserialize == NULL) {
-		zend_error(E_WARNING, "Class %s has no unserializer", ZSTR_VAL(ce->name));
+		zend_error(E_WARNING, "Class %s has no unserializer", ZSTR_VAL((zend_string *)ce->name));
 		object_init_ex(rval, ce);
 	} else if (ce->unserialize(rval, ce, (const unsigned char*)*p, datalen, (zend_unserialize_data *)var_hash) != SUCCESS) {
 		return 0;
@@ -1280,7 +1280,7 @@ object ":" uiv ":" ["]	{
 
 	if (ce->ce_flags & ZEND_ACC_NOT_SERIALIZABLE) {
 		zend_throw_exception_ex(NULL, 0, "Unserialization of '%s' is not allowed",
-			ZSTR_VAL(ce->name));
+			ZSTR_VAL((zend_string *)ce->name));
 		zend_string_release_ex(class_name, 0);
 		return 0;
 	}
@@ -1328,7 +1328,7 @@ object ":" uiv ":" ["]	{
 	 * there is both Serializable::unserialize() and __unserialize(), then both may be used,
 	 * depending on the serialization format. */
 	if (ce->serialize != NULL && !has_unserialize) {
-		zend_error(E_WARNING, "Erroneous data format for unserializing '%s'", ZSTR_VAL(ce->name));
+		zend_error(E_WARNING, "Erroneous data format for unserializing '%s'", ZSTR_VAL((zend_string *)ce->name));
 		zend_string_release_ex(class_name, 0);
 		return 0;
 	}

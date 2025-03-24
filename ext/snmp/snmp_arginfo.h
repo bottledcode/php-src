@@ -264,8 +264,10 @@ static void register_snmp_symbols(int module_number)
 static zend_class_entry *register_class_SNMP(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SNMP", class_SNMP_methods);
+	INIT_CLASS_NAME(namespaced_name, ce, "SNMP");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SNMP_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval const_VERSION_1_value;
@@ -394,8 +396,10 @@ static zend_class_entry *register_class_SNMP(void)
 static zend_class_entry *register_class_SNMPException(zend_class_entry *class_entry_RuntimeException)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SNMPException", NULL);
+	INIT_CLASS_NAME(namespaced_name, ce, "SNMPException");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_RuntimeException, 0);
 
 	return class_entry;

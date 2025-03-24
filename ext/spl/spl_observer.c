@@ -91,7 +91,7 @@ static zend_result spl_object_storage_get_hash(zend_hash_key *key, spl_SplObject
 			/* TODO PHP 9: Remove this as this will be enforced from the return type */
 			if (UNEXPECTED(Z_TYPE(rv) != IS_STRING)) {
 				zend_type_error("%s::getHash(): Return value must be of type string, %s returned",
-					ZSTR_VAL(intern->std.ce->name), zend_zval_value_name(&rv));
+					ZSTR_VAL((zend_string *)intern->std.ce->name), zend_zval_value_name(&rv));
 				zval_ptr_dtor(&rv);
 				return FAILURE;
 			} else {

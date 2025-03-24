@@ -1386,7 +1386,7 @@ static inline void get_declared_class_impl(INTERNAL_FUNCTION_PARAMETERS, int fla
 			 && ZSTR_VAL(key)[0] != 0) {
 				ZEND_HASH_FILL_GROW();
 				if (EXPECTED(Z_TYPE_P(zv) == IS_PTR)) {
-					ZEND_HASH_FILL_SET_STR_COPY(ce->name);
+					ZEND_HASH_FILL_SET_STR_COPY((zend_string *)ce->name);
 				} else {
 					ZEND_ASSERT(Z_TYPE_P(zv) == IS_ALIAS_PTR);
 					ZEND_HASH_FILL_SET_STR_COPY(key);
@@ -2042,9 +2042,9 @@ not_frameless_call:
 				object = Z_OBJ(call->This);
 				/* $this may be passed into regular internal functions */
 				if (func->common.scope) {
-					ZVAL_STR_COPY(&tmp, func->common.scope->name);
+					ZVAL_STR_COPY(&tmp, (zend_string *)func->common.scope->name);
 				} else if (object->handlers->get_class_name == zend_std_get_class_name) {
-					ZVAL_STR_COPY(&tmp, object->ce->name);
+					ZVAL_STR_COPY(&tmp, (zend_string *)object->ce->name);
 				} else {
 					ZVAL_STR(&tmp, object->handlers->get_class_name(object));
 				}

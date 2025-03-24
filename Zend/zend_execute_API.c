@@ -551,7 +551,7 @@ ZEND_API const char *get_active_class_name(const char **space) /* {{{ */
 			if (space) {
 				*space = ce ? "::" : "";
 			}
-			return ce ? ZSTR_VAL(ce->name) : "";
+			return ce ? ZSTR_VAL((zend_string *)ce->name) : "";
 		}
 		default:
 			if (space) {
@@ -618,7 +618,7 @@ ZEND_API zend_string *get_active_function_or_method_name(void) /* {{{ */
 ZEND_API zend_string *get_function_or_method_name(const zend_function *func) /* {{{ */
 {
 	if (func->common.scope && func->common.function_name) {
-		return zend_create_member_string(func->common.scope->name, func->common.function_name);
+		return zend_create_member_string((zend_string *)func->common.scope->name, func->common.function_name);
 	}
 
 	return func->common.function_name ? zend_string_copy(func->common.function_name) : ZSTR_INIT_LITERAL("main", 0);
@@ -1103,7 +1103,7 @@ ZEND_API void zend_call_known_function(
 	if (UNEXPECTED(result == FAILURE)) {
 		if (!EG(exception)) {
 			zend_error_noreturn(E_CORE_ERROR, "Couldn't execute method %s%s%s",
-				fn->common.scope ? ZSTR_VAL(fn->common.scope->name) : "",
+				fn->common.scope ? ZSTR_VAL((zend_string *)fn->common.scope->name) : "",
 				fn->common.scope ? "::" : "", ZSTR_VAL(fn->common.function_name));
 		}
 	}
