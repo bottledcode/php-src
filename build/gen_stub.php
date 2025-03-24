@@ -3386,10 +3386,10 @@ class ClassInfo {
                 $className = $this->name->getLast();
                 $namespace = addslashes((string) $this->name->slice(0, -1));
 
-                $code .= "\tINIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME(\"$namespace\", \"$className\"));\n";
+                $code .= "\tINIT_CLASS_NAME_NS(namespaced_name, \"$namespace\", \"$className\");\n";
                 $code .= "\tINIT_CLASS_ENTRY(ce, namespaced_name, $classMethods);\n";
             } else {
-                $code .= "\tINIT_CLASS_NAME(namespaced_name, ce, \"$this->name\");\n";
+                $code .= "\tINIT_CLASS_NAME(namespaced_name, \"$this->name\");\n";
                 $code .= "\tINIT_CLASS_ENTRY(ce, namespaced_name, $classMethods);\n";
             }
 

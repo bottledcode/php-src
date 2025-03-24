@@ -161,7 +161,7 @@ struct _zend_inheritance_cache_entry {
 
 struct _zend_class_entry {
 	char type;
-	zend_namespaced_name *name;
+	zend_namespaced_name namespaced_name;
 	/* class_entry or string depending on ZEND_ACC_LINKED */
 	union {
 		zend_class_entry *parent;

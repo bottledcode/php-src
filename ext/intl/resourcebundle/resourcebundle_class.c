@@ -253,7 +253,7 @@ zval *resourcebundle_array_get(zend_object *object, zval *offset, int type, zval
 	} else if (Z_TYPE_P(offset) == IS_STRING) {
 		return resource_bundle_array_fetch(object, Z_STR_P(offset), /* offset_int */ 0, rv, /* fallback */ true, /* arg_num */ 0);
 	} else {
-		zend_illegal_container_offset((zend_string *)object->ce->name, offset, type);
+		zend_illegal_container_offset(object->ce->namespaced_name.name, offset, type);
 		return NULL;
 	}
 }

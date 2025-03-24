@@ -151,7 +151,7 @@ static zend_class_entry *register_class_SplDoublyLinkedList(zend_class_entry *cl
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplDoublyLinkedList");
+	INIT_CLASS_NAME(namespaced_name, "SplDoublyLinkedList");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplDoublyLinkedList_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 4, class_entry_Iterator, class_entry_Countable, class_entry_ArrayAccess, class_entry_Serializable);
@@ -188,7 +188,7 @@ static zend_class_entry *register_class_SplQueue(zend_class_entry *class_entry_S
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplQueue");
+	INIT_CLASS_NAME(namespaced_name, "SplQueue");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplQueue_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_SplDoublyLinkedList, 0);
 
@@ -200,7 +200,7 @@ static zend_class_entry *register_class_SplStack(zend_class_entry *class_entry_S
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplStack");
+	INIT_CLASS_NAME(namespaced_name, "SplStack");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_SplDoublyLinkedList, 0);
 

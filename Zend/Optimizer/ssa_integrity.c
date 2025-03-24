@@ -97,7 +97,7 @@ static inline bool is_defined(const zend_ssa *ssa, const zend_op_array *op_array
 #define FAIL(...) do { \
 	if (status == SUCCESS) { \
 		fprintf(stderr, "\nIn function %s::%s (%s):\n", \
-			op_array->scope ? ZSTR_VAL((zend_string *)op_array->scope->name) : "", \
+			op_array->scope ? ZSTR_VAL(op_array->scope->namespaced_name.name) : "", \
 			op_array->function_name ? ZSTR_VAL(op_array->function_name) : "{main}", extra); \
 	} \
 	fprintf(stderr, __VA_ARGS__); \

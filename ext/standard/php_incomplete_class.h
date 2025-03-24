@@ -32,7 +32,7 @@ extern PHPAPI zend_class_entry *php_ce_incomplete_class;
 		} \
 		incomplete_class = 1; \
 	} else { \
-		class_name = zend_string_copy((zend_string *)Z_OBJCE_P(struc)->name); \
+		class_name = zend_string_copy(Z_OBJCE_P(struc)->namespaced_name.name); \
 	}
 
 #define PHP_CLEANUP_CLASS_ATTRIBUTES()	\

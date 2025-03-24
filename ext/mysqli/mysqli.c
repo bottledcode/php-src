@@ -265,7 +265,7 @@ zval *mysqli_write_property(zend_object *object, zend_string *name, zval *value,
 		if (hnd) {
 			if (!hnd->write_func) {
 				zend_throw_error(NULL, "Cannot write read-only property %s::$%s",
-					ZSTR_VAL((zend_string *)object->ce->name), ZSTR_VAL(name));
+					ZSTR_VAL(object->ce->namespaced_name.name), ZSTR_VAL(name));
 				return &EG(error_zval);
 			}
 
@@ -376,7 +376,7 @@ PHP_MYSQLI_EXPORT(zend_object *) mysqli_objects_new(zend_class_entry *class_type
 		   mysqli_base_class->parent != NULL) {
 		mysqli_base_class = mysqli_base_class->parent;
 	}
-	intern->prop_handler = zend_hash_find_ptr(&classes, (zend_string *)mysqli_base_class->name);
+	intern->prop_handler = zend_hash_find_ptr(&classes, mysqli_base_class->namespaced_name.name);
 
 	zend_object_std_init(&intern->zo, class_type);
 	object_properties_init(&intern->zo, class_type);
@@ -411,7 +411,7 @@ static MYSQLND *mysqli_convert_zv_to_mysqlnd(zval * zv)
 		mysqli_object *intern = Z_MYSQLI_P(zv);
 		if (!(my_res = (MYSQLI_RESOURCE *)intern->ptr)) {
 			/* We know that we have a mysqli object, so this failure should be emitted */
-			zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL((zend_string *)intern->zo.ce->name));
+			zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL(intern->zo.ce->namespaced_name.name));
 			return NULL;
 		}
 		mysql = (MY_MYSQL *)(my_res->ptr);
@@ -505,32 +505,32 @@ PHP_MINIT_FUNCTION(mysqli)
 	mysqli_driver_class_entry->create_object = mysqli_objects_new;
 	zend_hash_init(&mysqli_driver_properties, 0, NULL, free_prop_handler, 1);
 	MYSQLI_ADD_PROPERTIES(&mysqli_driver_properties, mysqli_driver_property_entries);
-	zend_hash_add_ptr(&classes, (zend_string *)mysqli_driver_class_entry->name, &mysqli_driver_properties);
+	zend_hash_add_ptr(&classes, mysqli_driver_class_entry->namespaced_name.name, &mysqli_driver_properties);
 
 	mysqli_link_class_entry = register_class_mysqli();
 	mysqli_link_class_entry->create_object = mysqli_objects_new;
 	zend_hash_init(&mysqli_link_properties, 0, NULL, free_prop_handler, 1);
 	MYSQLI_ADD_PROPERTIES(&mysqli_link_properties, mysqli_link_property_entries);
-	zend_hash_add_ptr(&classes, (zend_string *)mysqli_link_class_entry->name, &mysqli_link_properties);
+	zend_hash_add_ptr(&classes, mysqli_link_class_entry->namespaced_name.name, &mysqli_link_properties);
 
 	mysqli_warning_class_entry = register_class_mysqli_warning();
 	mysqli_warning_class_entry->create_object = mysqli_objects_new;
 	zend_hash_init(&mysqli_warning_properties, 0, NULL, free_prop_handler, 1);
 	MYSQLI_ADD_PROPERTIES(&mysqli_warning_properties, mysqli_warning_property_entries);
-	zend_hash_add_ptr(&classes, (zend_string *)mysqli_warning_class_entry->name, &mysqli_warning_properties);
+	zend_hash_add_ptr(&classes, mysqli_warning_class_entry->namespaced_name.name, &mysqli_warning_properties);
 
 	mysqli_result_class_entry = register_class_mysqli_result(zend_ce_aggregate);
 	mysqli_result_class_entry->create_object = mysqli_objects_new;
 	mysqli_result_class_entry->get_iterator = php_mysqli_result_get_iterator;
 	zend_hash_init(&mysqli_result_properties, 0, NULL, free_prop_handler, 1);
 	MYSQLI_ADD_PROPERTIES(&mysqli_result_properties, mysqli_result_property_entries);
-	zend_hash_add_ptr(&classes, (zend_string *)mysqli_result_class_entry->name, &mysqli_result_properties);
+	zend_hash_add_ptr(&classes, mysqli_result_class_entry->namespaced_name.name, &mysqli_result_properties);
 
 	mysqli_stmt_class_entry = register_class_mysqli_stmt();
 	mysqli_stmt_class_entry->create_object = mysqli_objects_new;
 	zend_hash_init(&mysqli_stmt_properties, 0, NULL, free_prop_handler, 1);
 	MYSQLI_ADD_PROPERTIES(&mysqli_stmt_properties, mysqli_stmt_property_entries);
-	zend_hash_add_ptr(&classes, (zend_string *)mysqli_stmt_class_entry->name, &mysqli_stmt_properties);
+	zend_hash_add_ptr(&classes, mysqli_stmt_class_entry->namespaced_name.name, &mysqli_stmt_properties);
 
 	register_mysqli_symbols(module_number);
 
@@ -759,7 +759,7 @@ void php_mysqli_fetch_into_hash(INTERNAL_FUNCTION_PARAMETERS, int override_flags
 			ce = zend_standard_class_def;
 		}
 		if (UNEXPECTED(ce->ce_flags & (ZEND_ACC_INTERFACE|ZEND_ACC_TRAIT|ZEND_ACC_IMPLICIT_ABSTRACT_CLASS|ZEND_ACC_EXPLICIT_ABSTRACT_CLASS))) {
-			zend_throw_error(NULL, "Class %s cannot be instantiated", ZSTR_VAL((zend_string *)ce->name));
+			zend_throw_error(NULL, "Class %s cannot be instantiated", ZSTR_VAL(ce->namespaced_name.name));
 			RETURN_THROWS();
 		}
 		fetchtype = MYSQLI_ASSOC;
@@ -806,7 +806,7 @@ void php_mysqli_fetch_into_hash(INTERNAL_FUNCTION_PARAMETERS, int override_flags
 		} else if (ctor_params && zend_hash_num_elements(ctor_params) > 0) {
 			zend_argument_value_error(ERROR_ARG_POS(3),
 				"must be empty when the specified class (%s) does not have a constructor",
-				ZSTR_VAL((zend_string *)ce->name)
+				ZSTR_VAL(ce->namespaced_name.name)
 			);
 		}
 	}

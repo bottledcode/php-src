@@ -443,7 +443,7 @@ static zval *spl_array_read_dimension_ex(int check_inherited, zend_object *objec
 		}
 	}
 
-	ret = spl_array_get_dimension_ptr(check_inherited, intern, (zend_string *)object->ce->name, offset, type);
+	ret = spl_array_get_dimension_ptr(check_inherited, intern, object->ce->namespaced_name.name, offset, type);
 
 	/* When in a write context,
 	 * ZE has to be fooled into thinking this is in a reference set
@@ -520,7 +520,7 @@ static void spl_array_write_dimension_ex(int check_inherited, zend_object *objec
 	}
 
 	if (get_hash_key(&key, intern, offset) == FAILURE) {
-		zend_illegal_container_offset((zend_string *)object->ce->name, offset, BP_VAR_W);
+		zend_illegal_container_offset(object->ce->namespaced_name.name, offset, BP_VAR_W);
 		zval_ptr_dtor(value);
 		return;
 	}
@@ -565,7 +565,7 @@ static void spl_array_unset_dimension_ex(int check_inherited, zend_object *objec
 	}
 
 	if (get_hash_key(&key, intern, offset) == FAILURE) {
-		zend_illegal_container_offset((zend_string *)object->ce->name, offset, BP_VAR_UNSET);
+		zend_illegal_container_offset(object->ce->namespaced_name.name, offset, BP_VAR_UNSET);
 		return;
 	}
 
@@ -637,7 +637,7 @@ static bool spl_array_has_dimension_ex(bool check_inherited, zend_object *object
 		spl_hash_key key;
 
 		if (get_hash_key(&key, intern, offset) == FAILURE) {
-			zend_illegal_container_offset((zend_string *)object->ce->name, offset, BP_VAR_IS);
+			zend_illegal_container_offset(object->ce->namespaced_name.name, offset, BP_VAR_IS);
 			return 0;
 		}
 
@@ -718,7 +718,7 @@ void spl_array_iterator_append(zval *object, zval *append_value) /* {{{ */
 	spl_array_object *intern = Z_SPLARRAY_P(object);
 
 	if (spl_array_is_object(intern)) {
-		zend_throw_error(NULL, "Cannot append properties to objects, use %s::offsetSet() instead", ZSTR_VAL((zend_string *)Z_OBJCE_P(object)->name));
+		zend_throw_error(NULL, "Cannot append properties to objects, use %s::offsetSet() instead", ZSTR_VAL(Z_OBJCE_P(object)->namespaced_name.name));
 		return;
 	}
 
@@ -872,7 +872,7 @@ static zval *spl_array_get_property_ptr_ptr(zend_object *object, zend_string *na
 			return NULL;
 		}
 		ZVAL_STR(&member, name);
-		return spl_array_get_dimension_ptr(1, intern, (zend_string *)object->ce->name, &member, type);
+		return spl_array_get_dimension_ptr(1, intern, object->ce->namespaced_name.name, &member, type);
 	}
 	return zend_std_get_property_ptr_ptr(object, name, type, cache_slot);
 } /* }}} */
@@ -1000,14 +1000,14 @@ static void spl_array_set_array(zval *object, spl_array_object *intern, zval *ar
 			if (handler != zend_std_get_properties || Z_OBJ_HANDLER_P(array, get_properties_for)) {
 				zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
 					"Overloaded object of type %s is not compatible with %s",
-					ZSTR_VAL((zend_string *)Z_OBJCE_P(array)->name), ZSTR_VAL((zend_string *)intern->std.ce->name));
+					ZSTR_VAL(Z_OBJCE_P(array)->namespaced_name.name), ZSTR_VAL(intern->std.ce->namespaced_name.name));
 				ZEND_ASSERT(Z_TYPE(garbage) == IS_UNDEF);
 				return;
 			}
 			if (UNEXPECTED(Z_OBJCE_P(array)->ce_flags & ZEND_ACC_ENUM)) {
 				zend_throw_exception_ex(spl_ce_InvalidArgumentException, 0,
 					"Enums are not compatible with %s",
-					ZSTR_VAL((zend_string *)intern->std.ce->name));
+					ZSTR_VAL(intern->std.ce->namespaced_name.name));
 				ZEND_ASSERT(Z_TYPE(garbage) == IS_UNDEF);
 				return;
 			}
@@ -1081,8 +1081,8 @@ PHP_METHOD(ArrayObject, getIteratorClass)
 		RETURN_THROWS();
 	}
 
-	zend_string_addref((zend_string *)intern->ce_get_iterator->name);
-	RETURN_STR((zend_string *)intern->ce_get_iterator->name);
+	zend_string_addref(intern->ce_get_iterator->namespaced_name.name);
+	RETURN_STR(intern->ce_get_iterator->namespaced_name.name);
 }
 /* }}} */
 
@@ -1461,7 +1461,7 @@ PHP_METHOD(ArrayObject, __serialize)
 	if (intern->ce_get_iterator == spl_ce_ArrayIterator) {
 		ZVAL_NULL(&tmp);
 	} else {
-		ZVAL_STR_COPY(&tmp, (zend_string *)intern->ce_get_iterator->name);
+		ZVAL_STR_COPY(&tmp, intern->ce_get_iterator->namespaced_name.name);
 	}
 	zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
 }
@@ -1611,7 +1611,7 @@ static zval *spl_array_it_get_current_data(zend_object_iterator *iter) /* {{{ */
 			if (prop_info->flags & ZEND_ACC_READONLY) {
 				zend_throw_error(NULL,
 					"Cannot acquire reference to readonly property %s::$%s",
-					ZSTR_VAL((zend_string *)prop_info->ce->name), ZSTR_VAL(key));
+					ZSTR_VAL(prop_info->ce->namespaced_name.name), ZSTR_VAL(key));
 				return NULL;
 			}
 			ZVAL_NEW_REF(data, data);

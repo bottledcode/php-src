@@ -124,7 +124,7 @@ U_CFUNC zend_result intl_datetime_decompose(zend_object *obj, double *millis, Ti
 		}
 		// TODO: Remove this when DateTimeInterface::getTimestamp() no longer has a tentative return type
 		if (Z_TYPE(retval) != IS_LONG) {
-			spprintf(&message, 0, "%s: %s::getTimestamp() did not return an int", func, ZSTR_VAL((zend_string *)obj->ce->name));
+			spprintf(&message, 0, "%s: %s::getTimestamp() did not return an int", func, ZSTR_VAL(obj->ce->namespaced_name.name));
 			intl_errors_set(err, U_INTERNAL_PROGRAM_ERROR, message, 1);
 			efree(message);
 			return FAILURE;
@@ -136,7 +136,7 @@ U_CFUNC zend_result intl_datetime_decompose(zend_object *obj, double *millis, Ti
 	if (tz) {
 		if (!datetime->time) {
 			spprintf(&message, 0, "%s: the %s object is not properly "
-					"initialized", func, ZSTR_VAL((zend_string *)obj->ce->name));
+					"initialized", func, ZSTR_VAL(obj->ce->namespaced_name.name));
 			intl_errors_set(err, U_ILLEGAL_ARGUMENT_ERROR,
 				message, 1);
 			efree(message);

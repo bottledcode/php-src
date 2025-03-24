@@ -147,7 +147,7 @@ static zend_class_entry *register_class_Throwable(zend_class_entry *class_entry_
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Throwable");
+	INIT_CLASS_NAME(namespaced_name, "Throwable");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Throwable_methods);
 	class_entry = zend_register_internal_interface(&ce);
 	zend_class_implements(class_entry, 1, class_entry_Stringable);
@@ -160,7 +160,7 @@ static zend_class_entry *register_class_Exception(zend_class_entry *class_entry_
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Exception");
+	INIT_CLASS_NAME(namespaced_name, "Exception");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Exception_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 1, class_entry_Throwable);
@@ -202,7 +202,7 @@ static zend_class_entry *register_class_ErrorException(zend_class_entry *class_e
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "ErrorException");
+	INIT_CLASS_NAME(namespaced_name, "ErrorException");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_ErrorException_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, 0);
 
@@ -218,7 +218,7 @@ static zend_class_entry *register_class_Error(zend_class_entry *class_entry_Thro
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Error");
+	INIT_CLASS_NAME(namespaced_name, "Error");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Error_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 1, class_entry_Throwable);
@@ -260,7 +260,7 @@ static zend_class_entry *register_class_CompileError(zend_class_entry *class_ent
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "CompileError");
+	INIT_CLASS_NAME(namespaced_name, "CompileError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
@@ -272,7 +272,7 @@ static zend_class_entry *register_class_ParseError(zend_class_entry *class_entry
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "ParseError");
+	INIT_CLASS_NAME(namespaced_name, "ParseError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_CompileError, 0);
 
@@ -284,7 +284,7 @@ static zend_class_entry *register_class_TypeError(zend_class_entry *class_entry_
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "TypeError");
+	INIT_CLASS_NAME(namespaced_name, "TypeError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
@@ -296,7 +296,7 @@ static zend_class_entry *register_class_ArgumentCountError(zend_class_entry *cla
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "ArgumentCountError");
+	INIT_CLASS_NAME(namespaced_name, "ArgumentCountError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_TypeError, 0);
 
@@ -308,7 +308,7 @@ static zend_class_entry *register_class_ValueError(zend_class_entry *class_entry
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "ValueError");
+	INIT_CLASS_NAME(namespaced_name, "ValueError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
@@ -320,7 +320,7 @@ static zend_class_entry *register_class_ArithmeticError(zend_class_entry *class_
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "ArithmeticError");
+	INIT_CLASS_NAME(namespaced_name, "ArithmeticError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
@@ -332,7 +332,7 @@ static zend_class_entry *register_class_DivisionByZeroError(zend_class_entry *cl
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "DivisionByZeroError");
+	INIT_CLASS_NAME(namespaced_name, "DivisionByZeroError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_ArithmeticError, 0);
 
@@ -344,7 +344,7 @@ static zend_class_entry *register_class_UnhandledMatchError(zend_class_entry *cl
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "UnhandledMatchError");
+	INIT_CLASS_NAME(namespaced_name, "UnhandledMatchError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
@@ -356,7 +356,7 @@ static zend_class_entry *register_class_RequestParseBodyException(zend_class_ent
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "RequestParseBodyException");
+	INIT_CLASS_NAME(namespaced_name, "RequestParseBodyException");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, 0);
 

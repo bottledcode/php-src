@@ -176,7 +176,7 @@ static zend_class_entry *register_class_XMLReader(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "XMLReader");
+	INIT_CLASS_NAME(namespaced_name, "XMLReader");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_XMLReader_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 

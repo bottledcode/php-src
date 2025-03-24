@@ -1194,7 +1194,7 @@ static zend_class_entry *register_class_mysqli_driver(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_driver");
+	INIT_CLASS_NAME(namespaced_name, "mysqli_driver");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -1230,7 +1230,7 @@ static zend_class_entry *register_class_mysqli(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "mysqli");
+	INIT_CLASS_NAME(namespaced_name, "mysqli");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
@@ -1419,7 +1419,7 @@ static zend_class_entry *register_class_mysqli_result(zend_class_entry *class_en
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_result");
+	INIT_CLASS_NAME(namespaced_name, "mysqli_result");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_result_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 1, class_entry_IteratorAggregate);
@@ -1460,7 +1460,7 @@ static zend_class_entry *register_class_mysqli_stmt(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_stmt");
+	INIT_CLASS_NAME(namespaced_name, "mysqli_stmt");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_stmt_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
@@ -1532,7 +1532,7 @@ static zend_class_entry *register_class_mysqli_warning(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_warning");
+	INIT_CLASS_NAME(namespaced_name, "mysqli_warning");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_warning_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -1560,7 +1560,7 @@ static zend_class_entry *register_class_mysqli_sql_exception(zend_class_entry *c
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "mysqli_sql_exception");
+	INIT_CLASS_NAME(namespaced_name, "mysqli_sql_exception");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_mysqli_sql_exception_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_RuntimeException, ZEND_ACC_FINAL);
 

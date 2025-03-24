@@ -16,7 +16,7 @@ static zend_class_entry *register_class_Pdo_Mysql(zend_class_entry *class_entry_
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, ZEND_NS_NAME("Pdo", "Mysql"));
+	INIT_CLASS_NAME_NS(namespaced_name, "Pdo", "Mysql");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Pdo_Mysql_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_PDO, ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 

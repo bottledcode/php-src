@@ -21,7 +21,7 @@ static zend_class_entry *register_class_IntlPartsIterator(zend_class_entry *clas
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "IntlPartsIterator");
+	INIT_CLASS_NAME(namespaced_name, "IntlPartsIterator");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlPartsIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_IntlIterator, ZEND_ACC_NOT_SERIALIZABLE);
 

@@ -592,14 +592,14 @@ ZEND_FUNCTION(get_class)
 			if (UNEXPECTED(EG(exception))) {
 				RETURN_THROWS();
 			}
-			RETURN_STR_COPY(scope->name);
+			RETURN_STR_COPY(scope->namespaced_name.name);
 		} else {
 			zend_throw_error(NULL, "get_class() without arguments must be called from within a class");
 			RETURN_THROWS();
 		}
 	}
 
-	RETURN_STR_COPY(Z_OBJCE_P(obj)->name);
+	RETURN_STR_COPY(Z_OBJCE_P(obj)->namespaced_name.name);
 }
 /* }}} */
 
@@ -616,7 +616,7 @@ ZEND_FUNCTION(get_called_class)
 		RETURN_THROWS();
 	}
 
-	RETURN_STR_COPY(called_scope->name);
+	RETURN_STR_COPY(called_scope->namespaced_name.name);
 }
 /* }}} */
 
@@ -639,7 +639,7 @@ ZEND_FUNCTION(get_parent_class)
 	}
 
 	if (ce && ce->parent) {
-		RETURN_STR_COPY(ce->parent->name);
+		RETURN_STR_COPY(ce->parent->namespaced_name.name);
 	} else {
 		RETURN_FALSE;
 	}
@@ -679,7 +679,7 @@ static void is_a_impl(INTERNAL_FUNCTION_PARAMETERS, bool only_subclass) /* {{{ *
 		RETURN_FALSE;
 	}
 
-	if (!only_subclass && EXPECTED(zend_string_equals(instance_ce->name, class_name))) {
+	if (!only_subclass && EXPECTED(zend_string_equals(instance_ce->namespaced_name.name, class_name))) {
 		retval = 1;
 	} else {
 		ce = zend_lookup_class_ex(class_name, NULL, ZEND_FETCH_CLASS_NO_AUTOLOAD);
@@ -1386,7 +1386,7 @@ static inline void get_declared_class_impl(INTERNAL_FUNCTION_PARAMETERS, int fla
 			 && ZSTR_VAL(key)[0] != 0) {
 				ZEND_HASH_FILL_GROW();
 				if (EXPECTED(Z_TYPE_P(zv) == IS_PTR)) {
-					ZEND_HASH_FILL_SET_STR_COPY((zend_string *)ce->name);
+					ZEND_HASH_FILL_SET_STR_COPY(ce->namespaced_name.name);
 				} else {
 					ZEND_ASSERT(Z_TYPE_P(zv) == IS_ALIAS_PTR);
 					ZEND_HASH_FILL_SET_STR_COPY(key);
@@ -2042,9 +2042,9 @@ not_frameless_call:
 				object = Z_OBJ(call->This);
 				/* $this may be passed into regular internal functions */
 				if (func->common.scope) {
-					ZVAL_STR_COPY(&tmp, (zend_string *)func->common.scope->name);
+					ZVAL_STR_COPY(&tmp, func->common.scope->namespaced_name.name);
 				} else if (object->handlers->get_class_name == zend_std_get_class_name) {
-					ZVAL_STR_COPY(&tmp, (zend_string *)object->ce->name);
+					ZVAL_STR_COPY(&tmp, object->ce->namespaced_name.name);
 				} else {
 					ZVAL_STR(&tmp, object->handlers->get_class_name(object));
 				}
@@ -2057,7 +2057,7 @@ not_frameless_call:
 				ZVAL_INTERNED_STR(&tmp, ZSTR_KNOWN(ZEND_STR_OBJECT_OPERATOR));
 				_zend_hash_append_ex(stack_frame, ZSTR_KNOWN(ZEND_STR_TYPE), &tmp, 1);
 			} else if (func->common.scope) {
-				ZVAL_STR_COPY(&tmp, func->common.scope->name);
+				ZVAL_STR_COPY(&tmp, func->common.scope->namespaced_name.name);
 				_zend_hash_append_ex(stack_frame, ZSTR_KNOWN(ZEND_STR_CLASS), &tmp, 1);
 				ZVAL_INTERNED_STR(&tmp, ZSTR_KNOWN(ZEND_STR_PAAMAYIM_NEKUDOTAYIM));
 				_zend_hash_append_ex(stack_frame, ZSTR_KNOWN(ZEND_STR_TYPE), &tmp, 1);

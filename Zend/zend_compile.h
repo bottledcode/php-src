@@ -583,7 +583,7 @@ typedef struct _zend_internal_function {
 	void *reserved[ZEND_MAX_RESERVED_RESOURCES];
 } zend_internal_function;
 
-#define ZEND_FN_SCOPE_NAME(function)  ((function) && (function)->common.scope ? ZSTR_VAL((zend_string *)(function)->common.scope->name) : "")
+#define ZEND_FN_SCOPE_NAME(function)  ((function) && (function)->common.scope ? ZSTR_VAL((function)->common.scope->namespaced_name.name) : "")
 
 union _zend_function {
 	uint8_t type;	/* MUST be the first element of this struct! */

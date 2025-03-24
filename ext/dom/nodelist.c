@@ -281,13 +281,13 @@ dom_nodelist_dimension_index dom_modern_nodelist_get_index(const zval *offset)
 zval *dom_modern_nodelist_read_dimension(zend_object *object, zval *offset, int type, zval *rv)
 {
 	if (UNEXPECTED(!offset)) {
-		zend_throw_error(NULL, "Cannot append to %s", ZSTR_VAL((zend_string *)object->ce->name));
+		zend_throw_error(NULL, "Cannot append to %s", ZSTR_VAL(object->ce->namespaced_name.name));
 		return NULL;
 	}
 
 	dom_nodelist_dimension_index index = dom_modern_nodelist_get_index(offset);
 	if (UNEXPECTED(index.type == DOM_NODELIST_DIM_ILLEGAL || index.type == DOM_NODELIST_DIM_STRING)) {
-		zend_illegal_container_offset((zend_string *)object->ce->name, offset, type);
+		zend_illegal_container_offset(object->ce->namespaced_name.name, offset, type);
 		return NULL;
 	}
 
@@ -302,7 +302,7 @@ int dom_modern_nodelist_has_dimension(zend_object *object, zval *member, int che
 
 	dom_nodelist_dimension_index index = dom_modern_nodelist_get_index(member);
 	if (UNEXPECTED(index.type == DOM_NODELIST_DIM_ILLEGAL || index.type == DOM_NODELIST_DIM_STRING)) {
-		zend_illegal_container_offset((zend_string *)object->ce->name, member, BP_VAR_IS);
+		zend_illegal_container_offset(object->ce->namespaced_name.name, member, BP_VAR_IS);
 		return 0;
 	}
 

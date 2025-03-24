@@ -66,7 +66,7 @@ static zend_class_entry *register_class_WeakReference(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "WeakReference");
+	INIT_CLASS_NAME(namespaced_name, "WeakReference");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_WeakReference_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -78,7 +78,7 @@ static zend_class_entry *register_class_WeakMap(zend_class_entry *class_entry_Ar
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "WeakMap");
+	INIT_CLASS_NAME(namespaced_name, "WeakMap");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_WeakMap_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 	zend_class_implements(class_entry, 3, class_entry_ArrayAccess, class_entry_Countable, class_entry_IteratorAggregate);

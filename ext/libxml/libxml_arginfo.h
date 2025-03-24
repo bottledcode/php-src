@@ -105,7 +105,7 @@ static zend_class_entry *register_class_LibXMLError(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "LibXMLError");
+	INIT_CLASS_NAME(namespaced_name, "LibXMLError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 

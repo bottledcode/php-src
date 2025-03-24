@@ -242,10 +242,10 @@ static bool create_driver_specific_pdo_object(pdo_driver_t *driver, zend_class_e
 				zend_throw_exception_ex(pdo_exception_ce, 0,
 					"%s::%s() cannot be used for connecting to the \"%s\" driver, "
 					"either call %s::%s() or PDO::%s() instead",
-					ZSTR_VAL((zend_string *)called_scope->name),
+					ZSTR_VAL(called_scope->namespaced_name.name),
 					new_zval_object ? "connect" : "__construct",
 					driver->driver_name,
-					ZSTR_VAL((zend_string *)ce_based_on_driver_name->name),
+					ZSTR_VAL(ce_based_on_driver_name->namespaced_name.name),
 					new_zval_object ? "connect" : "__construct",
 					new_zval_object ? "connect" : "__construct"
 				);
@@ -261,7 +261,7 @@ static bool create_driver_specific_pdo_object(pdo_driver_t *driver, zend_class_e
 			zend_throw_exception_ex(pdo_exception_ce, 0,
 				"%s::%s() cannot be used for connecting to an unknown driver, "
 				"call PDO::%s() instead",
-				ZSTR_VAL((zend_string *)called_scope->name),
+				ZSTR_VAL(called_scope->namespaced_name.name),
 				new_zval_object ? "connect" : "__construct",
 				new_zval_object ? "connect" : "__construct"
 			);
@@ -280,10 +280,10 @@ static bool create_driver_specific_pdo_object(pdo_driver_t *driver, zend_class_e
 			zend_throw_exception_ex(pdo_exception_ce, 0,
 				"%s::%s() cannot be used for connecting to the \"%s\" driver, "
 				"either call %s::%s() or PDO::%s() instead",
-				ZSTR_VAL((zend_string *)called_scope->name),
+				ZSTR_VAL(called_scope->namespaced_name.name),
 				new_zval_object ? "connect" : "__construct",
 				driver->driver_name,
-				ZSTR_VAL((zend_string *)ce_based_on_driver_name->name),
+				ZSTR_VAL(ce_based_on_driver_name->namespaced_name.name),
 				new_zval_object ? "connect" : "__construct",
 				new_zval_object ? "connect" : "__construct"
 			);
@@ -1012,7 +1012,7 @@ PHP_METHOD(PDO, getAttribute)
 
 		case PDO_ATTR_STATEMENT_CLASS:
 			array_init(return_value);
-			add_next_index_str(return_value, zend_string_copy(dbh->def_stmt_ce->name));
+			add_next_index_str(return_value, zend_string_copy(dbh->def_stmt_ce->namespaced_name.name));
 			if (!Z_ISUNDEF(dbh->def_stmt_ctor_args)) {
 				Z_TRY_ADDREF(dbh->def_stmt_ctor_args);
 				add_next_index_zval(return_value, &dbh->def_stmt_ctor_args);

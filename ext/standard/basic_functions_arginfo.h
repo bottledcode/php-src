@@ -4049,7 +4049,7 @@ static zend_class_entry *register_class___PHP_Incomplete_Class(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "__PHP_Incomplete_Class");
+	INIT_CLASS_NAME(namespaced_name, "__PHP_Incomplete_Class");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES);
 
@@ -4065,7 +4065,7 @@ static zend_class_entry *register_class_AssertionError(zend_class_entry *class_e
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "AssertionError");
+	INIT_CLASS_NAME(namespaced_name, "AssertionError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 

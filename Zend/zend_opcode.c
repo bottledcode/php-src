@@ -337,10 +337,10 @@ ZEND_API void destroy_zend_class(zval *zv)
 		case ZEND_USER_CLASS:
 			if (!(ce->ce_flags & ZEND_ACC_CACHED)) {
 				if (ce->parent_name && !(ce->ce_flags & ZEND_ACC_RESOLVED_PARENT)) {
-					zend_string_release_ex((zend_string *)ce->parent_name, 0);
+					zend_string_release_ex(ce->parent_name->name, 0);
 				}
 
-				zend_string_release_ex((zend_string *)ce->name, 0);
+				zend_string_release_ex(ce->namespaced_name.name, 0);
 				zend_string_release_ex(ce->info.user.filename, 0);
 
 				if (ce->doc_comment) {
@@ -474,7 +474,7 @@ ZEND_API void destroy_zend_class(zval *zv)
 				}
 			} ZEND_HASH_FOREACH_END();
 			zend_hash_destroy(&ce->properties_info);
-			zend_string_release_ex((zend_string *)ce->name, 1);
+			zend_string_release_ex(ce->namespaced_name.name, 1);
 
 			/* TODO: eliminate this loop for classes without functions with arg_info / attributes */
 			ZEND_HASH_MAP_FOREACH_PTR(&ce->function_table, fn) {

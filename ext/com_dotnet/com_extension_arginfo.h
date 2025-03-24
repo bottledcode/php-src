@@ -292,7 +292,7 @@ static zend_class_entry *register_class_variant(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "variant");
+	INIT_CLASS_NAME(namespaced_name, "variant");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_variant_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -304,7 +304,7 @@ static zend_class_entry *register_class_com(zend_class_entry *class_entry_varian
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "com");
+	INIT_CLASS_NAME(namespaced_name, "com");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_com_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_variant, 0);
 
@@ -317,7 +317,7 @@ static zend_class_entry *register_class_dotnet(zend_class_entry *class_entry_var
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "dotnet");
+	INIT_CLASS_NAME(namespaced_name, "dotnet");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_dotnet_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_variant, 0);
 
@@ -330,7 +330,7 @@ static zend_class_entry *register_class_com_safearray_proxy(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "com_safearray_proxy");
+	INIT_CLASS_NAME(namespaced_name, "com_safearray_proxy");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -342,7 +342,7 @@ static zend_class_entry *register_class_com_exception(zend_class_entry *class_en
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "com_exception");
+	INIT_CLASS_NAME(namespaced_name, "com_exception");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, ZEND_ACC_FINAL);
 

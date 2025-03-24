@@ -236,7 +236,7 @@ static zend_class_entry *register_class_SessionHandlerInterface(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SessionHandlerInterface");
+	INIT_CLASS_NAME(namespaced_name, "SessionHandlerInterface");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SessionHandlerInterface_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
@@ -248,7 +248,7 @@ static zend_class_entry *register_class_SessionIdInterface(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SessionIdInterface");
+	INIT_CLASS_NAME(namespaced_name, "SessionIdInterface");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SessionIdInterface_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
@@ -260,7 +260,7 @@ static zend_class_entry *register_class_SessionUpdateTimestampHandlerInterface(v
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SessionUpdateTimestampHandlerInterface");
+	INIT_CLASS_NAME(namespaced_name, "SessionUpdateTimestampHandlerInterface");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SessionUpdateTimestampHandlerInterface_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
@@ -272,7 +272,7 @@ static zend_class_entry *register_class_SessionHandler(zend_class_entry *class_e
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SessionHandler");
+	INIT_CLASS_NAME(namespaced_name, "SessionHandler");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SessionHandler_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 2, class_entry_SessionHandlerInterface, class_entry_SessionIdInterface);

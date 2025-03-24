@@ -661,7 +661,7 @@ ZEND_API zend_result ZEND_FASTCALL zend_ast_evaluate_inner(
 		}
 		case ZEND_AST_CONSTANT_CLASS:
 			if (scope) {
-				ZVAL_STR_COPY(result, (zend_string *)scope->name);
+				ZVAL_STR_COPY(result, scope->namespaced_name.name);
 			} else {
 				ZVAL_EMPTY_STRING(result);
 			}
@@ -672,14 +672,14 @@ ZEND_API zend_result ZEND_FASTCALL zend_ast_evaluate_inner(
 				return FAILURE;
 			}
 			if (ast->attr == ZEND_FETCH_CLASS_SELF) {
-				ZVAL_STR_COPY(result, (zend_string *)scope->name);
+				ZVAL_STR_COPY(result, scope->namespaced_name.name);
 			} else if (ast->attr == ZEND_FETCH_CLASS_PARENT) {
 				if (!scope->parent) {
 					zend_throw_error(NULL,
 						"Cannot use \"parent\" when current class scope has no parent");
 					return FAILURE;
 				}
-				ZVAL_STR_COPY(result, (zend_string *)scope->parent->name);
+				ZVAL_STR_COPY(result, scope->parent->namespaced_name.name);
 			} else {
 				ZEND_ASSERT(0 && "Should have errored during compilation");
 			}
@@ -1102,7 +1102,7 @@ ZEND_API zend_result ZEND_FASTCALL zend_ast_evaluate_inner(
 							zend_error(E_DEPRECATED,
 								"Calling static trait method %s::%s is deprecated, "
 								"it should only be called on a class using the trait",
-								ZSTR_VAL((zend_string *)fptr->common.scope->name), ZSTR_VAL(fptr->common.function_name));
+								ZSTR_VAL(fptr->common.scope->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 							if (EG(exception)) {
 								return FAILURE;
 							}

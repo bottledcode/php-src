@@ -75,7 +75,7 @@ static zend_class_entry *register_class_Fiber(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Fiber");
+	INIT_CLASS_NAME(namespaced_name, "Fiber");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Fiber_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -87,7 +87,7 @@ static zend_class_entry *register_class_FiberError(zend_class_entry *class_entry
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "FiberError");
+	INIT_CLASS_NAME(namespaced_name, "FiberError");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_FiberError_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, ZEND_ACC_FINAL);
 

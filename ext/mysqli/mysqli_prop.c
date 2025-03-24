@@ -37,7 +37,7 @@
 MYSQL *p; \
 if (!obj->ptr || !(MY_MYSQL *)((MYSQLI_RESOURCE *)(obj->ptr))->ptr) { \
 	if (!quiet) { \
-		zend_throw_error(NULL, "%s object is already closed", (zend_string *)ZSTR_VAL((zend_string *)obj->zo.ce->name)); \
+		zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL(obj->zo.ce->namespaced_name.name)); \
 	} \
 	return FAILURE; \
 } else { \
@@ -49,7 +49,7 @@ if (!obj->ptr || !(MY_MYSQL *)((MYSQLI_RESOURCE *)(obj->ptr))->ptr) { \
 MYSQL_RES *p; \
 if (!obj->ptr) { \
 	if (!quiet) { \
-		zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL((zend_string *)obj->zo.ce->name)); \
+		zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL(obj->zo.ce->namespaced_name.name)); \
 	} \
 	return FAILURE; \
 } else { \
@@ -61,7 +61,7 @@ if (!obj->ptr) { \
 MYSQL_STMT *p; \
 if (!obj->ptr) { \
 	if (!quiet) { \
-		zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL((zend_string *)obj->zo.ce->name)); \
+		zend_throw_error(NULL, "%s object is already closed", ZSTR_VAL(obj->zo.ce->namespaced_name.name)); \
 	} \
 	return FAILURE; \
 } else { \

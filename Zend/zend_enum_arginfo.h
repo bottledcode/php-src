@@ -29,7 +29,7 @@ static zend_class_entry *register_class_UnitEnum(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "UnitEnum");
+	INIT_CLASS_NAME(namespaced_name, "UnitEnum");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_UnitEnum_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
@@ -41,7 +41,7 @@ static zend_class_entry *register_class_BackedEnum(zend_class_entry *class_entry
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "BackedEnum");
+	INIT_CLASS_NAME(namespaced_name, "BackedEnum");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_BackedEnum_methods);
 	class_entry = zend_register_internal_interface(&ce);
 	zend_class_implements(class_entry, 1, class_entry_UnitEnum);

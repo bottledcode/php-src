@@ -26,10 +26,10 @@ void spl_add_class_name(zval *list, zend_class_entry *pce, int allow, int ce_fla
 	if (!allow || (allow > 0 && (pce->ce_flags & ce_flags)) || (allow < 0 && !(pce->ce_flags & ce_flags))) {
 		zval *tmp;
 
-		if ((tmp = zend_hash_find(Z_ARRVAL_P(list), (zend_string *)pce->name)) == NULL) {
+		if ((tmp = zend_hash_find(Z_ARRVAL_P(list), pce->namespaced_name.name)) == NULL) {
 			zval t;
-			ZVAL_STR_COPY(&t, (zend_string *)pce->name);
-			zend_hash_add(Z_ARRVAL_P(list), (zend_string *)pce->name, &t);
+			ZVAL_STR_COPY(&t, pce->namespaced_name.name);
+			zend_hash_add(Z_ARRVAL_P(list), pce->namespaced_name.name, &t);
 		}
 	}
 }
@@ -86,8 +86,8 @@ void spl_set_private_debug_info_property(
 )
 {
 	zend_string *mangled_named = zend_mangle_property_name(
-		ZSTR_VAL((zend_string *)ce->name),
-		ZSTR_LEN((zend_string *)ce->name),
+		ZSTR_VAL(ce->namespaced_name.name),
+		ZSTR_LEN(ce->namespaced_name.name),
 		property,
 		property_len,
 		/* persistent */ false

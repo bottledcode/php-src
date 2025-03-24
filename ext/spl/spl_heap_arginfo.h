@@ -161,7 +161,7 @@ static zend_class_entry *register_class_SplPriorityQueue(zend_class_entry *class
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplPriorityQueue");
+	INIT_CLASS_NAME(namespaced_name, "SplPriorityQueue");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplPriorityQueue_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 2, class_entry_Iterator, class_entry_Countable);
@@ -192,7 +192,7 @@ static zend_class_entry *register_class_SplHeap(zend_class_entry *class_entry_It
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplHeap");
+	INIT_CLASS_NAME(namespaced_name, "SplHeap");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplHeap_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_ABSTRACT);
 	zend_class_implements(class_entry, 2, class_entry_Iterator, class_entry_Countable);
@@ -205,7 +205,7 @@ static zend_class_entry *register_class_SplMinHeap(zend_class_entry *class_entry
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplMinHeap");
+	INIT_CLASS_NAME(namespaced_name, "SplMinHeap");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplMinHeap_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_SplHeap, 0);
 
@@ -217,7 +217,7 @@ static zend_class_entry *register_class_SplMaxHeap(zend_class_entry *class_entry
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SplMaxHeap");
+	INIT_CLASS_NAME(namespaced_name, "SplMaxHeap");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplMaxHeap_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_SplHeap, 0);
 

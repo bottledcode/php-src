@@ -782,7 +782,7 @@ static zend_class_entry *register_class_OpenSSLCertificate(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "OpenSSLCertificate");
+	INIT_CLASS_NAME(namespaced_name, "OpenSSLCertificate");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -794,7 +794,7 @@ static zend_class_entry *register_class_OpenSSLCertificateSigningRequest(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "OpenSSLCertificateSigningRequest");
+	INIT_CLASS_NAME(namespaced_name, "OpenSSLCertificateSigningRequest");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -806,7 +806,7 @@ static zend_class_entry *register_class_OpenSSLAsymmetricKey(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "OpenSSLAsymmetricKey");
+	INIT_CLASS_NAME(namespaced_name, "OpenSSLAsymmetricKey");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 

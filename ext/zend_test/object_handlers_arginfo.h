@@ -45,7 +45,7 @@ static zend_class_entry *register_class_DoOperationNoCast(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "DoOperationNoCast");
+	INIT_CLASS_NAME(namespaced_name, "DoOperationNoCast");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_DoOperationNoCast_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -63,7 +63,7 @@ static zend_class_entry *register_class_LongCastableNoOperations(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "LongCastableNoOperations");
+	INIT_CLASS_NAME(namespaced_name, "LongCastableNoOperations");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_LongCastableNoOperations_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -81,7 +81,7 @@ static zend_class_entry *register_class_FloatCastableNoOperations(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "FloatCastableNoOperations");
+	INIT_CLASS_NAME(namespaced_name, "FloatCastableNoOperations");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_FloatCastableNoOperations_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -99,7 +99,7 @@ static zend_class_entry *register_class_NumericCastableNoOperations(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "NumericCastableNoOperations");
+	INIT_CLASS_NAME(namespaced_name, "NumericCastableNoOperations");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_NumericCastableNoOperations_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -117,7 +117,7 @@ static zend_class_entry *register_class_DimensionHandlersNoArrayAccess(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "DimensionHandlersNoArrayAccess");
+	INIT_CLASS_NAME(namespaced_name, "DimensionHandlersNoArrayAccess");
 	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 

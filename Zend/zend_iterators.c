@@ -56,7 +56,9 @@ static const zend_object_handlers iterator_object_handlers = {
 
 ZEND_API void zend_register_iterator_wrapper(void)
 {
-	INIT_CLASS_ENTRY(zend_iterator_class_entry, "__iterator_wrapper", NULL);
+	zend_namespaced_name name;
+	INIT_CLASS_NAME(name, "__iterator_wrapper");
+	INIT_CLASS_ENTRY(zend_iterator_class_entry, name, NULL);
 	zend_iterator_class_entry.default_object_handlers = &iterator_object_handlers;
 }
 

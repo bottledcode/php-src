@@ -201,7 +201,7 @@ static zval *xmlreader_write_property(zend_object *object, zend_string *name, zv
 	xmlreader_prop_handler *hnd = xmlreader_get_prop_handler(name, cache_slot);
 
 	if (hnd != NULL) {
-		zend_readonly_property_modification_error_ex(ZSTR_VAL((zend_string *)object->ce->name), ZSTR_VAL(name));
+		zend_readonly_property_modification_error_ex(ZSTR_VAL(object->ce->namespaced_name.name), ZSTR_VAL(name));
 	} else {
 		value = zend_std_write_property(object, name, value, cache_slot);
 	}
@@ -215,7 +215,7 @@ void xmlreader_unset_property(zend_object *object, zend_string *name, void **cac
 	xmlreader_prop_handler *hnd = xmlreader_get_prop_handler(name, cache_slot);
 
 	if (hnd != NULL) {
-		zend_throw_error(NULL, "Cannot unset %s::$%s", ZSTR_VAL((zend_string *)object->ce->name), ZSTR_VAL(name));
+		zend_throw_error(NULL, "Cannot unset %s::$%s", ZSTR_VAL(object->ce->namespaced_name.name), ZSTR_VAL(name));
 		return;
 	}
 
@@ -1299,7 +1299,7 @@ PHP_METHOD(XMLReader, expand)
 		/* Note: cannot use NODE_GET_OBJ here because of the wrong return type */
 		domobj = Z_LIBXML_NODE_P(basenode);
 		if (UNEXPECTED(domobj->node == NULL)) {
-			php_error_docref(NULL, E_WARNING, "Couldn't fetch %s", ZSTR_VAL((zend_string *)Z_OBJCE_P(basenode)->name));
+			php_error_docref(NULL, E_WARNING, "Couldn't fetch %s", ZSTR_VAL(Z_OBJCE_P(basenode)->namespaced_name.name));
 			RETURN_FALSE;
 		}
 		node = domobj->node->node;

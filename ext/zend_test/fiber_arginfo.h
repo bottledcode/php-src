@@ -39,7 +39,7 @@ static zend_class_entry *register_class__ZendTestFiber(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "_ZendTestFiber");
+	INIT_CLASS_NAME(namespaced_name, "_ZendTestFiber");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class__ZendTestFiber_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 

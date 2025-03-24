@@ -95,7 +95,7 @@ try_again:
 		case IS_OBJECT:
 			ZEND_ASSERT(Z_OBJCE_P(scalar)->ce_flags & ZEND_ACC_ENUM);
 			if (Z_OBJCE_P(scalar)->enum_backing_type == IS_UNDEF) {
-				zend_value_error("Unbacked enum %s cannot be converted to a string", ZSTR_VAL((zend_string *)Z_OBJCE_P(scalar)->name));
+				zend_value_error("Unbacked enum %s cannot be converted to a string", ZSTR_VAL(Z_OBJCE_P(scalar)->namespaced_name.name));
 				return;
 			}
 			scalar = zend_enum_fetch_case_value(Z_OBJ_P(scalar));

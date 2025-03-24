@@ -81,7 +81,7 @@ static zend_class_entry *register_class_Attribute(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Attribute");
+	INIT_CLASS_NAME(namespaced_name, "Attribute");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Attribute_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -154,7 +154,7 @@ static zend_class_entry *register_class_ReturnTypeWillChange(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "ReturnTypeWillChange");
+	INIT_CLASS_NAME(namespaced_name, "ReturnTypeWillChange");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_ReturnTypeWillChange_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -173,7 +173,7 @@ static zend_class_entry *register_class_AllowDynamicProperties(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "AllowDynamicProperties");
+	INIT_CLASS_NAME(namespaced_name, "AllowDynamicProperties");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_AllowDynamicProperties_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
@@ -192,7 +192,7 @@ static zend_class_entry *register_class_SensitiveParameter(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SensitiveParameter");
+	INIT_CLASS_NAME(namespaced_name, "SensitiveParameter");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SensitiveParameter_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 
@@ -211,7 +211,7 @@ static zend_class_entry *register_class_SensitiveParameterValue(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "SensitiveParameterValue");
+	INIT_CLASS_NAME(namespaced_name, "SensitiveParameterValue");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_SensitiveParameterValue_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -227,7 +227,7 @@ static zend_class_entry *register_class_Override(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Override");
+	INIT_CLASS_NAME(namespaced_name, "Override");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Override_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 
@@ -246,7 +246,7 @@ static zend_class_entry *register_class_Deprecated(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "Deprecated");
+	INIT_CLASS_NAME(namespaced_name, "Deprecated");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_Deprecated_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 

@@ -56,7 +56,7 @@ static zend_class_entry *register_class_CURLFile(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "CURLFile");
+	INIT_CLASS_NAME(namespaced_name, "CURLFile");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_CURLFile_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
@@ -84,7 +84,7 @@ static zend_class_entry *register_class_CURLStringFile(void)
 	zend_class_entry ce, *class_entry;
 	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_NAME(namespaced_name, ce, "CURLStringFile");
+	INIT_CLASS_NAME(namespaced_name, "CURLStringFile");
 	INIT_CLASS_ENTRY(ce, namespaced_name, class_CURLStringFile_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 

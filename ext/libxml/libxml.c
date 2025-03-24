@@ -1275,7 +1275,7 @@ zval *php_libxml_register_export(zend_class_entry *ce, php_libxml_export_node ex
 	php_libxml_initialize();
 	export_hnd.export_func = export_function;
 
-	return zend_hash_add_mem(&php_libxml_exports, (zend_string *)ce->name, &export_hnd, sizeof(export_hnd));
+	return zend_hash_add_mem(&php_libxml_exports, ce->namespaced_name.name, &export_hnd, sizeof(export_hnd));
 }
 
 PHP_LIBXML_API xmlNodePtr php_libxml_import_node(zval *object)
@@ -1289,7 +1289,7 @@ PHP_LIBXML_API xmlNodePtr php_libxml_import_node(zval *object)
 		while (ce->parent != NULL) {
 			ce = ce->parent;
 		}
-		if ((export_hnd = zend_hash_find_ptr(&php_libxml_exports, (zend_string *)ce->name))) {
+		if ((export_hnd = zend_hash_find_ptr(&php_libxml_exports, ce->namespaced_name.name))) {
 			node = export_hnd->export_func(object);
 		}
 	}
