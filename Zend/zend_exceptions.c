@@ -63,8 +63,8 @@ static int zend_implement_throwable(zend_class_entry *interface, zend_class_entr
 	while (root->parent) {
 		root = root->parent;
 	}
-	if (zend_string_equals_literal(root->name, "Exception")
-			|| zend_string_equals_literal(root->name, "Error")) {
+	if (zend_string_equals_literal(root->namespaced_name.name, "Exception")
+			|| zend_string_equals_literal(root->namespaced_name.name, "Error")) {
 		return SUCCESS;
 	}
 
@@ -75,8 +75,8 @@ static int zend_implement_throwable(zend_class_entry *interface, zend_class_entr
 			? "%s %s cannot implement interface %s, extend Exception or Error instead"
 			: "%s %s cannot implement interface %s",
 		zend_get_object_type_uc(class_type),
-		ZSTR_VAL(class_type->name),
-		ZSTR_VAL(interface->name));
+		ZSTR_VAL(class_type->namespaced_name.name),
+		ZSTR_VAL(interface->namespaced_name.name));
 	return FAILURE;
 }
 /* }}} */
@@ -693,7 +693,7 @@ ZEND_METHOD(Exception, __toString)
 			? zend_string_copy(Z_STR(trace))
 			: ZSTR_INIT_LITERAL("#0 {main}\n", false);
 
-		zend_string *name = Z_OBJCE_P(exception)->name;
+		zend_string *name = Z_OBJCE_P(exception)->namespaced_name.name;
 
 		if (ZSTR_LEN(message) > 0) {
 			zval message_zv;
@@ -796,9 +796,13 @@ void zend_register_default_exception(void) /* {{{ */
 	zend_ce_request_parse_body_exception = register_class_RequestParseBodyException(zend_ce_exception);
 	zend_init_exception_class_entry(zend_ce_request_parse_body_exception);
 
-	INIT_CLASS_ENTRY(zend_ce_unwind_exit, "UnwindExit", NULL);
+	zend_namespaced_name unwind_exit_name;
+	INIT_CLASS_NAME(unwind_exit_name, "UnwindExit");
+	INIT_CLASS_ENTRY(zend_ce_unwind_exit, unwind_exit_name, NULL);
 
-	INIT_CLASS_ENTRY(zend_ce_graceful_exit, "GracefulExit", NULL);
+	zend_namespaced_name graceful_exit_name;
+	INIT_CLASS_NAME(graceful_exit_name, "GracefulExit");
+	INIT_CLASS_ENTRY(zend_ce_graceful_exit, graceful_exit_name, NULL);
 }
 /* }}} */
 
@@ -926,7 +930,7 @@ ZEND_API ZEND_COLD zend_result zend_exception_error(zend_object *ex, int severit
 		zend_call_known_instance_method_with_0_params(ex->ce->__tostring, ex, &tmp);
 		if (!EG(exception)) {
 			if (Z_TYPE(tmp) != IS_STRING) {
-				zend_error(E_WARNING, "%s::__toString() must return a string", ZSTR_VAL(ce_exception->name));
+				zend_error(E_WARNING, "%s::__toString() must return a string", ZSTR_VAL(ce_exception->namespaced_name.name));
 			} else {
 				zend_update_property_ex(i_get_exception_base(ex), ex, ZSTR_KNOWN(ZEND_STR_STRING), &tmp);
 			}
@@ -945,7 +949,7 @@ ZEND_API ZEND_COLD zend_result zend_exception_error(zend_object *ex, int severit
 
 			zend_error_va(E_WARNING, (file && ZSTR_LEN(file) > 0) ? file : NULL, line,
 				"Uncaught %s in exception handling during call to %s::__toString()",
-				ZSTR_VAL(Z_OBJCE(zv)->name), ZSTR_VAL(ce_exception->name));
+				ZSTR_VAL(Z_OBJCE(zv)->namespaced_name.name), ZSTR_VAL(ce_exception->namespaced_name.name));
 
 			if (file) {
 				zend_string_release_ex(file, 0);
@@ -966,7 +970,7 @@ ZEND_API ZEND_COLD zend_result zend_exception_error(zend_object *ex, int severit
 		/* We successfully unwound, nothing more to do.
 		 * We still return FAILURE in this case, as further execution should still be aborted. */
 	} else {
-		zend_error(severity, "Uncaught exception %s", ZSTR_VAL(ce_exception->name));
+		zend_error(severity, "Uncaught exception %s", ZSTR_VAL(ce_exception->namespaced_name.name));
 	}
 
 	OBJ_RELEASE(ex);

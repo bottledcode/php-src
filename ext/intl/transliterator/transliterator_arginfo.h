@@ -56,8 +56,10 @@ static const zend_function_entry class_Transliterator_methods[] = {
 static zend_class_entry *register_class_Transliterator(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Transliterator", class_Transliterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "Transliterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Transliterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval const_FORWARD_value;

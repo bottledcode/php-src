@@ -524,8 +524,10 @@ static void register_tidy_symbols(int module_number)
 static zend_class_entry *register_class_tidy(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "tidy", class_tidy_methods);
+	INIT_CLASS_NAME(namespaced_name, "tidy");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_tidy_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval property_errorBuffer_default_value;
@@ -544,8 +546,10 @@ static zend_class_entry *register_class_tidy(void)
 static zend_class_entry *register_class_tidyNode(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "tidyNode", class_tidyNode_methods);
+	INIT_CLASS_NAME(namespaced_name, "tidyNode");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_tidyNode_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zval property_value_default_value;

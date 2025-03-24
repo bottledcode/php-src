@@ -1097,7 +1097,7 @@ ZEND_METHOD(FiberError, __construct)
 	zend_throw_error(
 		NULL,
 		"The \"%s\" class is reserved for internal use and cannot be manually instantiated",
-		ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name)
+		ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->namespaced_name.name)
 	);
 }
 

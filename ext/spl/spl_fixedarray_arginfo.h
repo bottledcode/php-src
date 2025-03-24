@@ -92,8 +92,10 @@ static const zend_function_entry class_SplFixedArray_methods[] = {
 static zend_class_entry *register_class_SplFixedArray(zend_class_entry *class_entry_IteratorAggregate, zend_class_entry *class_entry_ArrayAccess, zend_class_entry *class_entry_Countable, zend_class_entry *class_entry_JsonSerializable)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SplFixedArray", class_SplFixedArray_methods);
+	INIT_CLASS_NAME(namespaced_name, "SplFixedArray");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SplFixedArray_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 4, class_entry_IteratorAggregate, class_entry_ArrayAccess, class_entry_Countable, class_entry_JsonSerializable);
 

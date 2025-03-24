@@ -27,8 +27,10 @@ static const zend_function_entry class_IntlDatePatternGenerator_methods[] = {
 static zend_class_entry *register_class_IntlDatePatternGenerator(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlDatePatternGenerator", class_IntlDatePatternGenerator_methods);
+	INIT_CLASS_NAME(namespaced_name, "IntlDatePatternGenerator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlDatePatternGenerator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;

@@ -30,8 +30,10 @@ static const zend_function_entry class_Normalizer_methods[] = {
 static zend_class_entry *register_class_Normalizer(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Normalizer", class_Normalizer_methods);
+	INIT_CLASS_NAME(namespaced_name, "Normalizer");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Normalizer_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval const_FORM_D_value;

@@ -154,8 +154,10 @@ static const zend_function_entry class_IntlCodePointBreakIterator_methods[] = {
 static zend_class_entry *register_class_IntlBreakIterator(zend_class_entry *class_entry_IteratorAggregate)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlBreakIterator", class_IntlBreakIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "IntlBreakIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlBreakIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 	zend_class_implements(class_entry, 1, class_entry_IteratorAggregate);
 
@@ -279,8 +281,10 @@ static zend_class_entry *register_class_IntlBreakIterator(zend_class_entry *clas
 static zend_class_entry *register_class_IntlRuleBasedBreakIterator(zend_class_entry *class_entry_IntlBreakIterator)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlRuleBasedBreakIterator", class_IntlRuleBasedBreakIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "IntlRuleBasedBreakIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlRuleBasedBreakIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_IntlBreakIterator, ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -289,8 +293,10 @@ static zend_class_entry *register_class_IntlRuleBasedBreakIterator(zend_class_en
 static zend_class_entry *register_class_IntlCodePointBreakIterator(zend_class_entry *class_entry_IntlBreakIterator)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlCodePointBreakIterator", class_IntlCodePointBreakIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "IntlCodePointBreakIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IntlCodePointBreakIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_IntlBreakIterator, ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;

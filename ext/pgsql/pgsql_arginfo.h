@@ -1146,8 +1146,10 @@ static void register_pgsql_symbols(int module_number)
 static zend_class_entry *register_class_PgSql_Connection(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "PgSql", "Connection", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "PgSql", "Connection");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -1156,8 +1158,10 @@ static zend_class_entry *register_class_PgSql_Connection(void)
 static zend_class_entry *register_class_PgSql_Result(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "PgSql", "Result", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "PgSql", "Result");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -1166,8 +1170,10 @@ static zend_class_entry *register_class_PgSql_Result(void)
 static zend_class_entry *register_class_PgSql_Lob(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "PgSql", "Lob", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "PgSql", "Lob");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;

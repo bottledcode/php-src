@@ -288,8 +288,10 @@ static void register_sqlite3_symbols(int module_number)
 static zend_class_entry *register_class_SQLite3Exception(zend_class_entry *class_entry_Exception)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SQLite3Exception", NULL);
+	INIT_CLASS_NAME(namespaced_name, "SQLite3Exception");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 
 	return class_entry;
@@ -298,8 +300,10 @@ static zend_class_entry *register_class_SQLite3Exception(zend_class_entry *class
 static zend_class_entry *register_class_SQLite3(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SQLite3", class_SQLite3_methods);
+	INIT_CLASS_NAME(namespaced_name, "SQLite3");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SQLite3_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval const_OK_value;
@@ -532,8 +536,10 @@ static zend_class_entry *register_class_SQLite3(void)
 static zend_class_entry *register_class_SQLite3Stmt(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SQLite3Stmt", class_SQLite3Stmt_methods);
+	INIT_CLASS_NAME(namespaced_name, "SQLite3Stmt");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SQLite3Stmt_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -542,8 +548,10 @@ static zend_class_entry *register_class_SQLite3Stmt(void)
 static zend_class_entry *register_class_SQLite3Result(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SQLite3Result", class_SQLite3Result_methods);
+	INIT_CLASS_NAME(namespaced_name, "SQLite3Result");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SQLite3Result_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;

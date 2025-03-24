@@ -27,8 +27,10 @@ static const zend_function_entry class_BackedEnum_methods[] = {
 static zend_class_entry *register_class_UnitEnum(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "UnitEnum", class_UnitEnum_methods);
+	INIT_CLASS_NAME(namespaced_name, "UnitEnum");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_UnitEnum_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -37,8 +39,10 @@ static zend_class_entry *register_class_UnitEnum(void)
 static zend_class_entry *register_class_BackedEnum(zend_class_entry *class_entry_UnitEnum)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "BackedEnum", class_BackedEnum_methods);
+	INIT_CLASS_NAME(namespaced_name, "BackedEnum");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_BackedEnum_methods);
 	class_entry = zend_register_internal_interface(&ce);
 	zend_class_implements(class_entry, 1, class_entry_UnitEnum);
 

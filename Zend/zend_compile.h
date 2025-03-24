@@ -583,7 +583,7 @@ typedef struct _zend_internal_function {
 	void *reserved[ZEND_MAX_RESERVED_RESOURCES];
 } zend_internal_function;
 
-#define ZEND_FN_SCOPE_NAME(function)  ((function) && (function)->common.scope ? ZSTR_VAL((function)->common.scope->name) : "")
+#define ZEND_FN_SCOPE_NAME(function)  ((function) && (function)->common.scope ? ZSTR_VAL((function)->common.scope->namespaced_name.name) : "")
 
 union _zend_function {
 	uint8_t type;	/* MUST be the first element of this struct! */
@@ -894,6 +894,7 @@ typedef enum {
 	ZEND_MODIFIER_TARGET_CONSTANT,
 	ZEND_MODIFIER_TARGET_CPP,
 	ZEND_MODIFIER_TARGET_PROPERTY_HOOK,
+	ZEND_MODIFIER_TARGET_INNER_CLASS,
 } zend_modifier_target;
 
 /* Used during AST construction */
@@ -1020,20 +1021,22 @@ ZEND_API zend_string *zend_type_to_string(zend_type type);
 #define ZEND_FETCH_CLASS_AUTO		4
 #define ZEND_FETCH_CLASS_INTERFACE	5
 #define ZEND_FETCH_CLASS_TRAIT		6
+#define ZEND_FETCH_CLASS_OUTER		7
 #define ZEND_FETCH_CLASS_MASK        0x0f
 #define ZEND_FETCH_CLASS_NO_AUTOLOAD 0x80
 #define ZEND_FETCH_CLASS_SILENT      0x0100
 #define ZEND_FETCH_CLASS_EXCEPTION   0x0200
 #define ZEND_FETCH_CLASS_ALLOW_UNLINKED 0x0400
 #define ZEND_FETCH_CLASS_ALLOW_NEARLY_LINKED 0x0800
+#define ZEND_FETCH_CLASS_NO_INNER    0x1000
 
 /* These should not clash with ZEND_ACC_PPP_MASK and ZEND_ACC_PPP_SET_MASK */
 #define ZEND_PARAM_REF      (1<<3)
 #define ZEND_PARAM_VARIADIC (1<<4)
 
-#define ZEND_NAME_FQ       0
-#define ZEND_NAME_NOT_FQ   1
-#define ZEND_NAME_RELATIVE 2
+#define ZEND_NAME_FQ          0
+#define ZEND_NAME_NOT_FQ      1
+#define ZEND_NAME_RELATIVE    2
 
 /* ZEND_FETCH_ flags in class name AST of new const expression must not clash with ZEND_NAME_ flags */
 #define ZEND_CONST_EXPR_NEW_FETCH_TYPE_SHIFT 2

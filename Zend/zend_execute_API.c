@@ -551,7 +551,7 @@ ZEND_API const char *get_active_class_name(const char **space) /* {{{ */
 			if (space) {
 				*space = ce ? "::" : "";
 			}
-			return ce ? ZSTR_VAL(ce->name) : "";
+			return ce ? ZSTR_VAL(ce->namespaced_name.name) : "";
 		}
 		default:
 			if (space) {
@@ -618,7 +618,7 @@ ZEND_API zend_string *get_active_function_or_method_name(void) /* {{{ */
 ZEND_API zend_string *get_function_or_method_name(const zend_function *func) /* {{{ */
 {
 	if (func->common.scope && func->common.function_name) {
-		return zend_create_member_string(func->common.scope->name, func->common.function_name);
+		return zend_create_member_string(func->common.scope->namespaced_name.name, func->common.function_name);
 	}
 
 	return func->common.function_name ? zend_string_copy(func->common.function_name) : ZSTR_INIT_LITERAL("main", 0);
@@ -1103,7 +1103,7 @@ ZEND_API void zend_call_known_function(
 	if (UNEXPECTED(result == FAILURE)) {
 		if (!EG(exception)) {
 			zend_error_noreturn(E_CORE_ERROR, "Couldn't execute method %s%s%s",
-				fn->common.scope ? ZSTR_VAL(fn->common.scope->name) : "",
+				fn->common.scope ? ZSTR_VAL(fn->common.scope->namespaced_name.name) : "",
 				fn->common.scope ? "::" : "", ZSTR_VAL(fn->common.function_name));
 		}
 	}
@@ -1166,6 +1166,84 @@ ZEND_API bool zend_is_valid_class_name(zend_string *name) {
 	return 1;
 }
 
+static zend_class_entry *zend_resolve_nested_class(zend_string *requested_name, uint32_t flags) {
+	zend_class_entry *ce = NULL;
+	char *separator;
+	zend_string *scope_name = NULL;
+
+	const char *unqualified_name = strrchr(ZSTR_VAL(requested_name), '|');
+	if (unqualified_name == NULL) {
+		unqualified_name = strrchr(ZSTR_VAL(requested_name), '\\');
+		if (unqualified_name == NULL) {
+			// there is not a nested class here...
+			return NULL;
+		}
+	}
+
+	zend_string *inner_name = zend_string_init(unqualified_name + 1, ZSTR_LEN(requested_name) - (unqualified_name - ZSTR_VAL(requested_name) + 1), 0);
+
+	scope_name = zend_string_init(ZSTR_VAL(requested_name), unqualified_name - ZSTR_VAL(requested_name) + 1, 0);
+	scope_name->val[scope_name->len - 1] = '\\'; // todo: there is probably a better way
+
+	if (ZSTR_LEN(scope_name) == ZSTR_LEN(inner_name) + 1 && zend_string_starts_with_ci(scope_name, inner_name)) {
+		requested_name = zend_string_copy(inner_name);
+	} else {
+		requested_name = zend_string_concat2(ZSTR_VAL(scope_name), ZSTR_LEN(scope_name), ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
+	}
+
+	while ((separator = strrchr(ZSTR_VAL(scope_name), '\\'))) {
+		const size_t outer_len = separator - ZSTR_VAL(scope_name);
+
+		zend_string *outer_class_name = zend_string_init(ZSTR_VAL(scope_name), outer_len, 0);
+		const zend_class_entry *outer_ce = zend_lookup_class_ex(outer_class_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+
+		if (outer_ce) {
+			// Outer class found; now explicitly check the requested class again
+			ce = zend_lookup_class_ex(requested_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+			if (ce) {
+				zend_string_release(scope_name);
+				zend_string_release(outer_class_name);
+				zend_string_release(inner_name);
+				zend_string_release(requested_name);
+				return ce;
+			}
+		}
+
+		// Check if the class is in the outer scope
+		char *outer_name = strrchr(ZSTR_VAL(outer_class_name), '\\');
+		zend_string *outer_name_z;
+		if (!outer_name) {
+			outer_name_z = zend_string_copy(inner_name);
+		} else {
+			zend_string *tmp = zend_string_init(ZSTR_VAL(outer_class_name), outer_name - ZSTR_VAL(outer_class_name), 0);
+			outer_name_z = zend_string_concat3(ZSTR_VAL(tmp), ZSTR_LEN(tmp), "\\", 1, ZSTR_VAL(inner_name), ZSTR_LEN(inner_name));
+			zend_string_release(tmp);
+		}
+		ce = zend_lookup_class_ex(outer_name_z, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+		zend_string_release(outer_name_z);
+		zend_string_release(outer_class_name);
+		if (ce) {
+			zend_string_release(scope_name);
+			zend_string_release(inner_name);
+			zend_string_release(requested_name);
+			return ce;
+		}
+
+		// Continue moving upwards (perhaps the inner class is further up)
+		zend_string *shorter_scope = zend_string_init(ZSTR_VAL(scope_name), outer_len, 0);
+		zend_string_release(scope_name);
+		scope_name = shorter_scope;
+	}
+
+	zend_string_release(scope_name);
+
+	// Final lookup directly at namespace/global scope
+	//ce = zend_lookup_class_ex(inner_name, NULL, flags | ZEND_FETCH_CLASS_NO_INNER);
+	zend_string_release(inner_name);
+	zend_string_release(requested_name);
+	return NULL;
+}
+
 ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *key, uint32_t flags) /* {{{ */
 {
 	zend_class_entry *ce = NULL;
@@ -1225,7 +1303,18 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 		return ce;
 	}
 
-	/* The compiler is not-reentrant. Make sure we autoload only during run-time. */
+	/* Check to see if our current scope is an outer class; if it is, we need to check the outer class's
+     * namespace for the class we're looking for. */
+	if (!(flags & ZEND_FETCH_CLASS_NO_INNER)) {
+		ce = zend_resolve_nested_class(name, flags);
+		if (ce) {
+			if (!key) {
+				zend_string_release_ex(lc_name, 0);
+			}
+			return ce;
+		}
+	}
+
 	if ((flags & ZEND_FETCH_CLASS_NO_AUTOLOAD) || zend_is_compiling()) {
 		if (!key) {
 			zend_string_release_ex(lc_name, 0);

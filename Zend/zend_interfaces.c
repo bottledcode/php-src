@@ -58,7 +58,7 @@ ZEND_API zval* zend_call_method(zend_object *object, zend_class_entry *obj_ce, z
 				&obj_ce->function_table, function_name, function_name_len);
 			if (UNEXPECTED(fn == NULL)) {
 				/* error at c-level */
-				zend_error_noreturn(E_CORE_ERROR, "Couldn't find implementation for method %s::%s", ZSTR_VAL(obj_ce->name), function_name);
+				zend_error_noreturn(E_CORE_ERROR, "Couldn't find implementation for method %s::%s", ZSTR_VAL(obj_ce->namespaced_name.name), function_name);
 			}
 		} else {
 			fn = zend_fetch_function_str(function_name, function_name_len);
@@ -244,7 +244,7 @@ ZEND_API zend_object_iterator *zend_user_it_get_new_iterator(zend_class_entry *c
 
 	if (!ce_it || !ce_it->get_iterator || (ce_it->get_iterator == zend_user_it_get_new_iterator && Z_OBJ(iterator) == Z_OBJ_P(object))) {
 		if (!EG(exception)) {
-			zend_throw_exception_ex(NULL, 0, "Objects returned by %s::getIterator() must be traversable or implement interface Iterator", ce ? ZSTR_VAL(ce->name) : ZSTR_VAL(Z_OBJCE_P(object)->name));
+			zend_throw_exception_ex(NULL, 0, "Objects returned by %s::getIterator() must be traversable or implement interface Iterator", ce ? ZSTR_VAL(ce->namespaced_name.name) : ZSTR_VAL(Z_OBJCE_P(object)->namespaced_name.name));
 		}
 		zval_ptr_dtor(&iterator);
 		return NULL;
@@ -276,10 +276,10 @@ static int zend_implement_traversable(zend_class_entry *interface, zend_class_en
 	}
 	zend_error_noreturn(E_CORE_ERROR, "%s %s must implement interface %s as part of either %s or %s",
 		zend_get_object_type_uc(class_type),
-		ZSTR_VAL(class_type->name),
-		ZSTR_VAL(zend_ce_traversable->name),
-		ZSTR_VAL(zend_ce_iterator->name),
-		ZSTR_VAL(zend_ce_aggregate->name));
+		ZSTR_VAL(class_type->namespaced_name.name),
+		ZSTR_VAL(zend_ce_traversable->namespaced_name.name),
+		ZSTR_VAL(zend_ce_iterator->namespaced_name.name),
+		ZSTR_VAL(zend_ce_aggregate->namespaced_name.name));
 	return FAILURE;
 }
 /* }}} */
@@ -290,7 +290,7 @@ static int zend_implement_aggregate(zend_class_entry *interface, zend_class_entr
 	if (zend_class_implements_interface(class_type, zend_ce_iterator)) {
 		zend_error_noreturn(E_ERROR,
 			"Class %s cannot implement both Iterator and IteratorAggregate at the same time",
-			ZSTR_VAL(class_type->name));
+			ZSTR_VAL(class_type->namespaced_name.name));
 	}
 
 	/* Always initialize iterator_funcs_ptr. */
@@ -332,7 +332,7 @@ static int zend_implement_iterator(zend_class_entry *interface, zend_class_entry
 	if (zend_class_implements_interface(class_type, zend_ce_aggregate)) {
 		zend_error_noreturn(E_ERROR,
 			"Class %s cannot implement both Iterator and IteratorAggregate at the same time",
-			ZSTR_VAL(class_type->name));
+			ZSTR_VAL(class_type->namespaced_name.name));
 	}
 
 	ZEND_ASSERT(!class_type->iterator_funcs_ptr && "Iterator funcs already set?");
@@ -433,7 +433,7 @@ ZEND_API int zend_user_serialize(zval *object, unsigned char **buffer, size_t *b
 	}
 
 	if (result == FAILURE && !EG(exception)) {
-		zend_throw_exception_ex(NULL, 0, "%s::serialize() must return a string or NULL", ZSTR_VAL(ce->name));
+		zend_throw_exception_ex(NULL, 0, "%s::serialize() must return a string or NULL", ZSTR_VAL(ce->namespaced_name.name));
 	}
 	return result;
 }
@@ -477,10 +477,10 @@ static int zend_implement_serializable(zend_class_entry *interface, zend_class_e
 	}
 	if (!(class_type->ce_flags & ZEND_ACC_EXPLICIT_ABSTRACT_CLASS)
 			&& (!class_type->__serialize || !class_type->__unserialize)) {
-		zend_error(E_DEPRECATED, "%s implements the Serializable interface, which is deprecated. Implement __serialize() and __unserialize() instead (or in addition, if support for old PHP versions is necessary)", ZSTR_VAL(class_type->name));
+		zend_error(E_DEPRECATED, "%s implements the Serializable interface, which is deprecated. Implement __serialize() and __unserialize() instead (or in addition, if support for old PHP versions is necessary)", ZSTR_VAL(class_type->namespaced_name.name));
 		if (EG(exception)) {
 			zend_exception_uncaught_error(
-				"During inheritance of %s, while implementing Serializable", ZSTR_VAL(class_type->name));
+				"During inheritance of %s, while implementing Serializable", ZSTR_VAL(class_type->namespaced_name.name));
 		}
 	}
 	return SUCCESS;

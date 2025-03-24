@@ -14,8 +14,10 @@ static const zend_function_entry ext_functions[] = {
 static zend_class_entry *register_class_PDOException(zend_class_entry *class_entry_RuntimeException)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "PDOException", NULL);
+	INIT_CLASS_NAME(namespaced_name, "PDOException");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_RuntimeException, 0);
 
 	zval property_code_default_value;

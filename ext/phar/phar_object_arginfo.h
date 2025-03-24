@@ -607,8 +607,10 @@ static const zend_function_entry class_PharFileInfo_methods[] = {
 static zend_class_entry *register_class_PharException(zend_class_entry *class_entry_Exception)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "PharException", NULL);
+	INIT_CLASS_NAME(namespaced_name, "PharException");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, 0);
 
 	return class_entry;
@@ -617,8 +619,10 @@ static zend_class_entry *register_class_PharException(zend_class_entry *class_en
 static zend_class_entry *register_class_Phar(zend_class_entry *class_entry_RecursiveDirectoryIterator, zend_class_entry *class_entry_Countable, zend_class_entry *class_entry_ArrayAccess)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Phar", class_Phar_methods);
+	INIT_CLASS_NAME(namespaced_name, "Phar");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Phar_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_RecursiveDirectoryIterator, 0);
 	zend_class_implements(class_entry, 2, class_entry_Countable, class_entry_ArrayAccess);
 
@@ -724,8 +728,10 @@ static zend_class_entry *register_class_Phar(zend_class_entry *class_entry_Recur
 static zend_class_entry *register_class_PharData(zend_class_entry *class_entry_RecursiveDirectoryIterator, zend_class_entry *class_entry_Countable, zend_class_entry *class_entry_ArrayAccess)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "PharData", class_PharData_methods);
+	INIT_CLASS_NAME(namespaced_name, "PharData");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_PharData_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_RecursiveDirectoryIterator, 0);
 	zend_class_implements(class_entry, 2, class_entry_Countable, class_entry_ArrayAccess);
 
@@ -735,8 +741,10 @@ static zend_class_entry *register_class_PharData(zend_class_entry *class_entry_R
 static zend_class_entry *register_class_PharFileInfo(zend_class_entry *class_entry_SplFileInfo)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "PharFileInfo", class_PharFileInfo_methods);
+	INIT_CLASS_NAME(namespaced_name, "PharFileInfo");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_PharFileInfo_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_SplFileInfo, 0);
 
 	return class_entry;

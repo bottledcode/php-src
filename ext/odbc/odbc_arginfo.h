@@ -476,8 +476,10 @@ static void register_odbc_symbols(int module_number)
 static zend_class_entry *register_class_Odbc_Connection(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "Odbc", "Connection", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "Odbc", "Connection");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -486,8 +488,10 @@ static zend_class_entry *register_class_Odbc_Connection(void)
 static zend_class_entry *register_class_Odbc_Result(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "Odbc", "Result", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "Odbc", "Result");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;

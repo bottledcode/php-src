@@ -842,7 +842,7 @@ zend_class_entry *zend_optimizer_get_class_entry(
 		return Z_PTR_P(ce_zv);
 	}
 
-	if (op_array && op_array->scope && zend_string_equals_ci(op_array->scope->name, lcname)) {
+	if (op_array && op_array->scope && zend_string_equals_ci(op_array->scope->namespaced_name.name, lcname)) {
 		return op_array->scope;
 	}
 

@@ -2062,7 +2062,7 @@ PHP_FUNCTION(session_set_save_handler)
 		if (PS(mod_user_class_name)) {
 			zend_string_release(PS(mod_user_class_name));
 		}
-		PS(mod_user_class_name) = zend_string_copy(Z_OBJCE_P(obj)->name);
+		PS(mod_user_class_name) = zend_string_copy(Z_OBJCE_P(obj)->namespaced_name.name);
 
 		/* Define mandatory handlers */
 		SESSION_SET_USER_HANDLER_OO_MANDATORY(ps_open, "open");

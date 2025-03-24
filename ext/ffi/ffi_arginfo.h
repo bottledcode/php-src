@@ -199,8 +199,10 @@ static const zend_function_entry class_FFI_CType_methods[] = {
 static zend_class_entry *register_class_FFI(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "FFI", class_FFI_methods);
+	INIT_CLASS_NAME(namespaced_name, "FFI");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_FFI_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval const___BIGGEST_ALIGNMENT___value;
@@ -215,8 +217,10 @@ static zend_class_entry *register_class_FFI(void)
 static zend_class_entry *register_class_FFI_CData(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "FFI", "CData", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "FFI", "CData");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NOT_SERIALIZABLE);
 
 	return class_entry;
@@ -225,8 +229,10 @@ static zend_class_entry *register_class_FFI_CData(void)
 static zend_class_entry *register_class_FFI_CType(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "FFI", "CType", class_FFI_CType_methods);
+	INIT_CLASS_NAME_NS(namespaced_name, "FFI", "CType");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_FFI_CType_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval const_TYPE_VOID_value;
@@ -465,8 +471,10 @@ static zend_class_entry *register_class_FFI_CType(void)
 static zend_class_entry *register_class_FFI_Exception(zend_class_entry *class_entry_Error)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "FFI", "Exception", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "FFI", "Exception");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
 	return class_entry;
@@ -475,8 +483,10 @@ static zend_class_entry *register_class_FFI_Exception(zend_class_entry *class_en
 static zend_class_entry *register_class_FFI_ParserException(zend_class_entry *class_entry_FFI_Exception)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "FFI", "ParserException", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "FFI", "ParserException");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_FFI_Exception, ZEND_ACC_FINAL);
 
 	return class_entry;

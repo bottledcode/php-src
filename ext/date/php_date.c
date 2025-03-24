@@ -310,17 +310,17 @@ static zend_object_handlers date_object_handlers_period;
 static void date_throw_uninitialized_error(zend_class_entry *ce)
 {
 	if (ce->type == ZEND_INTERNAL_CLASS) {
-		zend_throw_error(date_ce_date_object_error, "Object of type %s has not been correctly initialized by calling parent::__construct() in its constructor", ZSTR_VAL(ce->name));
+		zend_throw_error(date_ce_date_object_error, "Object of type %s has not been correctly initialized by calling parent::__construct() in its constructor", ZSTR_VAL(ce->namespaced_name.name));
 	} else {
 		zend_class_entry *ce_ptr = ce;
 		while (ce_ptr && ce_ptr->parent && ce_ptr->type == ZEND_USER_CLASS) {
 			ce_ptr = ce_ptr->parent;
 		}
 		if (ce_ptr->type != ZEND_INTERNAL_CLASS) {
-			zend_throw_error(date_ce_date_object_error, "Object of type %s not been correctly initialized by calling parent::__construct() in its constructor", ZSTR_VAL(ce->name));
+			zend_throw_error(date_ce_date_object_error, "Object of type %s not been correctly initialized by calling parent::__construct() in its constructor", ZSTR_VAL(ce->namespaced_name.name));
 			return;
 		}
-		zend_throw_error(date_ce_date_object_error, "Object of type %s (inheriting %s) has not been correctly initialized by calling parent::__construct() in its constructor", ZSTR_VAL(ce->name), ZSTR_VAL(ce_ptr->name));
+		zend_throw_error(date_ce_date_object_error, "Object of type %s (inheriting %s) has not been correctly initialized by calling parent::__construct() in its constructor", ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(ce_ptr->namespaced_name.name));
 	}
 }
 
@@ -6070,7 +6070,7 @@ static HashTable *date_period_get_properties_for(zend_object *object, zend_prop_
 static void date_period_unset_property(zend_object *object, zend_string *name, void **cache_slot)
 {
 	if (date_period_is_internal_property(name)) {
-		zend_throw_error(NULL, "Cannot unset %s::$%s", ZSTR_VAL(object->ce->name), ZSTR_VAL(name));
+		zend_throw_error(NULL, "Cannot unset %s::$%s", ZSTR_VAL(object->ce->namespaced_name.name), ZSTR_VAL(name));
 		return;
 	}
 

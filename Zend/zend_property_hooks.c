@@ -168,7 +168,7 @@ static void zho_declared_it_fetch_current(zend_object_iterator *iter)
 		 && (get == NULL
 		  || !(get->common.fn_flags & ZEND_ACC_RETURN_REFERENCE))) {
 			zend_throw_error(NULL, "Cannot create reference to property %s::$%s",
-				ZSTR_VAL(zobj->ce->name), zend_get_unmangled_property_name(prop_info->name));
+				ZSTR_VAL(zobj->ce->namespaced_name.name), zend_get_unmangled_property_name(prop_info->name));
 			return;
 		}
 		zend_string *unmangled_name = prop_info->name;
@@ -197,7 +197,7 @@ static void zho_declared_it_fetch_current(zend_object_iterator *iter)
 			if (UNEXPECTED(prop_info->flags & ZEND_ACC_READONLY)) {
 				zend_throw_error(NULL,
 					"Cannot acquire reference to readonly property %s::$%s",
-					ZSTR_VAL(prop_info->ce->name), zend_get_unmangled_property_name(prop_info->name));
+					ZSTR_VAL(prop_info->ce->namespaced_name.name), zend_get_unmangled_property_name(prop_info->name));
 				return;
 			}
 			ZVAL_MAKE_REF(property);

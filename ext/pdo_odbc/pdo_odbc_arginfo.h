@@ -9,8 +9,10 @@ static void register_pdo_odbc_symbols(int module_number)
 static zend_class_entry *register_class_Pdo_Odbc(zend_class_entry *class_entry_PDO)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_NS_CLASS_ENTRY(ce, "Pdo", "Odbc", NULL);
+	INIT_CLASS_NAME_NS(namespaced_name, "Pdo", "Odbc");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_PDO, ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval const_ATTR_USE_CURSOR_LIBRARY_value;

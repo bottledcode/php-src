@@ -257,8 +257,10 @@ static const zend_function_entry class_RecursiveArrayIterator_methods[] = {
 static zend_class_entry *register_class_ArrayObject(zend_class_entry *class_entry_IteratorAggregate, zend_class_entry *class_entry_ArrayAccess, zend_class_entry *class_entry_Serializable, zend_class_entry *class_entry_Countable)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ArrayObject", class_ArrayObject_methods);
+	INIT_CLASS_NAME(namespaced_name, "ArrayObject");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ArrayObject_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 4, class_entry_IteratorAggregate, class_entry_ArrayAccess, class_entry_Serializable, class_entry_Countable);
 
@@ -280,8 +282,10 @@ static zend_class_entry *register_class_ArrayObject(zend_class_entry *class_entr
 static zend_class_entry *register_class_ArrayIterator(zend_class_entry *class_entry_SeekableIterator, zend_class_entry *class_entry_ArrayAccess, zend_class_entry *class_entry_Serializable, zend_class_entry *class_entry_Countable)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ArrayIterator", class_ArrayIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "ArrayIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ArrayIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 	zend_class_implements(class_entry, 4, class_entry_SeekableIterator, class_entry_ArrayAccess, class_entry_Serializable, class_entry_Countable);
 
@@ -303,8 +307,10 @@ static zend_class_entry *register_class_ArrayIterator(zend_class_entry *class_en
 static zend_class_entry *register_class_RecursiveArrayIterator(zend_class_entry *class_entry_ArrayIterator, zend_class_entry *class_entry_RecursiveIterator)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "RecursiveArrayIterator", class_RecursiveArrayIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "RecursiveArrayIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_RecursiveArrayIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_ArrayIterator, 0);
 	zend_class_implements(class_entry, 1, class_entry_RecursiveIterator);
 

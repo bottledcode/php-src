@@ -120,8 +120,10 @@ static const zend_function_entry class_InternalIterator_methods[] = {
 static zend_class_entry *register_class_Traversable(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Traversable", NULL);
+	INIT_CLASS_NAME(namespaced_name, "Traversable");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -130,8 +132,10 @@ static zend_class_entry *register_class_Traversable(void)
 static zend_class_entry *register_class_IteratorAggregate(zend_class_entry *class_entry_Traversable)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IteratorAggregate", class_IteratorAggregate_methods);
+	INIT_CLASS_NAME(namespaced_name, "IteratorAggregate");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_IteratorAggregate_methods);
 	class_entry = zend_register_internal_interface(&ce);
 	zend_class_implements(class_entry, 1, class_entry_Traversable);
 
@@ -141,8 +145,10 @@ static zend_class_entry *register_class_IteratorAggregate(zend_class_entry *clas
 static zend_class_entry *register_class_Iterator(zend_class_entry *class_entry_Traversable)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Iterator", class_Iterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "Iterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Iterator_methods);
 	class_entry = zend_register_internal_interface(&ce);
 	zend_class_implements(class_entry, 1, class_entry_Traversable);
 
@@ -152,8 +158,10 @@ static zend_class_entry *register_class_Iterator(zend_class_entry *class_entry_T
 static zend_class_entry *register_class_ArrayAccess(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ArrayAccess", class_ArrayAccess_methods);
+	INIT_CLASS_NAME(namespaced_name, "ArrayAccess");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ArrayAccess_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -162,8 +170,10 @@ static zend_class_entry *register_class_ArrayAccess(void)
 static zend_class_entry *register_class_Serializable(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Serializable", class_Serializable_methods);
+	INIT_CLASS_NAME(namespaced_name, "Serializable");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Serializable_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -172,8 +182,10 @@ static zend_class_entry *register_class_Serializable(void)
 static zend_class_entry *register_class_Countable(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Countable", class_Countable_methods);
+	INIT_CLASS_NAME(namespaced_name, "Countable");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Countable_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -182,8 +194,10 @@ static zend_class_entry *register_class_Countable(void)
 static zend_class_entry *register_class_Stringable(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Stringable", class_Stringable_methods);
+	INIT_CLASS_NAME(namespaced_name, "Stringable");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Stringable_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;
@@ -192,8 +206,10 @@ static zend_class_entry *register_class_Stringable(void)
 static zend_class_entry *register_class_InternalIterator(zend_class_entry *class_entry_Iterator)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "InternalIterator", class_InternalIterator_methods);
+	INIT_CLASS_NAME(namespaced_name, "InternalIterator");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_InternalIterator_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NOT_SERIALIZABLE);
 	zend_class_implements(class_entry, 1, class_entry_Iterator);
 

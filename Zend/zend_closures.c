@@ -89,9 +89,9 @@ static bool zend_valid_closure_binding(
 				!instanceof_function(Z_OBJCE_P(newthis), func->common.scope)) {
 			/* Binding incompatible $this to an internal method is not supported. */
 			zend_error(E_WARNING, "Cannot bind method %s::%s() to object of class %s",
-					ZSTR_VAL(func->common.scope->name),
+					ZSTR_VAL(func->common.scope->namespaced_name.name),
 					ZSTR_VAL(func->common.function_name),
-					ZSTR_VAL(Z_OBJCE_P(newthis)->name));
+					ZSTR_VAL(Z_OBJCE_P(newthis)->namespaced_name.name));
 			return 0;
 		}
 	} else if (is_fake_closure && func->common.scope
@@ -107,7 +107,7 @@ static bool zend_valid_closure_binding(
 	if (scope && scope != func->common.scope && scope->type == ZEND_INTERNAL_CLASS) {
 		/* rebinding to internal class is not allowed */
 		zend_error(E_WARNING, "Cannot bind closure to scope of internal class %s",
-				ZSTR_VAL(scope->name));
+				ZSTR_VAL(scope->namespaced_name.name));
 		return 0;
 	}
 
@@ -597,7 +597,7 @@ static HashTable *zend_closure_get_debug_info(zend_object *object, int *is_temp)
 
 	if (closure->func.op_array.fn_flags & ZEND_ACC_FAKE_CLOSURE) {
 		if (closure->func.common.scope) {
-			zend_string *class_name = closure->func.common.scope->name;
+			zend_string *class_name = closure->func.common.scope->namespaced_name.name;
 			zend_string *func_name = closure->func.common.function_name;
 			zend_string *combined = zend_string_concat3(
 				ZSTR_VAL(class_name), ZSTR_LEN(class_name),

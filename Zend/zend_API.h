@@ -277,12 +277,30 @@ typedef struct _zend_fcall_info_cache {
 #endif
 
 #define INIT_CLASS_ENTRY(class_container, class_name, functions) \
-	INIT_CLASS_ENTRY_EX(class_container, class_name, strlen(class_name), functions)
+	INIT_CLASS_ENTRY_EX(class_container, class_name, functions)
 
-#define INIT_CLASS_ENTRY_EX(class_container, class_name, class_name_len, functions) \
+#define INIT_CLASS_NAME(n, class_name) \
+	INIT_CLASS_NAME_EX("", 0, n, class_name, strlen(class_name))
+
+#define INIT_CLASS_NAME_NS(n, ns, class_name) \
+	INIT_CLASS_NAME_EX(ns, strlen(ns), n, ZEND_NS_NAME(ns, class_name), strlen(ZEND_NS_NAME(ns, class_name)))
+
+#define INIT_CLASS_NAME_EX(ns, ns_len, n, class_name, class_name_len) \
+	{ \
+		memset(&n, 0, sizeof(zend_namespaced_name)); \
+		n.name = zend_string_init_interned(class_name, class_name_len, 1); \
+		n.kind = ZEND_NAME_NAMESPACE; \
+		if (strlen(ns) == 0) { \
+			n.namespace_name = zend_empty_string; \
+		} else { \
+			n.namespace_name = zend_string_init_interned(ns, ns_len, 1); \
+		} \
+	}
+
+#define INIT_CLASS_ENTRY_EX(class_container, class_name, functions) \
 	{															\
 		memset(&class_container, 0, sizeof(zend_class_entry)); \
-		class_container.name = zend_string_init_interned(class_name, class_name_len, 1); \
+		class_container.namespaced_name = class_name; \
 		class_container.default_object_handlers = &std_object_handlers;	\
 		class_container.info.internal.builtin_functions = functions;	\
 	}
@@ -1772,7 +1790,7 @@ ZEND_API ZEND_COLD void zend_class_redeclaration_error_ex(int type, zend_string 
 	Z_PARAM_PROLOGUE(0, 0); \
 	if (UNEXPECTED(!zend_parse_arg_obj_or_str(_arg, &destination_object, base_ce, &destination_string, allow_null, _i))) { \
 		if (base_ce) { \
-			_error = ZSTR_VAL((base_ce)->name); \
+			_error = ZSTR_VAL((base_ce)->namespaced_name.name); \
 			_error_code = allow_null ? ZPP_ERROR_WRONG_CLASS_OR_STRING_OR_NULL : ZPP_ERROR_WRONG_CLASS_OR_STRING; \
 			break; \
 		} else { \
@@ -1960,7 +1978,7 @@ ZEND_API ZEND_COLD void zend_class_redeclaration_error_ex(int type, zend_string 
 		Z_PARAM_PROLOGUE(deref, 0); \
 		if (UNEXPECTED(!zend_parse_arg_object(_arg, &dest, _ce, check_null))) { \
 			if (_ce) { \
-				_error = ZSTR_VAL((_ce)->name); \
+				_error = ZSTR_VAL((_ce)->namespaced_name.name); \
 				_error_code = check_null ? ZPP_ERROR_WRONG_CLASS_OR_NULL : ZPP_ERROR_WRONG_CLASS; \
 				break; \
 			} else { \
@@ -1981,7 +1999,7 @@ ZEND_API ZEND_COLD void zend_class_redeclaration_error_ex(int type, zend_string 
 		Z_PARAM_PROLOGUE(deref, 0); \
 		if (UNEXPECTED(!zend_parse_arg_obj(_arg, &dest, _ce, check_null))) { \
 			if (_ce) { \
-				_error = ZSTR_VAL((_ce)->name); \
+				_error = ZSTR_VAL((_ce)->namespaced_name.name); \
 				_error_code = check_null ? ZPP_ERROR_WRONG_CLASS_OR_NULL : ZPP_ERROR_WRONG_CLASS; \
 				break; \
 			} else { \
@@ -2000,7 +2018,7 @@ ZEND_API ZEND_COLD void zend_class_redeclaration_error_ex(int type, zend_string 
 #define Z_PARAM_OBJ_OF_CLASS_OR_LONG_EX(dest_obj, _ce, dest_long, is_null, allow_null) \
 		Z_PARAM_PROLOGUE(0, 0); \
 		if (UNEXPECTED(!zend_parse_arg_obj_or_long(_arg, &dest_obj, _ce, &dest_long, &is_null, allow_null, _i))) { \
-			_error = ZSTR_VAL((_ce)->name); \
+			_error = ZSTR_VAL((_ce)->namespaced_name.name); \
 			_error_code = allow_null ? ZPP_ERROR_WRONG_CLASS_OR_LONG_OR_NULL : ZPP_ERROR_WRONG_CLASS_OR_LONG; \
 			break; \
 		}

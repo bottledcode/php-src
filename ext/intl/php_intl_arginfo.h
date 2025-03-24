@@ -1224,8 +1224,10 @@ static void register_php_intl_symbols(int module_number)
 static zend_class_entry *register_class_IntlException(zend_class_entry *class_entry_Exception)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "IntlException", NULL);
+	INIT_CLASS_NAME(namespaced_name, "IntlException");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Exception, 0);
 
 	return class_entry;

@@ -2607,14 +2607,14 @@ PHP_METHOD(Dom_Node, compareDocumentPosition)
 
 PHP_METHOD(Dom_Node, __construct)
 {
-	zend_throw_error(NULL, "Cannot directly construct %s, use document methods instead", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+	zend_throw_error(NULL, "Cannot directly construct %s, use document methods instead", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->namespaced_name.name));
 }
 
 PHP_METHOD(DOMNode, __sleep)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	zend_throw_exception_ex(NULL, 0, "Serialization of '%s' is not allowed, unless serialization methods are implemented in a subclass", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+	zend_throw_exception_ex(NULL, 0, "Serialization of '%s' is not allowed, unless serialization methods are implemented in a subclass", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->namespaced_name.name));
 	RETURN_THROWS();
 }
 
@@ -2622,7 +2622,7 @@ PHP_METHOD(DOMNode, __wakeup)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	zend_throw_exception_ex(NULL, 0, "Unserialization of '%s' is not allowed, unless unserialization methods are implemented in a subclass", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->name));
+	zend_throw_exception_ex(NULL, 0, "Unserialization of '%s' is not allowed, unless unserialization methods are implemented in a subclass", ZSTR_VAL(Z_OBJCE_P(ZEND_THIS)->namespaced_name.name));
 	RETURN_THROWS();
 }
 

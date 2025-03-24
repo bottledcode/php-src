@@ -4047,8 +4047,10 @@ static void register_basic_functions_symbols(int module_number)
 static zend_class_entry *register_class___PHP_Incomplete_Class(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "__PHP_Incomplete_Class", NULL);
+	INIT_CLASS_NAME(namespaced_name, "__PHP_Incomplete_Class");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES);
 
 	zend_string *attribute_name_AllowDynamicProperties_class___PHP_Incomplete_Class_0 = zend_string_init_interned("AllowDynamicProperties", sizeof("AllowDynamicProperties") - 1, 1);
@@ -4061,8 +4063,10 @@ static zend_class_entry *register_class___PHP_Incomplete_Class(void)
 static zend_class_entry *register_class_AssertionError(zend_class_entry *class_entry_Error)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "AssertionError", NULL);
+	INIT_CLASS_NAME(namespaced_name, "AssertionError");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_Error, 0);
 
 	return class_entry;

@@ -38,8 +38,10 @@ static void register_user_filters_symbols(int module_number)
 static zend_class_entry *register_class_php_user_filter(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "php_user_filter", class_php_user_filter_methods);
+	INIT_CLASS_NAME(namespaced_name, "php_user_filter");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_php_user_filter_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval property_filtername_default_value;
@@ -66,8 +68,10 @@ static zend_class_entry *register_class_php_user_filter(void)
 static zend_class_entry *register_class_StreamBucket(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "StreamBucket", NULL);
+	INIT_CLASS_NAME(namespaced_name, "StreamBucket");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zval property_bucket_default_value;

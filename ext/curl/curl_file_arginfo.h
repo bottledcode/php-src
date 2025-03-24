@@ -54,8 +54,10 @@ static const zend_function_entry class_CURLStringFile_methods[] = {
 static zend_class_entry *register_class_CURLFile(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "CURLFile", class_CURLFile_methods);
+	INIT_CLASS_NAME(namespaced_name, "CURLFile");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_CURLFile_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval property_name_default_value;
@@ -80,8 +82,10 @@ static zend_class_entry *register_class_CURLFile(void)
 static zend_class_entry *register_class_CURLStringFile(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "CURLStringFile", class_CURLStringFile_methods);
+	INIT_CLASS_NAME(namespaced_name, "CURLStringFile");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_CURLStringFile_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval property_data_default_value;

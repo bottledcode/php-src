@@ -918,7 +918,7 @@ static zval *php_zip_write_property(zend_object *object, zend_string *name, zval
 	}
 
 	if (hnd != NULL) {
-		zend_throw_error(NULL, "Cannot write read-only property %s::$%s", ZSTR_VAL(object->ce->name), ZSTR_VAL(name));
+		zend_throw_error(NULL, "Cannot write read-only property %s::$%s", ZSTR_VAL(object->ce->namespaced_name.name), ZSTR_VAL(name));
 		return &EG(error_zval);
 	}
 

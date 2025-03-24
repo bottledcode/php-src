@@ -58,7 +58,7 @@ PHP_MINFO_FUNCTION(pdo);
 #define PDO_CONSTRUCT_CHECK_COND dbh->driver
 #define PDO_CONSTRUCT_CHECK_FAIL() \
 		{ \
-			zend_throw_error(NULL, "%s object is uninitialized", ZSTR_VAL(Z_OBJ(EX(This))->ce->name)); \
+			zend_throw_error(NULL, "%s object is uninitialized", ZSTR_VAL(Z_OBJ(EX(This))->ce->namespaced_name.name)); \
 		} \
 
 #define PDO_CONSTRUCT_CHECK \

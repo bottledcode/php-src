@@ -630,7 +630,7 @@ PHP_FUNCTION(spl_autoload_functions)
 					GC_ADDREF(alfi->obj);
 					add_next_index_object(&tmp, alfi->obj);
 				} else {
-					add_next_index_str(&tmp, zend_string_copy(alfi->ce->name));
+					add_next_index_str(&tmp, zend_string_copy(alfi->ce->namespaced_name.name));
 				}
 				add_next_index_str(&tmp, zend_string_copy(alfi->func_ptr->common.function_name));
 				add_next_index_zval(return_value, &tmp);

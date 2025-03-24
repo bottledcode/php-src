@@ -482,8 +482,10 @@ static const zend_function_entry class_XMLWriter_methods[] = {
 static zend_class_entry *register_class_XMLWriter(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "XMLWriter", class_XMLWriter_methods);
+	INIT_CLASS_NAME(namespaced_name, "XMLWriter");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_XMLWriter_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	return class_entry;

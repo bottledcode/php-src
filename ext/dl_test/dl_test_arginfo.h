@@ -41,8 +41,10 @@ static void register_dl_test_symbols(int module_number)
 static zend_class_entry *register_class_DlTest(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "DlTest", class_DlTest_methods);
+	INIT_CLASS_NAME(namespaced_name, "DlTest");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_DlTest_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	return class_entry;
@@ -51,8 +53,10 @@ static zend_class_entry *register_class_DlTest(void)
 static zend_class_entry *register_class_DlTestSuperClass(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "DlTestSuperClass", class_DlTestSuperClass_methods);
+	INIT_CLASS_NAME(namespaced_name, "DlTestSuperClass");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_DlTestSuperClass_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	zval property_a_default_value;
@@ -67,8 +71,10 @@ static zend_class_entry *register_class_DlTestSuperClass(void)
 static zend_class_entry *register_class_DlTestSubClass(zend_class_entry *class_entry_DlTestSuperClass)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "DlTestSubClass", NULL);
+	INIT_CLASS_NAME(namespaced_name, "DlTestSubClass");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, class_entry_DlTestSuperClass, 0);
 
 	return class_entry;
@@ -77,8 +83,10 @@ static zend_class_entry *register_class_DlTestSubClass(zend_class_entry *class_e
 static zend_class_entry *register_class_DlTestAliasedClass(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "DlTestAliasedClass", NULL);
+	INIT_CLASS_NAME(namespaced_name, "DlTestAliasedClass");
+	INIT_CLASS_ENTRY(ce, namespaced_name, NULL);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, 0);
 
 	return class_entry;

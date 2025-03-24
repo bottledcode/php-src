@@ -79,8 +79,10 @@ static const zend_function_entry class_Deprecated_methods[] = {
 static zend_class_entry *register_class_Attribute(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Attribute", class_Attribute_methods);
+	INIT_CLASS_NAME(namespaced_name, "Attribute");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Attribute_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zval const_TARGET_CLASS_value;
@@ -150,8 +152,10 @@ static zend_class_entry *register_class_Attribute(void)
 static zend_class_entry *register_class_ReturnTypeWillChange(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "ReturnTypeWillChange", class_ReturnTypeWillChange_methods);
+	INIT_CLASS_NAME(namespaced_name, "ReturnTypeWillChange");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_ReturnTypeWillChange_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zend_string *attribute_name_Attribute_class_ReturnTypeWillChange_0 = zend_string_init_interned("Attribute", sizeof("Attribute") - 1, 1);
@@ -167,8 +171,10 @@ static zend_class_entry *register_class_ReturnTypeWillChange(void)
 static zend_class_entry *register_class_AllowDynamicProperties(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "AllowDynamicProperties", class_AllowDynamicProperties_methods);
+	INIT_CLASS_NAME(namespaced_name, "AllowDynamicProperties");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_AllowDynamicProperties_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL);
 
 	zend_string *attribute_name_Attribute_class_AllowDynamicProperties_0 = zend_string_init_interned("Attribute", sizeof("Attribute") - 1, 1);
@@ -184,8 +190,10 @@ static zend_class_entry *register_class_AllowDynamicProperties(void)
 static zend_class_entry *register_class_SensitiveParameter(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SensitiveParameter", class_SensitiveParameter_methods);
+	INIT_CLASS_NAME(namespaced_name, "SensitiveParameter");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SensitiveParameter_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 
 	zend_string *attribute_name_Attribute_class_SensitiveParameter_0 = zend_string_init_interned("Attribute", sizeof("Attribute") - 1, 1);
@@ -201,8 +209,10 @@ static zend_class_entry *register_class_SensitiveParameter(void)
 static zend_class_entry *register_class_SensitiveParameterValue(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "SensitiveParameterValue", class_SensitiveParameterValue_methods);
+	INIT_CLASS_NAME(namespaced_name, "SensitiveParameterValue");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_SensitiveParameterValue_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES|ZEND_ACC_NOT_SERIALIZABLE);
 
 	zval property_value_default_value;
@@ -215,8 +225,10 @@ static zend_class_entry *register_class_SensitiveParameterValue(void)
 static zend_class_entry *register_class_Override(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Override", class_Override_methods);
+	INIT_CLASS_NAME(namespaced_name, "Override");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Override_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 
 	zend_string *attribute_name_Attribute_class_Override_0 = zend_string_init_interned("Attribute", sizeof("Attribute") - 1, 1);
@@ -232,8 +244,10 @@ static zend_class_entry *register_class_Override(void)
 static zend_class_entry *register_class_Deprecated(void)
 {
 	zend_class_entry ce, *class_entry;
+	zend_namespaced_name namespaced_name;
 
-	INIT_CLASS_ENTRY(ce, "Deprecated", class_Deprecated_methods);
+	INIT_CLASS_NAME(namespaced_name, "Deprecated");
+	INIT_CLASS_ENTRY(ce, namespaced_name, class_Deprecated_methods);
 	class_entry = zend_register_internal_class_with_flags(&ce, NULL, ZEND_ACC_FINAL|ZEND_ACC_NO_DYNAMIC_PROPERTIES);
 
 	zval property_message_default_value;

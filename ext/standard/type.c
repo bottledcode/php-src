@@ -61,10 +61,10 @@ PHP_FUNCTION(get_debug_type)
 			RETURN_INTERNED_STR(ZSTR_KNOWN(ZEND_STR_ARRAY));
 		case IS_OBJECT:
 			if (Z_OBJ_P(arg)->ce->ce_flags & ZEND_ACC_ANON_CLASS) {
-				name = ZSTR_VAL(Z_OBJ_P(arg)->ce->name);
+				name = ZSTR_VAL(Z_OBJ_P(arg)->ce->namespaced_name.name);
 				RETURN_NEW_STR(zend_string_init(name, strlen(name), 0));
 			} else {
-				RETURN_STR_COPY(Z_OBJ_P(arg)->ce->name);
+				RETURN_STR_COPY(Z_OBJ_P(arg)->ce->namespaced_name.name);
 			}
 		case IS_RESOURCE:
 			name = zend_rsrc_list_get_rsrc_type(Z_RES_P(arg));

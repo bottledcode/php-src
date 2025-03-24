@@ -3380,14 +3380,17 @@ class ClassInfo {
                 $code .= "\tclass_entry->ce_flags |= $flags\n";
             }
         } else {
-            $code .= "\tzend_class_entry ce, *class_entry;\n\n";
+            $code .= "\tzend_class_entry ce, *class_entry;\n";
+            $code .= "\tzend_namespaced_name namespaced_name;\n\n";
             if (count($this->name->getParts()) > 1) {
                 $className = $this->name->getLast();
                 $namespace = addslashes((string) $this->name->slice(0, -1));
 
-                $code .= "\tINIT_NS_CLASS_ENTRY(ce, \"$namespace\", \"$className\", $classMethods);\n";
+                $code .= "\tINIT_CLASS_NAME_NS(namespaced_name, \"$namespace\", \"$className\");\n";
+                $code .= "\tINIT_CLASS_ENTRY(ce, namespaced_name, $classMethods);\n";
             } else {
-                $code .= "\tINIT_CLASS_ENTRY(ce, \"$this->name\", $classMethods);\n";
+                $code .= "\tINIT_CLASS_NAME(namespaced_name, \"$this->name\");\n";
+                $code .= "\tINIT_CLASS_ENTRY(ce, namespaced_name, $classMethods);\n";
             }
 
             if ($this->type === "class" || $this->type === "trait") {

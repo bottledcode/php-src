@@ -154,7 +154,7 @@ ZEND_API const char *zend_zval_value_name(const zval *arg)
 	}
 
 	if (Z_TYPE_P(arg) == IS_OBJECT) {
-		return ZSTR_VAL(Z_OBJCE_P(arg)->name);
+		return ZSTR_VAL(Z_OBJCE_P(arg)->namespaced_name.name);
 	} else if (Z_TYPE_P(arg) == IS_FALSE) {
 		return "false";
 	} else if  (Z_TYPE_P(arg) == IS_TRUE) {
@@ -173,7 +173,7 @@ ZEND_API const char *zend_zval_type_name(const zval *arg)
 	}
 
 	if (Z_TYPE_P(arg) == IS_OBJECT) {
-		return ZSTR_VAL(Z_OBJCE_P(arg)->name);
+		return ZSTR_VAL(Z_OBJCE_P(arg)->namespaced_name.name);
 	}
 
 	return zend_get_type_by_const(Z_TYPE_P(arg));
@@ -462,7 +462,7 @@ ZEND_API ZEND_COLD void zend_class_redeclaration_error_ex(int type, zend_string 
 
 ZEND_API ZEND_COLD void zend_class_redeclaration_error(int type, zend_class_entry *old_ce)
 {
-	zend_class_redeclaration_error_ex(type, old_ce->name, old_ce);
+	zend_class_redeclaration_error_ex(type, old_ce->namespaced_name.name, old_ce);
 }
 
 ZEND_API bool ZEND_FASTCALL zend_parse_arg_class(zval *arg, zend_class_entry **pce, uint32_t num, bool check_null) /* {{{ */
@@ -481,7 +481,7 @@ ZEND_API bool ZEND_FASTCALL zend_parse_arg_class(zval *arg, zend_class_entry **p
 	*pce = zend_lookup_class(Z_STR_P(arg));
 	if (ce_base) {
 		if ((!*pce || !instanceof_function(*pce, ce_base))) {
-			zend_argument_type_error(num, "must be a class name derived from %s, %s given", ZSTR_VAL(ce_base->name), Z_STRVAL_P(arg));
+			zend_argument_type_error(num, "must be a class name derived from %s, %s given", ZSTR_VAL(ce_base->namespaced_name.name), Z_STRVAL_P(arg));
 			*pce = NULL;
 			return 0;
 		}
@@ -984,10 +984,10 @@ static const char *zend_parse_arg_impl(zval *arg, va_list *va, const char **spec
 				if (!zend_parse_arg_object(arg, p, ce, check_null)) {
 					if (ce) {
 						if (check_null) {
-							zend_spprintf(error, 0, "must be of type ?%s, %s given", ZSTR_VAL(ce->name), zend_zval_value_name(arg));
+							zend_spprintf(error, 0, "must be of type ?%s, %s given", ZSTR_VAL(ce->namespaced_name.name), zend_zval_value_name(arg));
 							return "";
 						} else {
-							return ZSTR_VAL(ce->name);
+							return ZSTR_VAL(ce->namespaced_name.name);
 						}
 					} else {
 						return check_null ? "?object" : "object";
@@ -1018,7 +1018,7 @@ static const char *zend_parse_arg_impl(zval *arg, va_list *va, const char **spec
 				if (ce_base) {
 					if ((!*pce || !instanceof_function(*pce, ce_base))) {
 						zend_spprintf(error, 0, "must be a class name derived from %s%s, %s given",
-							ZSTR_VAL(ce_base->name), check_null ? " or null" : "", Z_STRVAL_P(arg));
+							ZSTR_VAL(ce_base->namespaced_name.name), check_null ? " or null" : "", Z_STRVAL_P(arg));
 						*pce = NULL;
 						return "";
 					}
@@ -1135,7 +1135,7 @@ ZEND_API zend_result zend_parse_parameter(int flags, uint32_t arg_num, zval *arg
 static ZEND_COLD void zend_parse_parameters_debug_error(const char *msg) {
 	zend_function *active_function = EG(current_execute_data)->func;
 	const char *class_name = active_function->common.scope
-		? ZSTR_VAL(active_function->common.scope->name) : "";
+		? ZSTR_VAL(active_function->common.scope->namespaced_name.name) : "";
 	zend_error_noreturn(E_CORE_ERROR, "%s%s%s(): %s",
 		class_name, class_name[0] ? "::" : "",
 		ZSTR_VAL(active_function->common.function_name), msg);
@@ -1341,7 +1341,7 @@ ZEND_API zend_result zend_parse_method_parameters(uint32_t num_args, zval *this_
 
 		if (ce && !instanceof_function(Z_OBJCE_P(this_ptr), ce)) {
 			zend_error_noreturn(E_CORE_ERROR, "%s::%s() must be derived from %s::%s()",
-				ZSTR_VAL(Z_OBJCE_P(this_ptr)->name), get_active_function_name(), ZSTR_VAL(ce->name), get_active_function_name());
+				ZSTR_VAL(Z_OBJCE_P(this_ptr)->namespaced_name.name), get_active_function_name(), ZSTR_VAL(ce->namespaced_name.name), get_active_function_name());
 		}
 
 		retval = zend_parse_va_args(num_args, p, &va, flags);
@@ -1374,7 +1374,7 @@ ZEND_API zend_result zend_parse_method_parameters_ex(int flags, uint32_t num_arg
 		if (ce && !instanceof_function(Z_OBJCE_P(this_ptr), ce)) {
 			if (!(flags & ZEND_PARSE_PARAMS_QUIET)) {
 				zend_error_noreturn(E_CORE_ERROR, "%s::%s() must be derived from %s::%s()",
-					ZSTR_VAL(ce->name), get_active_function_name(), ZSTR_VAL(Z_OBJCE_P(this_ptr)->name), get_active_function_name());
+					ZSTR_VAL(ce->namespaced_name.name), get_active_function_name(), ZSTR_VAL(Z_OBJCE_P(this_ptr)->namespaced_name.name), get_active_function_name());
 			}
 			va_end(va);
 			return FAILURE;
@@ -1768,11 +1768,11 @@ ZEND_API void object_properties_load(zend_object *object, HashTable *properties)
 			} else {
 				if (UNEXPECTED(object->ce->ce_flags & ZEND_ACC_NO_DYNAMIC_PROPERTIES)) {
 					zend_throw_error(NULL, "Cannot create dynamic property %s::$%s",
-						ZSTR_VAL(object->ce->name), property_info != ZEND_WRONG_PROPERTY_INFO ? zend_get_unmangled_property_name(key): "");
+						ZSTR_VAL(object->ce->namespaced_name.name), property_info != ZEND_WRONG_PROPERTY_INFO ? zend_get_unmangled_property_name(key): "");
 					return;
 				} else if (!(object->ce->ce_flags & ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES)) {
 					zend_error(E_DEPRECATED, "Creation of dynamic property %s::$%s is deprecated",
-						ZSTR_VAL(object->ce->name), property_info != ZEND_WRONG_PROPERTY_INFO ? zend_get_unmangled_property_name(key): "");
+						ZSTR_VAL(object->ce->namespaced_name.name), property_info != ZEND_WRONG_PROPERTY_INFO ? zend_get_unmangled_property_name(key): "");
 				}
 
 				prop = zend_hash_update(zend_std_get_properties_ex(object), key, prop);
@@ -1780,11 +1780,11 @@ ZEND_API void object_properties_load(zend_object *object, HashTable *properties)
 			}
 		} else {
 			if (UNEXPECTED(object->ce->ce_flags & ZEND_ACC_NO_DYNAMIC_PROPERTIES)) {
-				zend_throw_error(NULL, "Cannot create dynamic property %s::$" ZEND_LONG_FMT, ZSTR_VAL(object->ce->name), h);
+				zend_throw_error(NULL, "Cannot create dynamic property %s::$" ZEND_LONG_FMT, ZSTR_VAL(object->ce->namespaced_name.name), h);
 				return;
 			} else if (!(object->ce->ce_flags & ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES)) {
 				zend_error(E_DEPRECATED, "Creation of dynamic property %s::$" ZEND_LONG_FMT " is deprecated",
-					ZSTR_VAL(object->ce->name), h);
+					ZSTR_VAL(object->ce->namespaced_name.name), h);
 			}
 
 			prop = zend_hash_index_update(zend_std_get_properties_ex(object), h, prop);
@@ -1802,18 +1802,33 @@ static zend_always_inline zend_result _object_and_properties_init(zval *arg, zen
 {
 	if (UNEXPECTED(class_type->ce_flags & ZEND_ACC_UNINSTANTIABLE)) {
 		if (class_type->ce_flags & ZEND_ACC_INTERFACE) {
-			zend_throw_error(NULL, "Cannot instantiate interface %s", ZSTR_VAL(class_type->name));
+			zend_throw_error(NULL, "Cannot instantiate interface %s", ZSTR_VAL(class_type->namespaced_name.name));
 		} else if (class_type->ce_flags & ZEND_ACC_TRAIT) {
-			zend_throw_error(NULL, "Cannot instantiate trait %s", ZSTR_VAL(class_type->name));
+			zend_throw_error(NULL, "Cannot instantiate trait %s", ZSTR_VAL(class_type->namespaced_name.name));
 		} else if (class_type->ce_flags & ZEND_ACC_ENUM) {
-			zend_throw_error(NULL, "Cannot instantiate enum %s", ZSTR_VAL(class_type->name));
+			zend_throw_error(NULL, "Cannot instantiate enum %s", ZSTR_VAL(class_type->namespaced_name.name));
 		} else {
 			ZEND_ASSERT(class_type->ce_flags & (ZEND_ACC_IMPLICIT_ABSTRACT_CLASS|ZEND_ACC_EXPLICIT_ABSTRACT_CLASS));
-			zend_throw_error(NULL, "Cannot instantiate abstract class %s", ZSTR_VAL(class_type->name));
+			zend_throw_error(NULL, "Cannot instantiate abstract class %s", ZSTR_VAL(class_type->namespaced_name.name));
 		}
 		ZVAL_NULL(arg);
 		Z_OBJ_P(arg) = NULL;
 		return FAILURE;
+	}
+
+	if (class_type->required_scope) {
+		const zend_class_entry *scope = zend_get_executed_scope();
+		if (scope == NULL) {
+			zend_error(E_ERROR, "Cannot instantiate \"%s\" from the global scope", ZSTR_VAL(class_type->namespaced_name.name));
+		}
+
+		if (class_type->required_scope_absolute) {
+			if (scope != class_type->required_scope && scope->lexical_scope != class_type->required_scope) {
+				zend_error(E_ERROR, "Cannot instantiate private \"%s\" from \"%s\"", ZSTR_VAL(class_type->namespaced_name.name), ZSTR_VAL(scope->namespaced_name.name));
+			}
+		} else if (!instanceof_function(scope, class_type->required_scope) && !instanceof_function(scope->lexical_scope, class_type->required_scope)) {
+			zend_error(E_ERROR, "Cannot instantiate protected \"%s\" from \"%s\"", ZSTR_VAL(class_type->namespaced_name.name), ZSTR_VAL(scope->namespaced_name.name));
+		}
 	}
 
 	if (UNEXPECTED(!(class_type->ce_flags & ZEND_ACC_CONSTANTS_UPDATED))) {
@@ -2664,20 +2679,20 @@ static void zend_check_magic_method_args(
 	if (fptr->common.num_args != num_args) {
 		if (num_args == 0) {
 			zend_error(error_type, "Method %s::%s() cannot take arguments",
-				ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 		} else if (num_args == 1) {
 			zend_error(error_type, "Method %s::%s() must take exactly 1 argument",
-				ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 		} else {
 			zend_error(error_type, "Method %s::%s() must take exactly %" PRIu32 " arguments",
-				ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name), num_args);
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name), num_args);
 		}
 		return;
 	}
 	for (uint32_t i = 0; i < num_args; i++) {
 		if (QUICK_ARG_SHOULD_BE_SENT_BY_REF(fptr, i + 1)) {
 			zend_error(error_type, "Method %s::%s() cannot take arguments by reference",
-				ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 			return;
 		}
 	}
@@ -2690,7 +2705,7 @@ static void zend_check_magic_method_arg_type(uint32_t arg_num, const zend_class_
 			 && !(ZEND_TYPE_FULL_MASK(fptr->common.arg_info[arg_num].type) & arg_type)
 		) {
 			zend_error(error_type, "%s::%s(): Parameter #%d ($%s) must be of type %s when declared",
-				ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name),
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name),
 				arg_num + 1, ZSTR_VAL(fptr->common.arg_info[arg_num].name),
 				ZSTR_VAL(zend_type_to_string((zend_type) ZEND_TYPE_INIT_MASK(arg_type))));
 		}
@@ -2717,7 +2732,7 @@ static void zend_check_magic_method_return_type(const zend_class_entry *ce, cons
 
 	if (extra_types || (is_complex_type && return_type != MAY_BE_OBJECT)) {
 		zend_error(error_type, "%s::%s(): Return type must be %s when declared",
-			ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name),
+			ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name),
 			ZSTR_VAL(zend_type_to_string((zend_type) ZEND_TYPE_INIT_MASK(return_type))));
 	}
 }
@@ -2727,7 +2742,7 @@ static void zend_check_magic_method_non_static(
 {
 	if (fptr->common.fn_flags & ZEND_ACC_STATIC) {
 		zend_error(error_type, "Method %s::%s() cannot be static",
-			ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+			ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 	}
 }
 
@@ -2736,7 +2751,7 @@ static void zend_check_magic_method_static(
 {
 	if (!(fptr->common.fn_flags & ZEND_ACC_STATIC)) {
 		zend_error(error_type, "Method %s::%s() must be static",
-			ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+			ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 	}
 }
 
@@ -2746,7 +2761,7 @@ static void zend_check_magic_method_public(
 	// TODO: Remove this warning after adding proper visibility handling.
 	if (!(fptr->common.fn_flags & ZEND_ACC_PUBLIC)) {
 		zend_error(E_WARNING, "The magic method %s::%s() must have public visibility",
-			ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+			ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 	}
 }
 
@@ -2755,7 +2770,7 @@ static void zend_check_magic_method_no_return_type(
 {
 	if (fptr->common.fn_flags & ZEND_ACC_HAS_RETURN_TYPE) {
 		zend_error_noreturn(error_type, "Method %s::%s() cannot declare a return type",
-			ZSTR_VAL(ce->name), ZSTR_VAL(fptr->common.function_name));
+			ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(fptr->common.function_name));
 	}
 }
 
@@ -2978,7 +2993,7 @@ ZEND_API zend_result zend_register_functions(zend_class_entry *scope, const zend
 		if (ptr->flags) {
 			if (!(ptr->flags & ZEND_ACC_PPP_MASK)) {
 				if (ptr->flags != ZEND_ACC_DEPRECATED && scope) {
-					zend_error(error_type, "Invalid access level for %s::%s() - access must be exactly one of public, protected or private", ZSTR_VAL(scope->name), ptr->fname);
+					zend_error(error_type, "Invalid access level for %s::%s() - access must be exactly one of public, protected or private", ZSTR_VAL(scope->namespaced_name.name), ptr->fname);
 				}
 				internal_function->fn_flags = ZEND_ACC_PUBLIC | ptr->flags;
 			} else {
@@ -3018,7 +3033,7 @@ ZEND_API zend_result zend_register_functions(zend_class_entry *scope, const zend
 			}
 		} else {
 			zend_error(E_CORE_WARNING, "Missing arginfo for %s%s%s()",
-				 scope ? ZSTR_VAL(scope->name) : "", scope ? "::" : "", ptr->fname);
+				 scope ? ZSTR_VAL(scope->namespaced_name.name) : "", scope ? "::" : "", ptr->fname);
 
 			internal_function->arg_info = NULL;
 			internal_function->num_args = 0;
@@ -3030,7 +3045,7 @@ ZEND_API zend_result zend_register_functions(zend_class_entry *scope, const zend
 		if (scope && zend_string_equals_literal_ci(internal_function->function_name, "__tostring") &&
 				!(internal_function->fn_flags & ZEND_ACC_HAS_RETURN_TYPE)) {
 			zend_error(E_CORE_WARNING, "%s::__toString() implemented without string return type",
-				ZSTR_VAL(scope->name));
+				ZSTR_VAL(scope->namespaced_name.name));
 			internal_function->arg_info = (zend_internal_arg_info *) arg_info_toString + 1;
 			internal_function->fn_flags |= ZEND_ACC_HAS_RETURN_TYPE;
 			internal_function->num_args = internal_function->required_num_args = 0;
@@ -3050,15 +3065,15 @@ ZEND_API zend_result zend_register_functions(zend_class_entry *scope, const zend
 				}
 			}
 			if ((ptr->flags & ZEND_ACC_STATIC) && (!scope || !(scope->ce_flags & ZEND_ACC_INTERFACE))) {
-				zend_error(error_type, "Static function %s%s%s() cannot be abstract", scope ? ZSTR_VAL(scope->name) : "", scope ? "::" : "", ptr->fname);
+				zend_error(error_type, "Static function %s%s%s() cannot be abstract", scope ? ZSTR_VAL(scope->namespaced_name.name) : "", scope ? "::" : "", ptr->fname);
 			}
 		} else {
 			if (scope && (scope->ce_flags & ZEND_ACC_INTERFACE)) {
-				zend_error(error_type, "Interface %s cannot contain non abstract method %s()", ZSTR_VAL(scope->name), ptr->fname);
+				zend_error(error_type, "Interface %s cannot contain non abstract method %s()", ZSTR_VAL(scope->namespaced_name.name), ptr->fname);
 				return FAILURE;
 			}
 			if (!internal_function->handler) {
-				zend_error(error_type, "Method %s%s%s() cannot be a NULL function", scope ? ZSTR_VAL(scope->name) : "", scope ? "::" : "", ptr->fname);
+				zend_error(error_type, "Method %s%s%s() cannot be a NULL function", scope ? ZSTR_VAL(scope->namespaced_name.name) : "", scope ? "::" : "", ptr->fname);
 				zend_unregister_functions(functions, count, target_function_table);
 				return FAILURE;
 			}
@@ -3115,7 +3130,7 @@ ZEND_API zend_result zend_register_functions(zend_class_entry *scope, const zend
 					if (!strcmp(arg_info->name, reg_function->arg_info[j].name)) {
 						zend_error_noreturn(E_CORE_ERROR,
 							"Duplicate parameter name $%s for function %s%s%s()", arg_info->name,
-							scope ? ZSTR_VAL(scope->name) : "", scope ? "::" : "", ptr->fname);
+							scope ? ZSTR_VAL(scope->namespaced_name.name) : "", scope ? "::" : "", ptr->fname);
 					}
 				}
 #endif
@@ -3209,7 +3224,7 @@ ZEND_API zend_result zend_register_functions(zend_class_entry *scope, const zend
 			lowercase_name = zend_string_alloc(fname_len, 0);
 			zend_str_tolower_copy(ZSTR_VAL(lowercase_name), ptr->fname, fname_len);
 			if (zend_hash_exists(target_function_table, lowercase_name)) {
-				zend_error(error_type, "Function registration failed - duplicate name - %s%s%s", scope ? ZSTR_VAL(scope->name) : "", scope ? "::" : "", ptr->fname);
+				zend_error(error_type, "Function registration failed - duplicate name - %s%s%s", scope ? ZSTR_VAL(scope->namespaced_name.name) : "", scope ? "::" : "", ptr->fname);
 			}
 			zend_string_efree(lowercase_name);
 			ptr++;
@@ -3475,7 +3490,7 @@ static zend_class_entry *do_register_internal_class(zend_class_entry *orig_class
 
 	class_entry->type = ZEND_INTERNAL_CLASS;
 	zend_initialize_class_data(class_entry, 0);
-	zend_alloc_ce_cache(class_entry->name);
+	zend_alloc_ce_cache(class_entry->namespaced_name.name);
 	class_entry->ce_flags = orig_class_entry->ce_flags | ce_flags | ZEND_ACC_CONSTANTS_UPDATED | ZEND_ACC_LINKED | ZEND_ACC_RESOLVED_PARENT | ZEND_ACC_RESOLVED_INTERFACES;
 	class_entry->info.internal.module = EG(current_module);
 
@@ -3483,12 +3498,13 @@ static zend_class_entry *do_register_internal_class(zend_class_entry *orig_class
 		zend_register_functions(class_entry, class_entry->info.internal.builtin_functions, &class_entry->function_table, EG(current_module)->type);
 	}
 
-	lowercase_name = zend_string_tolower_ex(orig_class_entry->name, EG(current_module)->type == MODULE_PERSISTENT);
+	lowercase_name = zend_string_tolower_ex(orig_class_entry->namespaced_name.name, EG(current_module)->type == MODULE_PERSISTENT);
 	lowercase_name = zend_new_interned_string(lowercase_name);
+	class_entry->namespaced_name.resolved_name = lowercase_name;
 	zend_hash_update_ptr(CG(class_table), lowercase_name, class_entry);
 	zend_string_release_ex(lowercase_name, 1);
 
-	if (class_entry->__tostring && !zend_string_equals_literal(class_entry->name, "Stringable")
+	if (class_entry->__tostring && !zend_string_equals_literal(class_entry->namespaced_name.name, "Stringable")
 			&& !(class_entry->ce_flags & ZEND_ACC_TRAIT)) {
 		ZEND_ASSERT(zend_ce_stringable
 			&& "Should be registered before first class using __toString()");
@@ -3692,7 +3708,7 @@ static ZEND_COLD zend_object *display_disabled_class(zend_class_entry *class_typ
 		} while (p != end);
 	}
 
-	zend_error(E_WARNING, "%s() has been disabled for security reasons", ZSTR_VAL(class_type->name));
+	zend_error(E_WARNING, "%s() has been disabled for security reasons", ZSTR_VAL(class_type->namespaced_name.name));
 	return intern;
 }
 #ifdef ZEND_WIN32
@@ -3947,13 +3963,13 @@ static zend_always_inline bool zend_is_callable_check_func(zval *callable, zend_
 
 		ftable = &fcc->calling_scope->function_table;
 		if (ce_org && !instanceof_function(ce_org, fcc->calling_scope)) {
-			if (error) zend_spprintf(error, 0, "class %s is not a subclass of %s", ZSTR_VAL(ce_org->name), ZSTR_VAL(fcc->calling_scope->name));
+			if (error) zend_spprintf(error, 0, "class %s is not a subclass of %s", ZSTR_VAL(ce_org->namespaced_name.name), ZSTR_VAL(fcc->calling_scope->namespaced_name.name));
 			return 0;
 		}
 		if (ce_org && !suppress_deprecation) {
 			zend_error(E_DEPRECATED,
 				"Callables of the form [\"%s\", \"%s\"] are deprecated",
-				ZSTR_VAL(ce_org->name), Z_STRVAL_P(callable));
+				ZSTR_VAL(ce_org->namespaced_name.name), Z_STRVAL_P(callable));
 		}
 		mname = zend_string_init(Z_STRVAL_P(callable) + clen + 2, mlen, 0);
 	} else if (ce_org) {
@@ -4057,12 +4073,12 @@ get_function_via_handler:
 			if (fcc->function_handler->common.fn_flags & ZEND_ACC_ABSTRACT) {
 				retval = 0;
 				if (error) {
-					zend_spprintf(error, 0, "cannot call abstract method %s::%s()", ZSTR_VAL(fcc->calling_scope->name), ZSTR_VAL(fcc->function_handler->common.function_name));
+					zend_spprintf(error, 0, "cannot call abstract method %s::%s()", ZSTR_VAL(fcc->calling_scope->namespaced_name.name), ZSTR_VAL(fcc->function_handler->common.function_name));
 				}
 			} else if (!fcc->object && !(fcc->function_handler->common.fn_flags & ZEND_ACC_STATIC)) {
 				retval = 0;
 				if (error) {
-					zend_spprintf(error, 0, "non-static method %s::%s() cannot be called statically", ZSTR_VAL(fcc->calling_scope->name), ZSTR_VAL(fcc->function_handler->common.function_name));
+					zend_spprintf(error, 0, "non-static method %s::%s() cannot be called statically", ZSTR_VAL(fcc->calling_scope->namespaced_name.name), ZSTR_VAL(fcc->function_handler->common.function_name));
 				}
 			}
 			if (retval
@@ -4075,7 +4091,7 @@ get_function_via_handler:
 							if (*error) {
 								efree(*error);
 							}
-							zend_spprintf(error, 0, "cannot access %s method %s::%s()", zend_visibility_string(fcc->function_handler->common.fn_flags), ZSTR_VAL(fcc->calling_scope->name), ZSTR_VAL(fcc->function_handler->common.function_name));
+							zend_spprintf(error, 0, "cannot access %s method %s::%s()", zend_visibility_string(fcc->function_handler->common.fn_flags), ZSTR_VAL(fcc->calling_scope->namespaced_name.name), ZSTR_VAL(fcc->function_handler->common.function_name));
 						}
 						retval = 0;
 					}
@@ -4084,7 +4100,7 @@ get_function_via_handler:
 		}
 	} else if (error) {
 		if (fcc->calling_scope) {
-			zend_spprintf(error, 0, "class %s does not have a method \"%s\"", ZSTR_VAL(fcc->calling_scope->name), ZSTR_VAL(mname));
+			zend_spprintf(error, 0, "class %s does not have a method \"%s\"", ZSTR_VAL(fcc->calling_scope->namespaced_name.name), ZSTR_VAL(mname));
 		} else {
 			zend_spprintf(error, 0, "function %s() does not exist", ZSTR_VAL(mname));
 		}
@@ -4109,7 +4125,7 @@ try_again:
 	switch (Z_TYPE_P(callable)) {
 		case IS_STRING:
 			if (object) {
-				return zend_create_member_string(object->ce->name, Z_STR_P(callable));
+				return zend_create_member_string(object->ce->namespaced_name.name, Z_STR_P(callable));
 			}
 			return zend_string_copy(Z_STR_P(callable));
 
@@ -4130,7 +4146,7 @@ try_again:
 			if (Z_TYPE_P(obj) == IS_STRING) {
 				return zend_create_member_string(Z_STR_P(obj), Z_STR_P(method));
 			} else if (Z_TYPE_P(obj) == IS_OBJECT) {
-				return zend_create_member_string(Z_OBJCE_P(obj)->name, Z_STR_P(method));
+				return zend_create_member_string(Z_OBJCE_P(obj)->namespaced_name.name, Z_STR_P(method));
 			} else {
 				return ZSTR_KNOWN(ZEND_STR_ARRAY_CAPITALIZED);
 			}
@@ -4144,7 +4160,7 @@ try_again:
 
 				if (fn->common.fn_flags & ZEND_ACC_FAKE_CLOSURE) {
 					if (fn->common.scope) {
-						return zend_create_member_string(fn->common.scope->name, fn->common.function_name);
+						return zend_create_member_string(fn->common.scope->namespaced_name.name, fn->common.function_name);
 					} else {
 						return zend_string_copy(fn->common.function_name);
 					}
@@ -4152,7 +4168,7 @@ try_again:
 			}
 
 			return zend_string_concat2(
-				ZSTR_VAL(ce->name), ZSTR_LEN(ce->name),
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_LEN(ce->namespaced_name.name),
 				"::__invoke", sizeof("::__invoke") - 1);
 		}
 		case IS_REFERENCE:
@@ -4310,7 +4326,7 @@ ZEND_API bool zend_make_callable(zval *callable, zend_string **callable_name) /*
 		if (Z_TYPE_P(callable) == IS_STRING && fcc.calling_scope) {
 			zval_ptr_dtor_str(callable);
 			array_init(callable);
-			add_next_index_str(callable, zend_string_copy(fcc.calling_scope->name));
+			add_next_index_str(callable, zend_string_copy(fcc.calling_scope->namespaced_name.name));
 			add_next_index_str(callable, zend_string_copy(fcc.function_handler->common.function_name));
 		}
 		zend_release_fcall_info_cache(&fcc);
@@ -4488,7 +4504,7 @@ ZEND_API void zend_get_callable_zval_from_fcc(const zend_fcall_info_cache *fcc, 
 			GC_ADDREF(fcc->object);
 			add_next_index_object(callable, fcc->object);
 		} else {
-			add_next_index_str(callable, zend_string_copy(fcc->calling_scope->name));
+			add_next_index_str(callable, zend_string_copy(fcc->calling_scope->namespaced_name.name));
 		}
 		add_next_index_str(callable, zend_string_copy(fcc->function_handler->common.function_name));
 	} else {
@@ -4555,14 +4571,14 @@ ZEND_API zend_property_info *zend_declare_typed_property(zend_class_entry *ce, z
 		if (!ZEND_TYPE_IS_SET(type)) {
 			zend_error_noreturn(ce->type == ZEND_INTERNAL_CLASS ? E_CORE_ERROR : E_COMPILE_ERROR,
 				"Property with asymmetric visibility %s::$%s must have type",
-				ZSTR_VAL(ce->name), ZSTR_VAL(name));
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(name));
 		}
 		uint32_t get_visibility = zend_visibility_to_set_visibility(access_type & ZEND_ACC_PPP_MASK);
 		uint32_t set_visibility = access_type & ZEND_ACC_PPP_SET_MASK;
 		if (get_visibility > set_visibility) {
 			zend_error_noreturn(ce->type == ZEND_INTERNAL_CLASS ? E_CORE_ERROR : E_COMPILE_ERROR,
 				"Visibility of property %s::$%s must not be weaker than set visibility",
-				ZSTR_VAL(ce->name), ZSTR_VAL(name));
+				ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(name));
 		}
 		/* Remove equivalent set visibility. */
 		if (((access_type & (ZEND_ACC_PUBLIC|ZEND_ACC_PUBLIC_SET)) == (ZEND_ACC_PUBLIC|ZEND_ACC_PUBLIC_SET))
@@ -4649,7 +4665,7 @@ skip_property_storage:
 	if (access_type & ZEND_ACC_PUBLIC) {
 		property_info->name = zend_string_copy(name);
 	} else if (access_type & ZEND_ACC_PRIVATE) {
-		property_info->name = zend_mangle_property_name(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), ZSTR_VAL(name), ZSTR_LEN(name), is_persistent_class(ce));
+		property_info->name = zend_mangle_property_name(ZSTR_VAL(ce->namespaced_name.name), ZSTR_LEN(ce->namespaced_name.name), ZSTR_VAL(name), ZSTR_LEN(name), is_persistent_class(ce));
 	} else {
 		ZEND_ASSERT(access_type & ZEND_ACC_PROTECTED);
 		property_info->name = zend_mangle_property_name("*", 1, ZSTR_VAL(name), ZSTR_LEN(name), is_persistent_class(ce));
@@ -4874,7 +4890,7 @@ ZEND_API zend_class_constant *zend_declare_typed_class_constant(zend_class_entry
 
 	if (ce->ce_flags & ZEND_ACC_INTERFACE) {
 		if (!(flags & ZEND_ACC_PUBLIC)) {
-			zend_error_noreturn(E_COMPILE_ERROR, "Access type for interface constant %s::%s must be public", ZSTR_VAL(ce->name), ZSTR_VAL(name));
+			zend_error_noreturn(E_COMPILE_ERROR, "Access type for interface constant %s::%s must be public", ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(name));
 		}
 	}
 
@@ -4912,7 +4928,7 @@ ZEND_API zend_class_constant *zend_declare_typed_class_constant(zend_class_entry
 
 	if (!zend_hash_add_ptr(&ce->constants_table, name, c)) {
 		zend_error_noreturn(ce->type == ZEND_INTERNAL_CLASS ? E_CORE_ERROR : E_COMPILE_ERROR,
-			"Cannot redefine class constant %s::%s", ZSTR_VAL(ce->name), ZSTR_VAL(name));
+			"Cannot redefine class constant %s::%s", ZSTR_VAL(ce->namespaced_name.name), ZSTR_VAL(name));
 	}
 
 	return c;
