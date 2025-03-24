@@ -38,6 +38,7 @@
 #include "zend_call_stack.h"
 #include "zend_frameless_function.h"
 #include "zend_property_hooks.h"
+#include "zend_namespaces.h"
 
 #define SET_NODE(target, src) do { \
 		target ## _type = (src)->op_type; \
@@ -9188,7 +9189,7 @@ static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel)
 			// rename the inner class so we may reference it by name
 			name = zend_string_concat3(
 				ZSTR_VAL(CG(active_class_entry)->name), ZSTR_LEN(CG(active_class_entry)->name),
-				":>", 2,
+				"\\", 1,
 				ZSTR_VAL(unqualified_name), ZSTR_LEN(unqualified_name)
 			);
 
@@ -9222,7 +9223,7 @@ static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel)
 		} else {
 			name = zend_prefix_with_ns(unqualified_name);
 			ce->required_scope = NULL;
-			ce->lexical_scope = NULL;
+			ce->lexical_scope = zend_resolve_namespace(FC(current_namespace));
 		}
 		name = zend_new_interned_string(name);
 		lcname = zend_string_tolower(name);
