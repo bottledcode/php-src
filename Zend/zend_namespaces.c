@@ -107,7 +107,7 @@ zend_class_entry *zend_resolve_namespace(zend_string *name) {
 	return ns;
 }
 
-void zend_destroy_namespaces() {
+void zend_destroy_namespaces(void) {
 	if (global_namespace == NULL) {
 		return;
 	}
