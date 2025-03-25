@@ -1,5 +1,5 @@
 --TEST--
-scope resolution access
+failed inheritance
 --FILE--
 <?php
 
@@ -12,7 +12,7 @@ class Outer {
 }
 
 class Outer2 extends Outer {
-    public class Middle extends Outer\Middle {
+    public class Middle {
     }
 
     public static function testParent(): Outer\Middle {
@@ -31,6 +31,7 @@ var_dump(Outer2::testSelf());
 
 ?>
 --EXPECT--
+THIS IS WRONG
 object(Outer\Middle)#1 (0) {
 }
 object(Outer\Middle)#1 (0) {

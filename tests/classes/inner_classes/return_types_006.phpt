@@ -6,16 +6,16 @@ returning private inner from inner method
 class Outer {
     private class PrivateInner {
         public function test() {
-            return new Outer:>PrivateInner();
+            return new PrivateInner();
         }
     }
 
-    public function test(): mixed { return new self:>PrivateInner()->test(); }
+    public function test(): mixed { return new PrivateInner()->test(); }
 }
 
 $foo = new Outer()->test();
 var_dump($foo);
 ?>
 --EXPECT--
-object(Outer:>PrivateInner)#3 (0) {
+object(Outer\PrivateInner)#3 (0) {
 }

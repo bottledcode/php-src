@@ -6,7 +6,10 @@ inner class not found
 class Outer {
 }
 
-new Outer:>Inner();
+new Outer\Inner();
 ?>
 --EXPECTF--
-Fatal error: Inner class 'Outer:>Inner' not found in outer class Outer in %s on line %d
+Fatal error: Uncaught Error: Class "Outer\Inner" not found in %s:%d
+Stack trace:
+#0 {main}
+  thrown in %s on line %d

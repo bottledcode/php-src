@@ -9,10 +9,10 @@ class Outer {
                         $i->illegal = $this;
                 }
         }
-        private Outer:>Inner $illegal;
+        private Inner $illegal;
 
         public function test(): void {
-                new Outer:>Inner()->test($this);
+                new Inner()->test($this);
         }
 }
 
@@ -25,6 +25,6 @@ var_dump($x);
 --EXPECT--
 object(Outer)#1 (1) {
   ["illegal":"Outer":private]=>
-  object(Outer:>Inner)#2 (0) {
+  object(Outer\Inner)#2 (0) {
   }
 }

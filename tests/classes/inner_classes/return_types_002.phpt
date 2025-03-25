@@ -6,8 +6,8 @@ private inner class
 class Outer {
     private class Inner {}
 
-    private function getInner(): self:>Inner {
-        return new self:>Inner();
+    private function getInner(): Inner {
+        return new Inner();
     }
 
     public function getInner2(): mixed {
@@ -16,9 +16,9 @@ class Outer {
 }
 
 class Foo extends Outer {
-    public function getInner(): parent:>Inner {
+    public function getInner(): Outer\Inner {
         var_dump(parent::getInner2());
-        return new parent:>Inner();
+        return new Outer\Inner();
     }
 }
 
@@ -26,7 +26,11 @@ $outer = new Foo();
 var_dump($outer->getInner());
 ?>
 --EXPECTF--
-object(Outer:>Inner)#2 (0) {
+object(Outer\Inner)#2 (0) {
 }
 
-Fatal error: Cannot access private inner class 'Outer:>Inner' in %s on line %d
+Fatal error: Uncaught Error: Cannot instantiate private class Outer\Inner from Foo in %s:%d
+Stack trace:
+#0 %s(%d): Foo->getInner()
+#1 {main}
+  thrown in %s on line %d

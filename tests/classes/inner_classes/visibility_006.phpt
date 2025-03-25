@@ -18,11 +18,11 @@ class Outer {
         }
     }
 }
-new Outer:>Middle:>Inner()->testit();
+new Outer\Middle\Inner()->testit();
 ?>
 --EXPECTF--
-Fatal error: Uncaught Error: Call to undefined method Outer:>Middle:>Inner::test() in %s:%d
+Fatal error: Uncaught Error: Call to undefined method Outer\Middle\Inner::test() in %s:%d
 Stack trace:
-#0 %s(%d): Outer:>Middle:>Inner->testit()
+#0 %s(%d): Outer\Middle\Inner->testit()
 #1 {main}
   thrown in %s on line %d
