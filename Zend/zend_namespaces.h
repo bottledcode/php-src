@@ -20,7 +20,6 @@
 #ifndef ZEND_NAMESPACES_H
 #define ZEND_NAMESPACES_H
 
-#include "zend.h"
 #include "zend_compile.h"
 
 ZEND_API zend_class_entry *zend_resolve_namespace(zend_string *name);
