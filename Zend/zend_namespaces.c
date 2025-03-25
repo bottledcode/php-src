@@ -28,10 +28,10 @@ static zend_class_entry *global_namespace = NULL;
 static HashTable namespaces;
 
 static zend_class_entry *create_namespace(zend_string *name) {
-	zend_class_entry *ns = pemalloc(sizeof(zend_class_entry), 1);
-	memset(ns, 0, sizeof(zend_class_entry));
+	zend_class_entry *ns = pecalloc(1, sizeof(zend_class_entry), 1);
 	zend_initialize_class_data(ns, 1);
 	ns->type = ZEND_NAMESPACE_CLASS;
+	ns->ce_flags |= ZEND_ACC_UNINSTANTIABLE;
 
 	zend_string *interned_name = zend_new_interned_string(zend_string_copy(name));
 	ns->name = interned_name;
@@ -64,13 +64,12 @@ static zend_class_entry *insert_namespace(const zend_string *name) {
 			zend_string *needle = zend_string_init(ZSTR_VAL(current_ns.s), ZSTR_LEN(current_ns.s), 0);
 			ns = zend_hash_find_ptr(&namespaces, needle);
 
+			zend_string_release(part);
 			if (!ns) {
 				ns = create_namespace(needle);
 				ns->parent = parent_ns;
-				zend_hash_add_ptr(&namespaces, current_ns.s, ns);
+				zend_hash_add_ptr(&namespaces, zend_string_copy(needle), ns);
 			}
-
-			zend_string_release(part);
 			zend_string_release(needle);
 
 			parent_ns = ns;
@@ -120,12 +119,5 @@ void zend_destroy_namespaces(void) {
 		return;
 	}
 
-	zend_class_entry *ns = NULL;
-	ZEND_HASH_FOREACH_PTR(&namespaces, ns) {
-		zend_string_release(ns->name);
-	} ZEND_HASH_FOREACH_END();
-
 	zend_hash_destroy(&namespaces);
-	zend_string_release(global_namespace->name);
-	pefree(global_namespace, 1);
 }
