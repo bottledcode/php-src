@@ -1179,6 +1179,61 @@ static zend_string *zend_resolve_const_name(zend_string *name, uint32_t type, bo
 		name, type, is_fully_qualified, 1, FC(imports_const));
 }
 
+static zend_string *get_namespace_from_scope(const zend_class_entry *scope) {
+	ZEND_ASSERT(scope != NULL);
+	while (scope && scope->lexical_scope && scope->type != ZEND_NAMESPACE_CLASS) {
+		scope = scope->lexical_scope;
+	}
+	return zend_string_copy(scope->name);
+}
+
+static zend_string *get_scoped_name(zend_string *ns, zend_string *name) {
+	// remove the matching prefix from name
+	name = zend_string_tolower(name);
+	if (ns && ZSTR_LEN(ns) && ZSTR_LEN(name) > ZSTR_LEN(ns) + 1 &&
+		memcmp(ZSTR_VAL(name), ZSTR_VAL(ns), ZSTR_LEN(ns)) == 0 &&
+		ZSTR_VAL(name)[ZSTR_LEN(ns)] == '\\') {
+		zend_string *ret = zend_string_init(ZSTR_VAL(name) + ZSTR_LEN(ns) + 1, ZSTR_LEN(name) - ZSTR_LEN(ns) - 1, 0);
+		zend_string_release(name);
+		return ret;
+		}
+	return name;
+}
+
+zend_string *zend_resolve_class_in_scope(zend_string *name, const zend_class_entry *scope) {
+	zend_string *ns_name = get_namespace_from_scope(scope);
+	zend_string *original_suffix = get_scoped_name(ns_name, name);
+	zend_string_release(ns_name);
+
+	const zend_class_entry *current_scope = scope;
+
+	// Traverse upwards in lexical scope, stop at namespace boundary
+	while (current_scope && current_scope->type != ZEND_NAMESPACE_CLASS) {
+		// build fully-qualified name: current_scope->name + "\\" + original_suffix
+		zend_string *try_name = zend_string_concat3(
+			ZSTR_VAL(current_scope->name), ZSTR_LEN(current_scope->name),
+			"\\", 1,
+			ZSTR_VAL(original_suffix), ZSTR_LEN(original_suffix)
+		);
+
+		zend_string *lc_try_name = zend_string_tolower(try_name);
+
+		bool has_seen = zend_have_seen_symbol(lc_try_name, ZEND_SYMBOL_CLASS);
+		zend_string_release(lc_try_name);
+
+		if (has_seen) {
+			zend_string_release(original_suffix);
+			return try_name;
+		}
+		zend_string_release(try_name);
+
+		current_scope = current_scope->lexical_scope;
+	}
+
+	zend_string_release(original_suffix);
+	return NULL;
+}
+
 static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type) /* {{{ */
 {
 	char *compound;
@@ -1234,6 +1289,13 @@ static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type) /*
 			if (import_name) {
 				return zend_string_copy(import_name);
 			}
+		}
+	}
+
+	if (CG(active_class_entry)) {
+		zend_string *import_name = zend_resolve_class_in_scope(name, CG(active_class_entry));
+		if (import_name) {
+			return import_name;
 		}
 	}
 
@@ -9139,6 +9201,27 @@ static void zend_defer_class_decl(zend_ast *ast) {
 	zend_hash_next_index_insert_ptr(inner_class_queue, ast);
 }
 
+static void zend_scan_nested_class_decl(zend_ast *ast) {
+	ZEND_ASSERT(CG(active_class_entry));
+
+	const zend_ast_list *list = zend_ast_get_list(ast);
+	for (int i = 0; i < list->children; i++) {
+		ast = list->child[i];
+		if (ast->kind == ZEND_AST_CLASS) {
+			const zend_ast_decl *decl = (zend_ast_decl *) ast;
+			zend_string *name = zend_string_concat3(
+				ZSTR_VAL(CG(active_class_entry)->name), ZSTR_LEN(CG(active_class_entry)->name),
+				"\\", 1,
+				ZSTR_VAL(decl->name), ZSTR_LEN(decl->name)
+				);
+			zend_string *lc_name = zend_string_tolower(name);
+			zend_register_seen_symbol(lc_name, ZEND_SYMBOL_CLASS);
+			zend_string_release(name);
+			zend_string_release(lc_name);
+		}
+	}
+}
+
 static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel) /* {{{ */
 {
 	zend_ast_decl *decl = (zend_ast_decl *) ast;
@@ -9287,6 +9370,7 @@ static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel)
 		zend_enum_register_props(ce);
 	}
 
+	zend_scan_nested_class_decl(stmt_ast);
 	zend_compile_stmt(stmt_ast);
 
 	/* Reset lineno for final opcodes and errors */
@@ -11703,6 +11787,10 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
 			zend_compile_use_trait(ast);
 			break;
 		case ZEND_AST_CLASS:
+			if (CG(active_class_entry)) {
+				zend_defer_class_decl(ast);
+				break;
+			}
 			zend_compile_class_decl(NULL, ast, 0);
 			break;
 		case ZEND_AST_GROUP_USE:
@@ -11712,10 +11800,6 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
 			zend_compile_use(ast);
 			break;
 		case ZEND_AST_CONST_DECL:
-			if (CG(active_class_entry)) {
-				zend_defer_class_decl(ast);
-				break;
-			}
 			zend_compile_const_decl(ast);
 			break;
 		case ZEND_AST_NAMESPACE:

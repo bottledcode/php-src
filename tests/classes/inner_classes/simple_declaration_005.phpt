@@ -30,13 +30,5 @@ var_dump(Outer2::testSelf());
 var_dump(Outer2::testSelf());
 
 ?>
---EXPECT--
-THIS IS WRONG
-object(Outer\Middle)#1 (0) {
-}
-object(Outer\Middle)#1 (0) {
-}
-object(Outer\Middle)#1 (0) {
-}
-object(Outer\Middle)#1 (0) {
-}
+--EXPECTF--
+Fatal error: Declaration of Outer2::testSelf(): Outer2\middle must be compatible with Outer::testSelf(): Outer\middle in %s on line %d
