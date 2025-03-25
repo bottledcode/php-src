@@ -4079,16 +4079,12 @@ static void add_class_vars(zend_class_entry *ce, bool statics, zval *return_valu
 ZEND_METHOD(ReflectionClass, isInnerClass)
 {
 	reflection_object *intern;
-  zend_class_entry *ce;
+	zend_class_entry *ce;
+	ZEND_PARSE_PARAMETERS_NONE();
 
-  ZEND_PARSE_PARAMETERS_NONE();
+	GET_REFLECTION_OBJECT_PTR(ce);
 
-  GET_REFLECTION_OBJECT_PTR(ce);
-
-  // If the class is an inner class, it will have a T_INNER_REF in its name
-  // todo: make this better?
-
-  RETURN_BOOL(strstr(ZSTR_VAL(ce->name), ":>") != NULL);
+	RETURN_BOOL(ce->lexical_scope && ce->lexical_scope->type != ZEND_NAMESPACE_CLASS);
 }
 /* }}} */
 
