@@ -33,7 +33,7 @@ static zend_class_entry *create_namespace(zend_string *interned_name) {
 	ns->type = ZEND_NAMESPACE_CLASS;
 	ns->ce_flags |= ZEND_ACC_UNINSTANTIABLE;
 
-	ns->name = interned_name;
+	ns->name = zend_string_copy(interned_name);
 
 	return ns;
 }
@@ -41,42 +41,30 @@ static zend_class_entry *create_namespace(zend_string *interned_name) {
 static zend_class_entry *insert_namespace(const zend_string *name) {
 	zend_class_entry *ns = NULL;
 	zend_class_entry *parent_ns = global_namespace;
-	zend_string *part = NULL;
 	const char *start = ZSTR_VAL(name);
 	const char *end = start + ZSTR_LEN(name);
 	const char *pos = start;
 	size_t len = 0;
 
-	smart_str current_ns = {0};
-
 	while (pos <= end) {
 		if (pos == end || *pos == '\\') {
 			len = pos - start;
-			part = zend_string_init(start, len, 0);
+			zend_string *needle = zend_string_init(ZSTR_VAL(name), len, 1);
 
-			if (current_ns.s) {
-				smart_str_appendc(&current_ns, '\\');
-			}
-			smart_str_appendl(&current_ns, ZSTR_VAL(part), ZSTR_LEN(part));
-			smart_str_0(&current_ns);
-
-			zend_string *needle = zend_string_init_interned(ZSTR_VAL(current_ns.s), ZSTR_LEN(current_ns.s), 1);
 			ns = zend_hash_find_ptr(&namespaces, needle);
 
-			zend_string_release(part);
 			if (!ns) {
-				ns = create_namespace(needle);
+				zend_string *interned_name = zend_new_interned_string(needle);
+				ns = create_namespace(interned_name);
 				ns->parent = parent_ns;
-				zend_hash_add_ptr(&namespaces, needle, ns);
+				zend_hash_add_ptr(&namespaces, interned_name, ns);
 			}
+			zend_string_release(needle);
 
 			parent_ns = ns;
-			start = pos + 1;
 		}
 		pos++;
 	}
-
-	smart_str_free(&current_ns);
 
 	return ns;
 }
