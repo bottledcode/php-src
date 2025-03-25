@@ -1818,7 +1818,7 @@ static zend_string *zend_resolve_nested_class_name(zend_ast *ast) /* {{{ */
 
 	full_name = zend_string_concat3(
 		ZSTR_VAL(outer_name), ZSTR_LEN(outer_name),
-		":>", 2,
+		"\\", 1,
 		ZSTR_VAL(inner_name), ZSTR_LEN(inner_name)
 	);
 
