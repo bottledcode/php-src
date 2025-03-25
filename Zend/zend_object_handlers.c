@@ -403,7 +403,7 @@ check_lexical_scope:
 					goto dynamic;
 				} else {
 wrong:
-					if (scope && scope->lexical_scope) {
+					if (scope && scope->lexical_scope && scope->lexical_scope->type != ZEND_NAMESPACE_CLASS) {
 						scope = scope->lexical_scope;
 						goto check_lexical_scope;
 					}
@@ -1839,7 +1839,7 @@ check_lexical_scope:
 				if (zobj->ce->__call) {
 					fbc = zend_get_user_call_function(zobj->ce, method_name);
 				} else {
-					if (scope && scope->lexical_scope) {
+					if (scope && scope->lexical_scope && scope->lexical_scope->type != ZEND_NAMESPACE_CLASS) {
 						scope = scope->lexical_scope;
 						goto check_lexical_scope;
 					}
@@ -1909,7 +1909,7 @@ check_lexical_scope:
 				 || UNEXPECTED(!zend_check_protected(zend_get_function_root_class(fbc), scope))) {
 					zend_function *fallback_fbc = get_static_method_fallback(ce, function_name);
 					if (!fallback_fbc) {
-						if (scope && scope->lexical_scope) {
+						if (scope && scope->lexical_scope && scope->lexical_scope->type != ZEND_NAMESPACE_CLASS) {
 							scope = scope->lexical_scope;
 							goto check_lexical_scope;
 						}
@@ -1996,7 +1996,7 @@ check_lexical_scope:
 			if (UNEXPECTED(property_info->flags & ZEND_ACC_PRIVATE)
 			 || UNEXPECTED(!is_protected_compatible_scope(property_info->ce, scope))) {
 				if (type != BP_VAR_IS) {
-					if (scope && scope->lexical_scope) {
+					if (scope && scope->lexical_scope && scope->lexical_scope->type != ZEND_NAMESPACE_CLASS) {
 						scope = scope->lexical_scope;
 						goto check_lexical_scope;
 					}
@@ -2084,7 +2084,7 @@ check_lexical_scope:
 			if (UNEXPECTED(constructor->common.scope != scope)) {
 				if (UNEXPECTED(constructor->op_array.fn_flags & ZEND_ACC_PRIVATE)
 				 || UNEXPECTED(!zend_check_protected(zend_get_function_root_class(constructor), scope))) {
-					if (scope && scope->lexical_scope) {
+					if (scope && scope->lexical_scope && scope->lexical_scope->type != ZEND_NAMESPACE_CLASS) {
 						scope = scope->lexical_scope;
 						goto check_lexical_scope;
 					}
