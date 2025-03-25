@@ -83,7 +83,7 @@ static zend_class_entry *insert_namespace(const zend_string *name) {
 
 zend_class_entry *zend_resolve_namespace(zend_string *name) {
 	if (global_namespace == NULL) {
-		global_namespace = create_namespace(zend_empty_string);
+		global_namespace = create_namespace(zend_string_copy(zend_empty_string));
 		global_namespace->lexical_scope = NULL;
 		zend_hash_init(&namespaces, 8, NULL, ZEND_CLASS_DTOR, 1);
 		zend_hash_add_ptr(&namespaces, zend_empty_string, global_namespace);
