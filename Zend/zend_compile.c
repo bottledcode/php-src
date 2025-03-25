@@ -9296,6 +9296,22 @@ static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel)
 		zend_verify_abstract_class(ce);
 	}
 
+	if (inner_class_queue == NULL) {
+		CG(active_class_entry) = original_ce;
+	} else {
+		HashTable *queue = inner_class_queue;
+		inner_class_queue = NULL;
+
+		ZEND_HASH_FOREACH_PTR(queue, ast) {
+			zend_compile_class_decl(NULL, ast, 0);
+		} ZEND_HASH_FOREACH_END();
+
+		CG(active_class_entry) = original_ce;
+
+		zend_hash_destroy(queue);
+		FREE_HASHTABLE(queue);
+	}
+
 	if (toplevel) {
 		ce->ce_flags |= ZEND_ACC_TOP_LEVEL;
 	}
@@ -9316,7 +9332,7 @@ static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel)
 				 && !zend_compile_ignore_class(parent_ce, ce->info.user.filename)) {
 					if (zend_try_early_bind(ce, parent_ce, lcname, NULL)) {
 						zend_string_release(lcname);
-						goto compile_inner_classes;
+						return;
 					}
 				}
 			} else if (EXPECTED(zend_hash_add_ptr(CG(class_table), lcname, ce) != NULL)) {
@@ -9325,7 +9341,7 @@ static void zend_compile_class_decl(znode *result, zend_ast *ast, bool toplevel)
 				zend_inheritance_check_override(ce);
 				ce->ce_flags |= ZEND_ACC_LINKED;
 				zend_observer_class_linked_notify(ce, lcname);
-				goto compile_inner_classes;
+				return;
 			} else {
 				goto link_unbound;
 			}
@@ -9395,24 +9411,6 @@ link_unbound:
 			opline->result.opline_num = -1;
 		}
 	}
-	compile_inner_classes:
-
-	if (inner_class_queue == NULL) {
-		CG(active_class_entry) = original_ce;
-		return;
-	}
-
-	HashTable *queue = inner_class_queue;
-	inner_class_queue = NULL;
-
-	ZEND_HASH_FOREACH_PTR(queue, ast) {
-		zend_compile_class_decl(NULL, ast, 0);
-	} ZEND_HASH_FOREACH_END();
-
-	CG(active_class_entry) = original_ce;
-
-	zend_hash_destroy(queue);
-	FREE_HASHTABLE(queue);
 }
 /* }}} */
 
@@ -11703,6 +11701,10 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
 			zend_compile_use_trait(ast);
 			break;
 		case ZEND_AST_CLASS:
+			if (CG(active_class_entry)) {
+				zend_defer_class_decl(ast);
+				break;
+			}
 			zend_compile_class_decl(NULL, ast, 0);
 			break;
 		case ZEND_AST_GROUP_USE:
