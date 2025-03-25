@@ -69,7 +69,6 @@ static zend_class_entry *insert_namespace(const zend_string *name) {
 				ns->parent = parent_ns;
 				zend_hash_add_ptr(&namespaces, needle, ns);
 			}
-			zend_string_release(needle);
 
 			parent_ns = ns;
 			start = pos + 1;
