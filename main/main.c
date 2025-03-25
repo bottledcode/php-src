@@ -66,8 +66,6 @@
 #include <sys/wait.h>
 #endif
 
-#include <zend_namespaces.h>
-
 #include "zend_compile.h"
 #include "zend_execute.h"
 #include "zend_highlight.h"
@@ -1967,8 +1965,6 @@ void php_request_shutdown(void *dummy)
 	zend_try {
 		zend_post_deactivate_modules();
 	} zend_end_try();
-
-	zend_destroy_namespaces();
 
 	/* 12. SAPI related shutdown*/
 	zend_try {
