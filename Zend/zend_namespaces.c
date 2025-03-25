@@ -49,7 +49,7 @@ static zend_class_entry *insert_namespace(const zend_string *name) {
 	while (pos <= end) {
 		if (pos == end || *pos == '\\') {
 			len = pos - start;
-			zend_string *needle = zend_string_init(ZSTR_VAL(name), len, 1);
+			zend_string *needle = zend_string_init(ZSTR_VAL(name), len, 0);
 
 			ns = zend_hash_find_ptr(&namespaces, needle);
 

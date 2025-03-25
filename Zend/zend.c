@@ -19,8 +19,6 @@
 
 #include "zend.h"
 
-#include <zend_namespaces.h>
-
 #include "zend_extensions.h"
 #include "zend_modules.h"
 #include "zend_constants.h"
@@ -1232,7 +1230,6 @@ void zend_shutdown(void) /* {{{ */
 
 	zend_optimizer_shutdown();
 
-	zend_destroy_namespaces();
 	startup_done = false;
 }
 /* }}} */
