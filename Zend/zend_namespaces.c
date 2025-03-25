@@ -119,4 +119,5 @@ void zend_destroy_namespaces(void) {
 	}
 
 	zend_hash_destroy(&namespaces);
+	global_namespace = NULL;
 }

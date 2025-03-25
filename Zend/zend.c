@@ -1226,13 +1226,13 @@ void zend_shutdown(void) /* {{{ */
 	zend_map_ptr_static_last = 0;
 	zend_map_ptr_static_size = 0;
 
-	zend_destroy_namespaces();
-
 	zend_destroy_rsrc_list_dtors();
 
 	zend_unload_modules();
 
 	zend_optimizer_shutdown();
+
+	zend_destroy_namespaces();
 	startup_done = false;
 }
 /* }}} */
