@@ -23,7 +23,8 @@
 #include "zend.h"
 #include "zend_compile.h"
 
-zend_class_entry *zend_resolve_namespace(zend_string *name);
+ZEND_API zend_class_entry *zend_resolve_namespace(zend_string *name);
 void zend_destroy_namespaces(void);
+ZEND_API zend_class_entry *zend_lookup_namespace(zend_string *name);
 
 #endif //ZEND_NAMESPACES_H

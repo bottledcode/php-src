@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <signal.h>
+#include <zend_namespaces.h>
 
 #include "zend.h"
 #include "zend_compile.h"
@@ -1167,13 +1168,14 @@ ZEND_API bool zend_is_valid_class_name(zend_string *name) {
 }
 
 static zend_string *get_namespace_from_scope(const zend_class_entry *scope) {
+	ZEND_ASSERT(scope != NULL);
 	while (scope && scope->lexical_scope && scope->type != ZEND_NAMESPACE_CLASS) {
 		scope = scope->lexical_scope;
 	}
-	return scope->name;
+	return zend_string_copy(scope->name);
 }
 
-static zend_string *get_scoped_name(const zend_string *ns, zend_string *name) {
+static zend_string *get_scoped_name(zend_string *ns, zend_string *name) {
 	// remove the matching prefix from name
 	name = zend_string_tolower(name);
 	if (ns && ZSTR_LEN(ns) && ZSTR_LEN(name) > ZSTR_LEN(ns) + 1 &&
@@ -1183,8 +1185,42 @@ static zend_string *get_scoped_name(const zend_string *ns, zend_string *name) {
 		zend_string_release(name);
 		return ret;
 	}
-	zend_string_release(name);
 	return name;
+}
+
+zend_class_entry *zend_lookup_class_in_scope(zend_string *name, const zend_class_entry *scope) {
+	zend_class_entry *ce = NULL;
+	zend_string *ns_name = get_namespace_from_scope(scope);
+	zend_string *original_suffix = get_scoped_name(ns_name, name);
+	zend_string_release(ns_name);
+
+	const zend_class_entry *current_scope = scope;
+
+	// Traverse upwards in lexical scope, stop at namespace boundary
+	while (current_scope && current_scope->type != ZEND_NAMESPACE_CLASS) {
+		// build fully-qualified name: current_scope->name + "\\" + original_suffix
+		zend_string *try_name = zend_string_concat3(
+			ZSTR_VAL(current_scope->name), ZSTR_LEN(current_scope->name),
+			"\\", 1,
+			ZSTR_VAL(original_suffix), ZSTR_LEN(original_suffix)
+		);
+
+		zend_string *lc_try_name = zend_string_tolower(try_name);
+		zend_string_release(try_name);
+
+		ce = zend_hash_find_ptr(EG(class_table), lc_try_name);
+		zend_string_release(lc_try_name);
+
+		if (ce) {
+			zend_string_release(original_suffix);
+			return ce;
+		}
+
+		current_scope = current_scope->lexical_scope;
+	}
+
+	zend_string_release(original_suffix);
+	return NULL;
 }
 
 ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *key, uint32_t flags) /* {{{ */
@@ -1205,26 +1241,25 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 
 	if (!zend_is_compiling()) {
 		const zend_class_entry *scope = zend_get_executed_scope();
-		if (scope && scope->lexical_scope && scope->lexical_scope->type != ZEND_NAMESPACE_CLASS) {
-			zend_string *ns_name = get_namespace_from_scope(scope);
-			zend_string *scoped_name = get_scoped_name(ns_name, name);
-			while (scope->type != ZEND_NAMESPACE_CLASS) {
-				zend_string *try_name = zend_string_concat3(ZSTR_VAL(scope->name), ZSTR_LEN(scope->name), "\\", 1, ZSTR_VAL(scoped_name), ZSTR_LEN(scoped_name));
-				lc_name = zend_string_tolower(try_name);
-				ce = zend_hash_find_ptr(EG(class_table), lc_name);
-				if (ce) {
-					zend_string_release(lc_name);
-					zend_string_release(scoped_name);
-					zend_string_release(ns_name);
-					zend_string_release(try_name);
-					return ce;
+		if (scope) {
+			ce = zend_lookup_class_in_scope(name, scope);
+			if (ce) {
+				if (ce_cache) {
+					SET_CE_CACHE(ce_cache, ce);
 				}
-				scope = scope->lexical_scope;
-				zend_string_release(lc_name);
-				zend_string_release(try_name);
+				return ce;
 			}
-			zend_string_release(ns_name);
-			zend_string_release(scoped_name);
+		}
+	} else if (CG(active_class_entry)) {
+		const zend_class_entry *scope = CG(active_class_entry);
+		if (scope) {
+			ce = zend_lookup_class_in_scope(name, scope);
+			if (ce) {
+				if (ce_cache) {
+					SET_CE_CACHE(ce_cache, ce);
+				}
+				return ce;
+			}
 		}
 	}
 

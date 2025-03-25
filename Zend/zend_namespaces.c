@@ -107,12 +107,20 @@ zend_class_entry *zend_resolve_namespace(zend_string *name) {
 	return ns;
 }
 
+zend_class_entry *zend_lookup_namespace(zend_string *name) {
+	zend_string *lc_name = zend_string_tolower(name);
+	zend_class_entry *ns = zend_hash_find_ptr(&namespaces, lc_name);
+	zend_string_release(lc_name);
+
+	return ns;
+}
+
 void zend_destroy_namespaces(void) {
 	if (global_namespace == NULL) {
 		return;
 	}
 
-	const zend_class_entry *ns = NULL;
+	zend_class_entry *ns = NULL;
 	ZEND_HASH_FOREACH_PTR(&namespaces, ns) {
 		zend_string_release(ns->name);
 	} ZEND_HASH_FOREACH_END();
