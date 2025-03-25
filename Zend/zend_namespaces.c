@@ -27,13 +27,12 @@
 static zend_class_entry *global_namespace = NULL;
 static HashTable namespaces;
 
-static zend_class_entry *create_namespace(zend_string *name) {
-	zend_class_entry *ns = pecalloc(1, sizeof(zend_class_entry), 1);
+static zend_class_entry *create_namespace(zend_string *interned_name) {
+	zend_class_entry *ns = malloc(sizeof(zend_class_entry));
 	zend_initialize_class_data(ns, 1);
 	ns->type = ZEND_NAMESPACE_CLASS;
 	ns->ce_flags |= ZEND_ACC_UNINSTANTIABLE;
 
-	zend_string *interned_name = zend_new_interned_string(zend_string_copy(name));
 	ns->name = interned_name;
 
 	return ns;
@@ -61,14 +60,14 @@ static zend_class_entry *insert_namespace(const zend_string *name) {
 			smart_str_appendl(&current_ns, ZSTR_VAL(part), ZSTR_LEN(part));
 			smart_str_0(&current_ns);
 
-			zend_string *needle = zend_string_init(ZSTR_VAL(current_ns.s), ZSTR_LEN(current_ns.s), 0);
+			zend_string *needle = zend_string_init_interned(ZSTR_VAL(current_ns.s), ZSTR_LEN(current_ns.s), 1);
 			ns = zend_hash_find_ptr(&namespaces, needle);
 
 			zend_string_release(part);
 			if (!ns) {
 				ns = create_namespace(needle);
 				ns->parent = parent_ns;
-				zend_hash_add_ptr(&namespaces, zend_string_copy(needle), ns);
+				zend_hash_add_ptr(&namespaces, needle, ns);
 			}
 			zend_string_release(needle);
 
