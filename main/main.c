@@ -66,8 +66,6 @@
 #include <sys/wait.h>
 #endif
 
-#include "zend_namespaces.h"
-
 #include "zend_compile.h"
 #include "zend_execute.h"
 #include "zend_highlight.h"
@@ -1958,7 +1956,6 @@ void php_request_shutdown(void *dummy)
 	} zend_end_try();
 
 	/* 9. Shutdown scanner/executor/compiler and restore ini entries */
-	zend_destroy_namespaces();
 	zend_deactivate();
 
 	/* 10. free request-bound globals */

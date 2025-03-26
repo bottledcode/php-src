@@ -430,10 +430,6 @@ ZEND_API void destroy_zend_class(zval *zv)
 			if (ce->backed_enum_table) {
 				zend_hash_release(ce->backed_enum_table);
 			}
-			if (ce->required_scope) {
-				ce->required_scope->refcount--;
-				ce->required_scope = NULL;
-			}
 			break;
 		case ZEND_INTERNAL_CLASS:
 		case ZEND_NAMESPACE_CLASS:
