@@ -1349,10 +1349,10 @@ ZEND_API void zend_deactivate(void) /* {{{ */
 		shutdown_scanner();
 	} zend_end_try();
 
-	zend_destroy_namespaces();
-
 	/* shutdown_executor() takes care of its own bailout handling */
 	shutdown_executor();
+
+	zend_destroy_namespaces();
 
 	zend_try {
 		zend_ini_deactivate();
