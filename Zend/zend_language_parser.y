@@ -285,10 +285,10 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %type <ast> enum_declaration_statement enum_backing_type enum_case enum_case_expr
 %type <ast> function_name non_empty_member_modifiers
 %type <ast> property_hook property_hook_list optional_property_hook_list hooked_property property_hook_body
-%type <ast> optional_parameter_list
+%type <ast> optional_parameter_list inner_class_statement
 
 %type <num> returns_ref function fn is_reference is_variadic property_modifiers property_hook_modifiers
-%type <num> method_modifiers class_const_modifiers member_modifier optional_cpp_modifiers
+%type <num> method_modifiers class_const_modifiers member_modifier optional_cpp_modifiers inner_class_modifiers
 %type <num> class_modifiers class_modifier anonymous_class_modifiers anonymous_class_modifiers_optional use_type backup_fn_flags
 
 %type <ptr> backup_lex_pos
@@ -628,6 +628,14 @@ class_modifier:
 	|	T_READONLY 		{ $$ = ZEND_ACC_READONLY_CLASS|ZEND_ACC_NO_DYNAMIC_PROPERTIES; }
 ;
 
+inner_class_modifiers:
+		non_empty_member_modifiers
+			{ $$ = zend_modifier_list_to_flags(ZEND_MODIFIER_TARGET_INNER_CLASS, $1);
+			  if (!$$) { YYERROR; } }
+	|	%empty
+			{ $$ = ZEND_ACC_PUBLIC; }
+;
+
 trait_declaration_statement:
 		T_TRAIT { $<num>$ = CG(zend_lineno); }
 		T_STRING backup_doc_comment '{' class_statement_list '}'
@@ -866,9 +874,9 @@ type_expr_without_static:
 ;
 
 type_without_static:
-		T_ARRAY		{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_ARRAY); }
-	|	T_CALLABLE	{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_CALLABLE); }
-	|	name		{ $$ = $1; }
+		T_ARRAY						{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_ARRAY); }
+	|	T_CALLABLE					{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_CALLABLE); }
+	|	name						{ $$ = $1; }
 ;
 
 union_type_without_static_element:
@@ -943,6 +951,10 @@ class_statement_list:
 			{ $$ = zend_ast_create_list(0, ZEND_AST_STMT_LIST); }
 ;
 
+inner_class_statement:
+		T_CLASS T_STRING { $<num>$ = CG(zend_lineno); } extends_from implements_list backup_doc_comment '{' class_statement_list '}'
+			{ $$ = zend_ast_create_decl(ZEND_AST_CLASS, 0, $<num>3, $6, zend_ast_get_str($2), $4, $5, $8, NULL, NULL); }
+;
 
 attributed_class_statement:
 		property_modifiers optional_type_without_static property_list ';'
@@ -962,6 +974,8 @@ attributed_class_statement:
 			{ $$ = zend_ast_create_decl(ZEND_AST_METHOD, $3 | $1 | $12, $2, $5,
 				  zend_ast_get_str($4), $7, NULL, $11, $9, NULL); CG(extra_fn_flags) = $10; }
 	|	enum_case { $$ = $1; }
+	|	inner_class_modifiers inner_class_statement
+			{ $$ = $2; $$->attr = $1; }
 ;
 
 class_statement:
@@ -1414,9 +1428,9 @@ class_name:
 ;
 
 class_name_reference:
-		class_name		{ $$ = $1; }
-	|	new_variable	{ $$ = $1; }
-	|	'(' expr ')'	{ $$ = $2; }
+		class_name	{ $$ = $1; }
+	|	new_variable				{ $$ = $1; }
+	|	'(' expr ')'				{ $$ = $2; }
 ;
 
 backticks_expr:

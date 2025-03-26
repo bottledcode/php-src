@@ -18,6 +18,7 @@
 */
 
 #include "zend.h"
+
 #include "zend_extensions.h"
 #include "zend_modules.h"
 #include "zend_constants.h"
@@ -41,6 +42,7 @@
 #include "Optimizer/zend_optimizer.h"
 #include "php.h"
 #include "php_globals.h"
+#include "zend_namespaces.h"
 
 // FIXME: Breaks the declaration of the function below
 #undef zenderror
@@ -1228,6 +1230,7 @@ void zend_shutdown(void) /* {{{ */
 	zend_unload_modules();
 
 	zend_optimizer_shutdown();
+
 	startup_done = false;
 }
 /* }}} */
@@ -1348,6 +1351,8 @@ ZEND_API void zend_deactivate(void) /* {{{ */
 
 	/* shutdown_executor() takes care of its own bailout handling */
 	shutdown_executor();
+
+	zend_destroy_namespaces();
 
 	zend_try {
 		zend_ini_deactivate();

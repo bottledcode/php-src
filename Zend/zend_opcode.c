@@ -432,6 +432,7 @@ ZEND_API void destroy_zend_class(zval *zv)
 			}
 			break;
 		case ZEND_INTERNAL_CLASS:
+		case ZEND_NAMESPACE_CLASS:
 			if (ce->doc_comment) {
 				zend_string_release_ex(ce->doc_comment, 1);
 			}
