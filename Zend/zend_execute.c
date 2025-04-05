@@ -1140,11 +1140,11 @@ static zend_always_inline zend_class_entry *zend_fetch_ce_from_cache_slot(
 	return ce;
 }
 
-static bool zend_check_intersection_type_from_cache_slot(zend_type_list *intersection_type_list,
+static bool zend_check_intersection_type_from_cache_slot(zend_type *original_type, zend_type_list *intersection_type_list,
 	zend_class_entry *arg_ce, void ***cache_slot_ptr)
 {
 	void **cache_slot = *cache_slot_ptr;
-	zend_class_entry *ce;
+	zend_class_entry *ce = NULL;
 	zend_type *list_type;
 	bool status = true;
 	ZEND_TYPE_LIST_FOREACH(intersection_type_list, list_type) {
@@ -1162,6 +1162,9 @@ static bool zend_check_intersection_type_from_cache_slot(zend_type_list *interse
 	if (HAVE_CACHE_SLOT) {
 		*cache_slot_ptr = cache_slot;
 	}
+	if (status && ce) {
+		zend_type_satisfied_by_class(original_type, ce);
+	}
 	return status;
 }
 
@@ -1171,15 +1174,18 @@ static zend_always_inline bool zend_check_type_slow(
 {
 	uint32_t type_mask;
 	if (ZEND_TYPE_IS_COMPLEX(*type) && EXPECTED(Z_TYPE_P(arg) == IS_OBJECT)) {
-		zend_class_entry *ce;
+		zend_class_entry *ce = Z_OBJCE_P(arg);
+		if (EXPECTED(zend_type_is_satisfied_by_class(type, ce))) {
+			return 1;
+		}
 		if (UNEXPECTED(ZEND_TYPE_HAS_LIST(*type))) {
 			zend_type *list_type;
 			if (ZEND_TYPE_IS_INTERSECTION(*type)) {
-				return zend_check_intersection_type_from_cache_slot(ZEND_TYPE_LIST(*type), Z_OBJCE_P(arg), &cache_slot);
+				return zend_check_intersection_type_from_cache_slot(type, ZEND_TYPE_LIST(*type), Z_OBJCE_P(arg), &cache_slot);
 			} else {
 				ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(*type), list_type) {
 					if (ZEND_TYPE_IS_INTERSECTION(*list_type)) {
-						if (zend_check_intersection_type_from_cache_slot(ZEND_TYPE_LIST(*list_type), Z_OBJCE_P(arg), &cache_slot)) {
+						if (zend_check_intersection_type_from_cache_slot(type, ZEND_TYPE_LIST(*list_type), Z_OBJCE_P(arg), &cache_slot)) {
 							return true;
 						}
 						/* The cache_slot is progressed in zend_check_intersection_type_from_cache_slot() */
@@ -1188,6 +1194,7 @@ static zend_always_inline bool zend_check_type_slow(
 						ce = zend_fetch_ce_from_cache_slot(cache_slot, list_type);
 						/* Instance of a single type part of a union is sufficient to pass the type check */
 						if (ce && instanceof_function(Z_OBJCE_P(arg), ce)) {
+							zend_type_satisfied_by_class(type, ce);
 							return true;
 						}
 						PROGRESS_CACHE_SLOT();
@@ -1199,6 +1206,7 @@ static zend_always_inline bool zend_check_type_slow(
 			/* If we have a CE we check if it satisfies the type constraint,
 			 * otherwise it will check if a standard type satisfies it. */
 			if (ce && instanceof_function(Z_OBJCE_P(arg), ce)) {
+				zend_type_satisfied_by_class(type, ce);
 				return true;
 			}
 		}
