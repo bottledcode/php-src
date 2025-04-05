@@ -1144,7 +1144,7 @@ static bool zend_check_intersection_type_from_cache_slot(zend_type *original_typ
 	zend_class_entry *arg_ce, void ***cache_slot_ptr)
 {
 	void **cache_slot = *cache_slot_ptr;
-	zend_class_entry *ce = NULL;
+	zend_class_entry *ce;
 	zend_type *list_type;
 	bool status = true;
 	ZEND_TYPE_LIST_FOREACH(intersection_type_list, list_type) {
@@ -1162,8 +1162,8 @@ static bool zend_check_intersection_type_from_cache_slot(zend_type *original_typ
 	if (HAVE_CACHE_SLOT) {
 		*cache_slot_ptr = cache_slot;
 	}
-	if (status && ce) {
-		zend_type_satisfied_by_class(original_type, ce);
+	if (status) {
+		zend_type_satisfied_by_class(original_type, arg_ce);
 	}
 	return status;
 }
