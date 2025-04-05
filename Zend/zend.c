@@ -797,13 +797,13 @@ static void compiler_globals_dtor(zend_compiler_globals *compiler_globals) /* {{
 		pefree(compiler_globals->internal_run_time_cache, 1);
 		compiler_globals->internal_run_time_cache = NULL;
 	}
-	HashTable *cache;
-	ZEND_HASH_FOREACH_PTR(compiler_globals->constraint_cache, cache) {
-		zend_hash_destroy(cache);
-		free(cache);
-	} ZEND_HASH_FOREACH_END();
-	zend_hash_destroy(compiler_globals->constraint_cache);
-	free(compiler_globals->constraint_cache);
+//	HashTable *cache;
+//	ZEND_HASH_FOREACH_PTR(compiler_globals->constraint_cache, cache) {
+//		zend_hash_destroy(cache);
+//		free(cache);
+//	} ZEND_HASH_FOREACH_END();
+//	zend_hash_destroy(compiler_globals->constraint_cache);
+//	free(compiler_globals->constraint_cache);
 }
 /* }}} */
 
