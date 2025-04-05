@@ -724,6 +724,9 @@ static void compiler_globals_ctor(zend_compiler_globals *compiler_globals) /* {{
 	zend_hash_init(compiler_globals->class_table, 64, NULL, ZEND_CLASS_DTOR, 1);
 	zend_hash_copy(compiler_globals->class_table, global_class_table, zend_class_add_ref);
 
+	compiler_globals->constraint_cache = (HashTable *) malloc(sizeof(HashTable));
+	zend_hash_init(compiler_globals->constraint_cache, 64, NULL, NULL, 1);
+
 	zend_set_default_compile_time_values();
 
 	compiler_globals->auto_globals = (HashTable *) malloc(sizeof(HashTable));
@@ -794,6 +797,13 @@ static void compiler_globals_dtor(zend_compiler_globals *compiler_globals) /* {{
 		pefree(compiler_globals->internal_run_time_cache, 1);
 		compiler_globals->internal_run_time_cache = NULL;
 	}
+//	HashTable *cache;
+//	ZEND_HASH_FOREACH_PTR(compiler_globals->constraint_cache, cache) {
+//		zend_hash_destroy(cache);
+//		free(cache);
+//	} ZEND_HASH_FOREACH_END();
+//	zend_hash_destroy(compiler_globals->constraint_cache);
+//	free(compiler_globals->constraint_cache);
 }
 /* }}} */
 
@@ -1029,6 +1039,7 @@ void zend_startup(zend_utility_functions *utility_functions) /* {{{ */
 	compiler_globals->in_compilation = 0;
 	compiler_globals->function_table = (HashTable *) malloc(sizeof(HashTable));
 	compiler_globals->class_table = (HashTable *) malloc(sizeof(HashTable));
+	compiler_globals->constraint_cache = (HashTable *) malloc(sizeof(HashTable));
 
 	*compiler_globals->function_table = *GLOBAL_FUNCTION_TABLE;
 	*compiler_globals->class_table = *GLOBAL_CLASS_TABLE;
@@ -1124,6 +1135,8 @@ zend_result zend_post_startup(void) /* {{{ */
 	compiler_globals->function_table = NULL;
 	free(compiler_globals->class_table);
 	compiler_globals->class_table = NULL;
+	free(compiler_globals->constraint_cache);
+	compiler_globals->constraint_cache = NULL;
 	if (compiler_globals->map_ptr_real_base) {
 		free(compiler_globals->map_ptr_real_base);
 	}

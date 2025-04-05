@@ -7359,6 +7359,7 @@ static zend_type zend_compile_typename_ex(
 	}
 
 	ast->attr = orig_ast_attr;
+
 	return type;
 }
 /* }}} */
@@ -8370,10 +8371,10 @@ static zend_op_array *zend_compile_func_decl_ex(
 			"nodiscard",
 			sizeof("nodiscard")-1
 		);
-	
+
 		if (nodiscard_attribute) {
 			op_array->fn_flags |= ZEND_ACC_NODISCARD;
-		}	
+		}
 	}
 
 	/* Do not leak the class scope into free standing functions, even if they are dynamically
