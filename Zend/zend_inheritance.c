@@ -2194,6 +2194,31 @@ static void do_interface_implementation(zend_class_entry *ce, zend_class_entry *
 }
 /* }}} */
 
+ZEND_API void zend_type_satisfied_by_class(const zend_type *type, const zend_class_entry *ce) {
+	const zend_ulong hash = zend_hash_type(type);
+	HashTable *constraint = zend_hash_index_find_ptr(EG(constraint_cache), hash);
+	if (UNEXPECTED(constraint == NULL)) {
+		constraint = malloc(sizeof(HashTable));
+		zend_hash_init(constraint, 8, NULL, NULL, 1);
+		zend_hash_index_add_new_ptr(EG(constraint_cache), hash, constraint);
+	}
+	zend_hash_add_empty_element(constraint, ce->name);
+}
+
+ZEND_API bool zend_type_is_satisfied_by_class(const zend_type *type, const zend_class_entry *ce) {
+	const zend_ulong hash = zend_hash_type(type);
+	const HashTable *constraint = zend_hash_index_find_ptr(EG(constraint_cache), hash);
+	if (UNEXPECTED(constraint == NULL)) {
+		return false;
+	}
+	return zend_hash_exists(constraint, ce->name);
+}
+
+ZEND_API ZEND_FASTCALL zend_ulong zend_hash_type(const zend_type *type) {
+	const uintptr_t hash = (uintptr_t)type;
+	return (zend_ulong)hash;
+}
+
 ZEND_API void zend_do_implement_interface(zend_class_entry *ce, zend_class_entry *iface) /* {{{ */
 {
 	uint32_t i, ignore = 0;

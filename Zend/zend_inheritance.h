@@ -27,6 +27,9 @@ BEGIN_EXTERN_C()
 
 ZEND_API void zend_do_implement_interface(zend_class_entry *ce, zend_class_entry *iface);
 ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *parent_ce, bool checked);
+ZEND_API ZEND_FASTCALL zend_ulong zend_hash_type(const zend_type *type);
+ZEND_API bool zend_type_is_satisfied_by_class(const zend_type *type, const zend_class_entry *ce);
+ZEND_API void zend_type_satisfied_by_class(const zend_type *type, const zend_class_entry *ce);
 
 static zend_always_inline void zend_do_inheritance(zend_class_entry *ce, zend_class_entry *parent_ce) {
 	zend_do_inheritance_ex(ce, parent_ce, 0);
