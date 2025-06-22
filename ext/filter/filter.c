@@ -324,7 +324,7 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 	 */
 	if (is_raw)
 	{
-		if (array_ptr || orig_array_ptr)
+		if (array_ptr || orig_array_ptr || retval)
 		{
 			if (val_len)
 			{
@@ -333,11 +333,13 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 			{
 				ZVAL_EMPTY_STRING(&raw_var);
 			}
+
 			if (array_ptr)
 			{
 				Z_TRY_ADDREF_P(&raw_var);
 				php_register_variable_ex(var, &raw_var, array_ptr);
 			}
+
 			if (orig_array_ptr)
 			{
 				Z_TRY_ADDREF_P(&raw_var);
