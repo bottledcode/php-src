@@ -354,7 +354,7 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 					*val = estrndup(Z_STRVAL_P(&raw_var), Z_STRLEN_P(&raw_var));
 				} else
 				{
-					*val = strdup("");
+					*val = estrdup("");
 				}
 			}
 
