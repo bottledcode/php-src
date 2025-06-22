@@ -283,7 +283,6 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 	zval *array_ptr = NULL, *orig_array_ptr = NULL;
 	int retval = 0;
 	int is_raw = (IF_G(default_filter) == FILTER_UNSAFE_RAW);
-	size_t var_len = strlen(var);
 
 	assert(*val != NULL);
 
@@ -314,15 +313,15 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 	 * to have the same (plain text) cookie name for the same path and we should not overwrite
 	 * more specific cookies with the less specific ones.
 	*/
-	if (arg == PARSE_COOKIE && orig_array_ptr &&
-			zend_symtable_str_exists(Z_ARRVAL_P(orig_array_ptr), var, var_len)) {
+	if (UNEXPECTED(arg == PARSE_COOKIE && orig_array_ptr &&
+			zend_symtable_str_exists(Z_ARRVAL_P(orig_array_ptr), var, str_len(var)))) {
 		return 0;
 	}
 
 	/*
 	 * Fast path: if the default filter is UNSAFE_RAW, we can build a single zval, register it twice, and be done
 	 */
-	if (is_raw)
+	if (EXPECTED(is_raw))
 	{
 		if (array_ptr || orig_array_ptr || retval)
 		{
