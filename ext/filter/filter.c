@@ -335,10 +335,12 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 			}
 			if (array_ptr)
 			{
+				Z_TRY_ADDREF_P(&raw_var);
 				php_register_variable_ex(var, &raw_var, array_ptr);
 			}
 			if (orig_array_ptr)
 			{
+				Z_TRY_ADDREF_P(&raw_var);
 				php_register_variable_ex(var, &raw_var, orig_array_ptr);
 			}
 
