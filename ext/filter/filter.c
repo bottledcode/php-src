@@ -314,7 +314,7 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 	 * more specific cookies with the less specific ones.
 	*/
 	if (UNEXPECTED(arg == PARSE_COOKIE && orig_array_ptr &&
-			zend_symtable_str_exists(Z_ARRVAL_P(orig_array_ptr), var, str_len(var)))) {
+			zend_symtable_str_exists(Z_ARRVAL_P(orig_array_ptr), var, strlen(var)))) {
 		return 0;
 	}
 
