@@ -279,9 +279,10 @@ handle_default:
 
 static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t val_len, size_t *new_val_len) /* {{{ */
 {
-	zval  new_var, raw_var;
+	zval  raw_var, new_var;
 	zval *array_ptr = NULL, *orig_array_ptr = NULL;
 	int retval = 0;
+	int is_raw = (IF_G(default_filter) == FILTER_UNSAFE_RAW);
 
 	assert(*val != NULL);
 
@@ -312,9 +313,57 @@ static unsigned int php_sapi_filter(int arg, const char *var, char **val, size_t
 	 * to have the same (plain text) cookie name for the same path and we should not overwrite
 	 * more specific cookies with the less specific ones.
 	*/
-	if (arg == PARSE_COOKIE && orig_array_ptr &&
-			zend_symtable_str_exists(Z_ARRVAL_P(orig_array_ptr), var, strlen(var))) {
+	if (UNEXPECTED(arg == PARSE_COOKIE && orig_array_ptr &&
+			zend_symtable_str_exists(Z_ARRVAL_P(orig_array_ptr), var, strlen(var)))) {
 		return 0;
+	}
+
+	/*
+	 * Fast path: if the default filter is UNSAFE_RAW, we can build a single zval, register it twice, and be done
+	 */
+	if (EXPECTED(is_raw))
+	{
+		if (array_ptr || orig_array_ptr || retval)
+		{
+			if (val_len)
+			{
+				ZVAL_STRINGL(&raw_var, *val, val_len);
+			} else
+			{
+				ZVAL_EMPTY_STRING(&raw_var);
+			}
+
+			if (array_ptr)
+			{
+				Z_TRY_ADDREF_P(&raw_var);
+				php_register_variable_ex(var, &raw_var, array_ptr);
+			}
+
+			if (orig_array_ptr)
+			{
+				Z_TRY_ADDREF_P(&raw_var);
+				php_register_variable_ex(var, &raw_var, orig_array_ptr);
+			}
+
+			if (retval)
+			{
+				if (new_val_len)
+				{
+					*new_val_len = Z_STRLEN_P(&raw_var);
+				}
+				efree(*val);
+				if (Z_STRLEN_P(&raw_var))
+				{
+					*val = estrndup(Z_STRVAL_P(&raw_var), Z_STRLEN_P(&raw_var));
+				} else
+				{
+					*val = estrdup("");
+				}
+			}
+
+			zval_ptr_dtor(&raw_var);
+		}
+		return retval;
 	}
 
 	if (array_ptr) {
