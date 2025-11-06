@@ -34,6 +34,7 @@
 #include "zend_enum.h"
 #include "zend_object_handlers.h"
 #include "zend_observer.h"
+#include "zend_struct.h"
 
 #include <stdarg.h>
 
@@ -125,6 +126,8 @@ ZEND_API const char *zend_get_type_by_const(int type) /* {{{ */
 			return "mixed";
 		case _IS_NUMBER:
 			return "int|float";
+		case IS_STRUCT:
+			return "object";
 		EMPTY_SWITCH_DEFAULT_CASE()
 	}
 }
@@ -140,6 +143,8 @@ ZEND_API const char *zend_zval_value_name(const zval *arg)
 
 	if (Z_TYPE_P(arg) == IS_OBJECT) {
 		return ZSTR_VAL(Z_OBJCE_P(arg)->name);
+	} else if (Z_TYPE_P(arg) == IS_STRUCT) {
+		return ZSTR_VAL(Z_STRUCT_OBJ_P(arg)->ce->name);
 	} else if (Z_TYPE_P(arg) == IS_FALSE) {
 		return "false";
 	} else if  (Z_TYPE_P(arg) == IS_TRUE) {
@@ -1824,14 +1829,29 @@ static zend_always_inline zend_result _object_and_properties_init(zval *arg, zen
 	if (class_type->create_object == NULL) {
 		zend_object *obj = zend_objects_new(class_type);
 
-		ZVAL_OBJ(arg, obj);
+		/* Check if this is a struct - wrap in handle */
+		if (class_type->ce_flags & ZEND_ACC_STRUCT) {
+			zend_struct_handle *handle = zend_struct_handle_alloc(obj);
+			ZVAL_STRUCT(arg, handle);
+		} else {
+			ZVAL_OBJ(arg, obj);
+		}
+
 		if (properties) {
 			object_properties_init_ex(obj, properties);
 		} else {
 			_object_properties_init(obj, class_type);
 		}
 	} else {
-		ZVAL_OBJ(arg, class_type->create_object(class_type));
+		zend_object *obj = class_type->create_object(class_type);
+
+		/* Check if this is a struct - wrap in handle */
+		if (class_type->ce_flags & ZEND_ACC_STRUCT) {
+			zend_struct_handle *handle = zend_struct_handle_alloc(obj);
+			ZVAL_STRUCT(arg, handle);
+		} else {
+			ZVAL_OBJ(arg, obj);
+		}
 	}
 	return SUCCESS;
 }
@@ -4160,7 +4180,7 @@ check_func:
 				}
 
 				ZVAL_DEREF(obj);
-				if (Z_TYPE_P(obj) != IS_STRING && Z_TYPE_P(obj) != IS_OBJECT) {
+				if (Z_TYPE_P(obj) != IS_STRING && Z_TYPE_P(obj) != IS_OBJECT && Z_TYPE_P(obj) != IS_STRUCT) {
 					if (error) *error = estrdup("first array member is not a valid class name or object");
 					return 0;
 				}
@@ -4179,6 +4199,11 @@ check_func:
 					if (!zend_is_callable_check_class(Z_STR_P(obj), get_scope(frame), frame, fcc, &strict_class, error, check_flags & IS_CALLABLE_SUPPRESS_DEPRECATIONS)) {
 						return 0;
 					}
+				} else if (Z_TYPE_P(obj) == IS_STRUCT) {
+					/* Handle struct: unwrap to get the underlying object */
+					zend_object *struct_obj = Z_STRUCT_OBJ_P(obj);
+					fcc->calling_scope = struct_obj->ce;
+					fcc->object = struct_obj;
 				} else {
 					ZEND_ASSERT(Z_TYPE_P(obj) == IS_OBJECT);
 					fcc->calling_scope = Z_OBJCE_P(obj); /* TBFixed: what if it's overloaded? */
@@ -4193,6 +4218,21 @@ check_func:
 				callable = method;
 				goto check_func;
 			}
+			return 0;
+		case IS_STRUCT:
+			/* For struct handles, unwrap to get the underlying object */
+			{
+				zend_object *obj = Z_STRUCT_OBJ_P(callable);
+				if (obj->handlers->get_closure && obj->handlers->get_closure(obj, &fcc->calling_scope, &fcc->function_handler, &fcc->object, 1) == SUCCESS) {
+					fcc->called_scope = fcc->calling_scope;
+					fcc->closure = obj;
+					if (fcc == &fcc_local) {
+						zend_release_fcall_info_cache(fcc);
+					}
+					return 1;
+				}
+			}
+			if (error) *error = estrdup("no array or string given");
 			return 0;
 		case IS_OBJECT:
 			if (Z_OBJ_HANDLER_P(callable, get_closure) && Z_OBJ_HANDLER_P(callable, get_closure)(Z_OBJ_P(callable), &fcc->calling_scope, &fcc->function_handler, &fcc->object, 1) == SUCCESS) {

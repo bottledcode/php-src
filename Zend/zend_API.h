@@ -519,7 +519,7 @@ ZEND_API const char *zend_get_type_by_const(int type);
 
 #define ZEND_THIS                           (&EX(This))
 
-#define hasThis()							(Z_TYPE_P(ZEND_THIS) == IS_OBJECT)
+#define hasThis()							(Z_TYPE_P(ZEND_THIS) == IS_OBJECT || Z_TYPE_P(ZEND_THIS) == IS_STRUCT)
 #define getThis()							(hasThis() ? ZEND_THIS : NULL)
 #define ZEND_IS_METHOD_CALL()				(EX(func)->common.scope != NULL)
 
@@ -2569,6 +2569,14 @@ static zend_always_inline bool zend_parse_arg_obj_or_str(
 	if (EXPECTED(Z_TYPE_P(arg) == IS_OBJECT)) {
 		if (!base_ce || EXPECTED(instanceof_function(Z_OBJCE_P(arg), base_ce))) {
 			*destination_object = Z_OBJ_P(arg);
+			*destination_string = NULL;
+			return 1;
+		}
+	} else if (EXPECTED(Z_TYPE_P(arg) == IS_STRUCT)) {
+		/* For struct handles, unwrap to get the underlying object */
+		zend_object *obj = (arg)->value.sh->obj;
+		if (!base_ce || EXPECTED(instanceof_function(obj->ce, base_ce))) {
+			*destination_object = obj;
 			*destination_string = NULL;
 			return 1;
 		}

@@ -337,7 +337,25 @@ static zend_always_inline void zend_vm_init_call_frame(zend_execute_data *call, 
 	ZEND_ASSERT(!func->common.scope || object_or_called_scope);
 	call->func = func;
 	Z_PTR(call->This) = object_or_called_scope;
-	ZEND_CALL_INFO(call) = call_info;
+
+	/* Set the type of call->This based on what we're storing */
+	/* call_info includes ZEND_CALL_HAS_THIS which is IS_OBJECT_EX in lower bits */
+	/* We need to replace those type bits with the correct type (IS_STRUCT_EX or IS_OBJECT_EX) */
+	if (call_info & ZEND_CALL_HAS_THIS) {
+		/* Check if object_or_called_scope is a struct handle by examining GC type */
+		if (object_or_called_scope && GC_TYPE_INFO((zend_refcounted*)object_or_called_scope) == GC_STRUCT) {
+			/* It's a struct handle - replace IS_OBJECT_EX in call_info with IS_STRUCT_EX */
+			/* call_info contains ZEND_CALL_HAS_THIS (IS_OBJECT_EX), so clear it and set IS_STRUCT_EX */
+			Z_TYPE_INFO(call->This) = (call_info & ~0xFFFF) | IS_STRUCT_EX;
+		} else {
+			/* It's a regular object - call_info already has IS_OBJECT_EX from ZEND_CALL_HAS_THIS */
+			Z_TYPE_INFO(call->This) = call_info;
+		}
+	} else {
+		/* For static calls, just store call_info (no object type) */
+		Z_TYPE_INFO(call->This) = call_info;
+	}
+
 	ZEND_CALL_NUM_ARGS(call) = num_args;
 }
 

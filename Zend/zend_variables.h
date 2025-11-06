@@ -30,6 +30,9 @@ BEGIN_EXTERN_C()
 ZEND_API void ZEND_FASTCALL rc_dtor_func(zend_refcounted *p);
 ZEND_API void ZEND_FASTCALL zval_copy_ctor_func(zval *zvalue);
 
+/* Forward declaration for struct handle duplication */
+ZEND_API zend_struct_handle *zend_struct_handle_dup(zend_struct_handle *handle);
+
 static zend_always_inline void zval_ptr_dtor_nogc(zval *zval_ptr)
 {
 	if (Z_REFCOUNTED_P(zval_ptr) && !Z_DELREF_P(zval_ptr)) {
@@ -53,6 +56,9 @@ static zend_always_inline void zval_copy_ctor(zval *zvalue)
 {
 	if (Z_TYPE_P(zvalue) == IS_ARRAY) {
 		ZVAL_ARR(zvalue, zend_array_dup(Z_ARR_P(zvalue)));
+	} else if (Z_TYPE_P(zvalue) == IS_STRUCT) {
+		/* Struct handles need special copy logic - delegate to non-inline function */
+		zval_copy_ctor_func(zvalue);
 	} else if (Z_REFCOUNTED_P(zvalue)) {
 		Z_ADDREF_P(zvalue);
 	}

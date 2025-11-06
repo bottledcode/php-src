@@ -35,6 +35,7 @@
 #include "zend_inheritance.h"
 #include "zend_vm.h"
 #include "zend_enum.h"
+#include "zend_struct.h"
 #include "zend_observer.h"
 #include "zend_call_stack.h"
 #include "zend_frameless_function.h"
@@ -9443,6 +9444,10 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 		}
 		zend_enum_add_interfaces(ce);
 		zend_enum_register_props(ce);
+	}
+
+	if (ce->ce_flags & ZEND_ACC_STRUCT) {
+		zend_struct_init(ce);
 	}
 
 	zend_compile_stmt(stmt_ast);

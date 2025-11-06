@@ -23,6 +23,7 @@
 #include "zend_attributes_arginfo.h"
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
+#include "zend_struct.h"
 
 ZEND_API zend_class_entry *zend_ce_attribute;
 ZEND_API zend_class_entry *zend_ce_return_type_will_change_attribute;
@@ -33,6 +34,7 @@ ZEND_API zend_class_entry *zend_ce_override;
 ZEND_API zend_class_entry *zend_ce_deprecated;
 ZEND_API zend_class_entry *zend_ce_nodiscard;
 ZEND_API zend_class_entry *zend_ce_delayed_target_validation;
+ZEND_API zend_class_entry *zend_ce_struct_unsafe;
 
 static zend_object_handlers attributes_object_handlers_sensitive_parameter_value;
 
@@ -606,6 +608,9 @@ void zend_register_attribute_ce(void)
 
 	zend_ce_delayed_target_validation = register_class_DelayedTargetValidation();
 	attr = zend_mark_internal_attribute(zend_ce_delayed_target_validation);
+
+	/* Register Struct\Unsafe attribute */
+	zend_register_struct_attribute();
 }
 
 void zend_attributes_shutdown(void)

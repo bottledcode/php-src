@@ -404,6 +404,11 @@ const T_INTERFACE = UNKNOWN;
 const T_ENUM = UNKNOWN;
 /**
  * @var int
+ * @cvalue T_STRUCT
+ */
+const T_STRUCT = UNKNOWN;
+/**
+ * @var int
  * @cvalue T_EXTENDS
  */
 const T_EXTENDS = UNKNOWN;

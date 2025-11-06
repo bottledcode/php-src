@@ -76,6 +76,7 @@
 #include "zend_types.h"
 #include "zend_weakrefs.h"
 #include "zend_string.h"
+#include "zend_struct.h"
 
 #ifndef GC_BENCH
 # define GC_BENCH 0
@@ -478,6 +479,13 @@ static void gc_trace_ref(zend_refcounted *ref) {
 			ref, GC_REFCOUNT(ref), GC_REF_ADDRESS(ref),
 			gc_color_name(GC_REF_COLOR(ref)),
 			obj->ce->name->val, obj->handle);
+	} else if (GC_TYPE(ref) == GC_STRUCT) {
+		zend_struct_handle *handle = (zend_struct_handle *) ref;
+		zend_object *obj = handle->obj;
+		fprintf(stderr, "[%p] rc=%d addr=%d %s struct_handle(%s)#%d ",
+			ref, GC_REFCOUNT(ref), GC_REF_ADDRESS(ref),
+			gc_color_name(GC_REF_COLOR(ref)),
+			obj ? obj->ce->name->val : "NULL", obj ? obj->handle : 0);
 	} else if (GC_TYPE(ref) == IS_ARRAY) {
 		zend_array *arr = (zend_array *) ref;
 		fprintf(stderr, "[%p] rc=%d addr=%d %s array(%d) ",
@@ -1019,6 +1027,17 @@ handle_ht:
 			}
 			p++;
 		}
+	} else if (GC_TYPE(ref) == GC_STRUCT) {
+		/* Struct handles contain a single reference to an object */
+		zend_struct_handle *handle = (zend_struct_handle*)ref;
+		if (handle->obj) {
+			ref = (zend_refcounted*)handle->obj;
+			GC_ADDREF(ref);
+			if (!GC_REF_CHECK_COLOR(ref, GC_BLACK)) {
+				GC_REF_SET_BLACK(ref);
+				goto tail_call;
+			}
+		}
 	} else if (GC_TYPE(ref) == IS_REFERENCE) {
 		if (Z_COLLECTABLE(((zend_reference*)ref)->val)) {
 			ref = Z_COUNTED(((zend_reference*)ref)->val);
@@ -1195,6 +1214,17 @@ handle_ht:
 				}
 			}
 			p++;
+		}
+	} else if (GC_TYPE(ref) == GC_STRUCT) {
+		/* Struct handles contain a single reference to an object */
+		zend_struct_handle *handle = (zend_struct_handle*)ref;
+		if (handle->obj) {
+			ref = (zend_refcounted*)handle->obj;
+			GC_DELREF(ref);
+			if (!GC_REF_CHECK_COLOR(ref, GC_GREY)) {
+				GC_REF_SET_COLOR(ref, GC_GREY);
+				goto tail_call;
+			}
 		}
 	} else if (GC_TYPE(ref) == IS_REFERENCE) {
 		if (Z_COLLECTABLE(((zend_reference*)ref)->val)) {
@@ -1412,6 +1442,16 @@ handle_ht:
 				}
 			}
 			p++;
+		}
+	} else if (GC_TYPE(ref) == GC_STRUCT) {
+		/* Struct handles contain a single reference to an object */
+		zend_struct_handle *handle = (zend_struct_handle*)ref;
+		if (handle->obj) {
+			ref = (zend_refcounted*)handle->obj;
+			if (GC_REF_CHECK_COLOR(ref, GC_GREY)) {
+				GC_REF_SET_COLOR(ref, GC_WHITE);
+				goto tail_call;
+			}
 		}
 	} else if (GC_TYPE(ref) == IS_REFERENCE) {
 		if (Z_COLLECTABLE(((zend_reference*)ref)->val)) {
@@ -1660,6 +1700,17 @@ handle_ht:
 			}
 			p++;
 		}
+	} else if (GC_TYPE(ref) == GC_STRUCT) {
+		/* Struct handles contain a single reference to an object */
+		zend_struct_handle *handle = (zend_struct_handle*)ref;
+		if (handle->obj) {
+			ref = (zend_refcounted*)handle->obj;
+			GC_ADDREF(ref);
+			if (GC_REF_CHECK_COLOR(ref, GC_WHITE)) {
+				GC_REF_SET_BLACK(ref);
+				goto tail_call;
+			}
+		}
 	} else if (GC_TYPE(ref) == IS_REFERENCE) {
 		if (Z_COLLECTABLE(((zend_reference*)ref)->val)) {
 			ref = Z_COUNTED(((zend_reference*)ref)->val);
@@ -1739,6 +1790,14 @@ tail_call:
 		GC_TRACE_REF(ref, "removing from buffer");
 		GC_REMOVE_FROM_BUFFER(ref);
 		count++;
+	} else if (GC_TYPE(ref) == GC_STRUCT) {
+		/* Struct handles contain a single reference to an object */
+		zend_struct_handle *handle = (zend_struct_handle*)ref;
+		if (handle->obj) {
+			ref = (zend_refcounted*)handle->obj;
+			goto tail_call;
+		}
+		goto next;
 	} else if (GC_TYPE(ref) == IS_REFERENCE) {
 		if (Z_COLLECTABLE(((zend_reference*)ref)->val)) {
 			ref = Z_COUNTED(((zend_reference*)ref)->val);

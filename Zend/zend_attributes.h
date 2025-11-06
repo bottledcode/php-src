@@ -51,6 +51,7 @@ extern ZEND_API zend_class_entry *zend_ce_override;
 extern ZEND_API zend_class_entry *zend_ce_deprecated;
 extern ZEND_API zend_class_entry *zend_ce_nodiscard;
 extern ZEND_API zend_class_entry *zend_ce_delayed_target_validation;
+extern ZEND_API zend_class_entry *zend_ce_struct_unsafe;
 
 typedef struct {
 	zend_string *name;

@@ -44,6 +44,7 @@
 #include "zend_system_id.h"
 #include "zend_call_stack.h"
 #include "zend_attributes.h"
+#include "zend_struct.h"
 #include "Optimizer/zend_func_info.h"
 
 /* Virtual current working directory support */
@@ -3519,11 +3520,14 @@ static zend_always_inline void zend_fetch_property_address(zval *result, zval *c
 		ZEND_ASSERT(cache_slot);
 	}
 
-	if (container_op_type != IS_UNUSED && UNEXPECTED(Z_TYPE_P(container) != IS_OBJECT)) {
+	if (container_op_type != IS_UNUSED && UNEXPECTED(Z_TYPE_P(container) != IS_OBJECT && Z_TYPE_P(container) != IS_STRUCT)) {
 		do {
-			if (Z_ISREF_P(container) && Z_TYPE_P(Z_REFVAL_P(container)) == IS_OBJECT) {
-				container = Z_REFVAL_P(container);
-				break;
+			if (Z_ISREF_P(container)) {
+				zval *ref = Z_REFVAL_P(container);
+				if (Z_TYPE_P(ref) == IS_OBJECT || Z_TYPE_P(ref) == IS_STRUCT) {
+					container = ref;
+					break;
+				}
 			}
 
 			if (container_op_type == IS_CV
@@ -3544,7 +3548,8 @@ static zend_always_inline void zend_fetch_property_address(zval *result, zval *c
 		} while (0);
 	}
 
-	zobj = Z_OBJ_P(container);
+	/* Extract object from struct handle if necessary */
+	zobj = (Z_TYPE_P(container) == IS_STRUCT) ? Z_STRUCT_OBJ_P(container) : Z_OBJ_P(container);
 	if (prop_op_type == IS_CONST &&
 	    EXPECTED(zobj->ce == CACHED_PTR_EX(cache_slot))) {
 		uintptr_t prop_offset = (uintptr_t)CACHED_PTR_EX(cache_slot + 1);
@@ -4192,6 +4197,11 @@ static zend_never_inline void zend_fetch_this_var(int type OPLINE_DC EXECUTE_DAT
 			if (EXPECTED(Z_TYPE(EX(This)) == IS_OBJECT)) {
 				ZVAL_OBJ(result, Z_OBJ(EX(This)));
 				Z_ADDREF_P(result);
+			} else if (EXPECTED(Z_TYPE(EX(This)) == IS_STRUCT)) {
+				/* $this is a struct handle - return it as-is */
+				zend_struct_handle *handle = Z_STRUCT_HANDLE(EX(This));
+				GC_ADDREF(handle);
+				ZVAL_STRUCT(result, handle);
 			} else {
 				ZVAL_NULL(result);
 				zend_error_unchecked(E_WARNING, "Undefined variable $this");
@@ -4201,6 +4211,11 @@ static zend_never_inline void zend_fetch_this_var(int type OPLINE_DC EXECUTE_DAT
 			if (EXPECTED(Z_TYPE(EX(This)) == IS_OBJECT)) {
 				ZVAL_OBJ(result, Z_OBJ(EX(This)));
 				Z_ADDREF_P(result);
+			} else if (EXPECTED(Z_TYPE(EX(This)) == IS_STRUCT)) {
+				/* $this is a struct handle - return it as-is */
+				zend_struct_handle *handle = Z_STRUCT_HANDLE(EX(This));
+				GC_ADDREF(handle);
+				ZVAL_STRUCT(result, handle);
 			} else {
 				ZVAL_NULL(result);
 			}

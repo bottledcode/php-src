@@ -2074,11 +2074,11 @@ ZEND_VM_HOT_OBJ_HANDLER(82, ZEND_FETCH_OBJ_R, CONST|TMPVAR|UNUSED|THIS|CV, CONST
 	container = GET_OP1_OBJ_ZVAL_PTR_UNDEF(BP_VAR_R);
 
 	if (OP1_TYPE == IS_CONST ||
-	    (OP1_TYPE != IS_UNUSED && UNEXPECTED(Z_TYPE_P(container) != IS_OBJECT))) {
+	    (OP1_TYPE != IS_UNUSED && UNEXPECTED(Z_TYPE_P(container) != IS_OBJECT && Z_TYPE_P(container) != IS_STRUCT))) {
 		do {
 			if ((OP1_TYPE & (IS_VAR|IS_CV)) && Z_ISREF_P(container)) {
 				container = Z_REFVAL_P(container);
-				if (EXPECTED(Z_TYPE_P(container) == IS_OBJECT)) {
+				if (EXPECTED(Z_TYPE_P(container) == IS_OBJECT || Z_TYPE_P(container) == IS_STRUCT)) {
 					break;
 				}
 			}
@@ -2091,9 +2091,11 @@ ZEND_VM_HOT_OBJ_HANDLER(82, ZEND_FETCH_OBJ_R, CONST|TMPVAR|UNUSED|THIS|CV, CONST
 		} while (0);
 	}
 
-	/* here we are sure we are dealing with an object */
+	/* here we are sure we are dealing with an object or struct handle */
 	do {
-		zend_object *zobj = Z_OBJ_P(container);
+		zend_object *zobj = (Z_TYPE_P(container) == IS_STRUCT)
+			? Z_STRUCT_OBJ_P(container)
+			: Z_OBJ_P(container);
 		zend_string *name, *tmp_name;
 		zval *retval;
 
@@ -2241,6 +2243,31 @@ ZEND_VM_HANDLER(85, ZEND_FETCH_OBJ_W, VAR|UNUSED|THIS|CV, CONST|TMPVAR|CV, FETCH
 	SAVE_OPLINE();
 
 	container = GET_OP1_OBJ_ZVAL_PTR_PTR_UNDEF(BP_VAR_W);
+
+	/* Handle struct copy-on-write for property fetch (write mode) */
+	if (UNEXPECTED(Z_TYPE_P(container) == IS_STRUCT)) {
+		zend_struct_handle *handle = Z_STRUCT_HANDLE_P(container);
+		zend_object *zobj = handle->obj;
+
+		/* Check if we're in an Unsafe method or constructor */
+		if (UNEXPECTED(!zend_is_in_unsafe_method())) {
+			zend_throw_error(NULL, "Cannot modify struct property outside of Unsafe method");
+			ZVAL_ERROR(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
+		}
+
+		/* Check if this is constructor */
+		zend_execute_data *execute_data = EG(current_execute_data);
+		zend_function *func = execute_data ? execute_data->func : NULL;
+		bool is_constructor = func && func->common.function_name &&
+		                      zend_string_equals_literal_ci(func->common.function_name, "__construct");
+
+		/* Perform COW if not in constructor and refcount > 1 */
+		if (!is_constructor && UNEXPECTED(GC_REFCOUNT(zobj) > 1)) {
+			zend_struct_handle_separate(handle);
+		}
+	}
+
 	property = GET_OP2_ZVAL_PTR(BP_VAR_R);
 	result = EX_VAR(opline->result.var);
 	zend_fetch_property_address(
@@ -2261,6 +2288,31 @@ ZEND_VM_HANDLER(88, ZEND_FETCH_OBJ_RW, VAR|UNUSED|THIS|CV, CONST|TMPVAR|CV, CACH
 
 	SAVE_OPLINE();
 	container = GET_OP1_OBJ_ZVAL_PTR_PTR_UNDEF(BP_VAR_RW);
+
+	/* Handle struct copy-on-write for property fetch (read-write mode) */
+	if (UNEXPECTED(Z_TYPE_P(container) == IS_STRUCT)) {
+		zend_struct_handle *handle = Z_STRUCT_HANDLE_P(container);
+		zend_object *zobj = handle->obj;
+
+		/* Check if we're in an Unsafe method or constructor */
+		if (UNEXPECTED(!zend_is_in_unsafe_method())) {
+			zend_throw_error(NULL, "Cannot modify struct property outside of Unsafe method");
+			ZVAL_ERROR(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
+		}
+
+		/* Check if this is constructor */
+		zend_execute_data *execute_data = EG(current_execute_data);
+		zend_function *func = execute_data ? execute_data->func : NULL;
+		bool is_constructor = func && func->common.function_name &&
+		                      zend_string_equals_literal_ci(func->common.function_name, "__construct");
+
+		/* Perform COW if not in constructor and refcount > 1 */
+		if (!is_constructor && UNEXPECTED(GC_REFCOUNT(zobj) > 1)) {
+			zend_struct_handle_separate(handle);
+		}
+	}
+
 	property = GET_OP2_ZVAL_PTR(BP_VAR_R);
 	result = EX_VAR(opline->result.var);
 	zend_fetch_property_address(result, container, OP1_TYPE, property, OP2_TYPE, ((OP2_TYPE == IS_CONST) ? CACHE_ADDR(opline->extended_value) : NULL), BP_VAR_RW, 0, NULL OPLINE_CC EXECUTE_DATA_CC);
@@ -2281,11 +2333,11 @@ ZEND_VM_COLD_CONST_HANDLER(91, ZEND_FETCH_OBJ_IS, CONST|TMPVAR|UNUSED|THIS|CV, C
 	container = GET_OP1_OBJ_ZVAL_PTR(BP_VAR_IS);
 
 	if (OP1_TYPE == IS_CONST ||
-	    (OP1_TYPE != IS_UNUSED && UNEXPECTED(Z_TYPE_P(container) != IS_OBJECT))) {
+	    (OP1_TYPE != IS_UNUSED && UNEXPECTED(Z_TYPE_P(container) != IS_OBJECT && Z_TYPE_P(container) != IS_STRUCT))) {
 		do {
 			if ((OP1_TYPE & (IS_VAR|IS_CV)) && Z_ISREF_P(container)) {
 				container = Z_REFVAL_P(container);
-				if (EXPECTED(Z_TYPE_P(container) == IS_OBJECT)) {
+				if (EXPECTED(Z_TYPE_P(container) == IS_OBJECT || Z_TYPE_P(container) == IS_STRUCT)) {
 					break;
 				}
 			}
@@ -2297,9 +2349,11 @@ ZEND_VM_COLD_CONST_HANDLER(91, ZEND_FETCH_OBJ_IS, CONST|TMPVAR|UNUSED|THIS|CV, C
 		} while (0);
 	}
 
-	/* here we are sure we are dealing with an object */
+	/* here we are sure we are dealing with an object or struct handle */
 	do {
-		zend_object *zobj = Z_OBJ_P(container);
+		zend_object *zobj = (Z_TYPE_P(container) == IS_STRUCT)
+			? Z_STRUCT_OBJ_P(container)
+			: Z_OBJ_P(container);
 		zend_string *name, *tmp_name;
 		zval *retval;
 
@@ -2416,6 +2470,31 @@ ZEND_VM_HANDLER(97, ZEND_FETCH_OBJ_UNSET, VAR|UNUSED|THIS|CV, CONST|TMPVAR|CV, C
 
 	SAVE_OPLINE();
 	container = GET_OP1_OBJ_ZVAL_PTR_PTR_UNDEF(BP_VAR_UNSET);
+
+	/* Handle struct copy-on-write for property fetch (unset mode) */
+	if (UNEXPECTED(Z_TYPE_P(container) == IS_STRUCT)) {
+		zend_struct_handle *handle = Z_STRUCT_HANDLE_P(container);
+		zend_object *zobj = handle->obj;
+
+		/* Check if we're in an Unsafe method or constructor */
+		if (UNEXPECTED(!zend_is_in_unsafe_method())) {
+			zend_throw_error(NULL, "Cannot modify struct property outside of Unsafe method");
+			ZVAL_ERROR(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
+		}
+
+		/* Check if this is constructor */
+		zend_execute_data *execute_data = EG(current_execute_data);
+		zend_function *func = execute_data ? execute_data->func : NULL;
+		bool is_constructor = func && func->common.function_name &&
+		                      zend_string_equals_literal_ci(func->common.function_name, "__construct");
+
+		/* Perform COW if not in constructor and refcount > 1 */
+		if (!is_constructor && UNEXPECTED(GC_REFCOUNT(zobj) > 1)) {
+			zend_struct_handle_separate(handle);
+		}
+	}
+
 	property = GET_OP2_ZVAL_PTR(BP_VAR_R);
 	result = EX_VAR(opline->result.var);
 	zend_fetch_property_address(result, container, OP1_TYPE, property, OP2_TYPE, ((OP2_TYPE == IS_CONST) ? CACHE_ADDR(opline->extended_value) : NULL), BP_VAR_UNSET, 0, NULL OPLINE_CC EXECUTE_DATA_CC);
@@ -2473,10 +2552,13 @@ ZEND_VM_HANDLER(24, ZEND_ASSIGN_OBJ, VAR|UNUSED|THIS|CV, CONST|TMPVAR|CV, CACHE_
 	object = GET_OP1_OBJ_ZVAL_PTR_PTR_UNDEF(BP_VAR_W);
 	value = GET_OP_DATA_ZVAL_PTR(BP_VAR_R);
 
-	if (OP1_TYPE != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-		if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
-			object = Z_REFVAL_P(object);
-			ZEND_VM_C_GOTO(assign_object);
+	if (OP1_TYPE != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+		if (Z_ISREF_P(object)) {
+			zval *ref = Z_REFVAL_P(object);
+			if (Z_TYPE_P(ref) == IS_OBJECT || Z_TYPE_P(ref) == IS_STRUCT) {
+				object = ref;
+				ZEND_VM_C_GOTO(assign_object);
+			}
 		}
 		zend_throw_non_object_error(object, GET_OP2_ZVAL_PTR(BP_VAR_R) OPLINE_CC EXECUTE_DATA_CC);
 		value = &EG(uninitialized_zval);
@@ -2484,7 +2566,62 @@ ZEND_VM_HANDLER(24, ZEND_ASSIGN_OBJ, VAR|UNUSED|THIS|CV, CONST|TMPVAR|CV, CACHE_
 	}
 
 ZEND_VM_C_LABEL(assign_object):
-	zobj = Z_OBJ_P(object);
+	/* Handle IS_STRUCT type - extract object from handle */
+	if (Z_TYPE_P(object) == IS_STRUCT) {
+		zend_struct_handle *handle = Z_STRUCT_HANDLE_P(object);
+		zobj = handle->obj;
+
+		/* Handle struct copy-on-write with handle system */
+		if (UNEXPECTED(zobj->ce->ce_flags & ZEND_ACC_STRUCT)) {
+			zend_execute_data *execute_data = EG(current_execute_data);
+			zend_function *func = execute_data ? execute_data->func : NULL;
+			bool is_constructor = func && func->common.function_name &&
+			                      zend_string_equals_literal_ci(func->common.function_name, "__construct");
+
+			/* Check if we're in an Unsafe method or constructor */
+			if (UNEXPECTED(!zend_is_in_unsafe_method())) {
+				zend_throw_error(NULL, "Cannot modify struct property outside of Unsafe method");
+				value = &EG(uninitialized_zval);
+				ZEND_VM_C_GOTO(free_and_exit_assign_obj);
+			}
+
+			/* Only perform COW if we're NOT in the constructor and refcount > 1 */
+			/* During construction, we're initializing properties for the first time */
+			if (!is_constructor && UNEXPECTED(GC_REFCOUNT(zobj) > 1)) {
+				/* Separate through the handle - this updates handle->obj */
+				zend_struct_handle_separate(handle);
+				zobj = handle->obj;
+			}
+		}
+	} else {
+		zobj = Z_OBJ_P(object);
+
+		/* Handle struct copy-on-write for direct object access (Phase 1 compatibility) */
+		if (UNEXPECTED(zobj->ce->ce_flags & ZEND_ACC_STRUCT)) {
+			zend_execute_data *execute_data = EG(current_execute_data);
+			zend_function *func = execute_data ? execute_data->func : NULL;
+			bool is_constructor = func && func->common.function_name &&
+			                      zend_string_equals_literal_ci(func->common.function_name, "__construct");
+
+			/* Check if we're in an Unsafe method or constructor */
+			if (UNEXPECTED(!zend_is_in_unsafe_method())) {
+				zend_throw_error(NULL, "Cannot modify struct property outside of Unsafe method");
+				value = &EG(uninitialized_zval);
+				ZEND_VM_C_GOTO(free_and_exit_assign_obj);
+			}
+
+			/* Only perform COW if we're NOT in the constructor and refcount > 1 */
+			/* During construction, we're initializing properties for the first time */
+			if (!is_constructor && UNEXPECTED(GC_REFCOUNT(zobj) > 1)) {
+				/* Need to separate the struct due to COW */
+				zend_object *new_obj = zend_struct_separate(zobj);
+				/* Update the zval to point to the new object (Phase 1 compatibility) */
+				ZVAL_OBJ(object, new_obj);
+				zobj = new_obj;
+			}
+		}
+	}
+
 	if (OP2_TYPE == IS_CONST) {
 		if (EXPECTED(zobj->ce == CACHED_PTR(opline->extended_value))) {
 			void **cache_slot = CACHE_ADDR(opline->extended_value);
@@ -2730,8 +2867,11 @@ ZEND_VM_C_LABEL(try_assign_dim_array):
 				ZEND_VM_C_GOTO(try_assign_dim_array);
 			}
 		}
-		if (EXPECTED(Z_TYPE_P(object_ptr) == IS_OBJECT)) {
-			zend_object *obj = Z_OBJ_P(object_ptr);
+		if (EXPECTED(Z_TYPE_P(object_ptr) == IS_OBJECT || Z_TYPE_P(object_ptr) == IS_STRUCT)) {
+			/* Extract object from struct handle if necessary */
+			zend_object *obj = (Z_TYPE_P(object_ptr) == IS_STRUCT)
+				? Z_STRUCT_OBJ_P(object_ptr)
+				: Z_OBJ_P(object_ptr);
 
 			GC_ADDREF(obj);
 			dim = GET_OP2_ZVAL_PTR_UNDEF(BP_VAR_R);
@@ -3588,6 +3728,8 @@ ZEND_VM_HOT_OBJ_HANDLER(112, ZEND_INIT_METHOD_CALL, CONST|TMPVAR|UNUSED|THIS|CV,
 	zend_object *obj;
 	zend_execute_data *call;
 	uint32_t call_info;
+	void *this_ptr;  /* Will be zend_object* or zend_struct_handle* for struct calls */
+	bool is_struct_call = false;
 
 	SAVE_OPLINE();
 
@@ -3623,15 +3765,25 @@ ZEND_VM_HOT_OBJ_HANDLER(112, ZEND_INIT_METHOD_CALL, CONST|TMPVAR|UNUSED|THIS|CV,
 		obj = Z_OBJ_P(object);
 	} else {
 		do {
-			if (OP1_TYPE != IS_CONST && EXPECTED(Z_TYPE_P(object) == IS_OBJECT)) {
-				obj = Z_OBJ_P(object);
+			if (OP1_TYPE != IS_CONST && EXPECTED(Z_TYPE_P(object) == IS_OBJECT || Z_TYPE_P(object) == IS_STRUCT)) {
+				if (Z_TYPE_P(object) == IS_STRUCT) {
+					is_struct_call = true;
+					obj = Z_STRUCT_OBJ_P(object);
+				} else {
+					obj = Z_OBJ_P(object);
+				}
 			} else {
 				if ((OP1_TYPE & (IS_VAR|IS_CV)) && EXPECTED(Z_ISREF_P(object))) {
 					zend_reference *ref = Z_REF_P(object);
 
 					object = &ref->val;
-					if (EXPECTED(Z_TYPE_P(object) == IS_OBJECT)) {
-						obj = Z_OBJ_P(object);
+					if (EXPECTED(Z_TYPE_P(object) == IS_OBJECT || Z_TYPE_P(object) == IS_STRUCT)) {
+						if (Z_TYPE_P(object) == IS_STRUCT) {
+							is_struct_call = true;
+							obj = Z_STRUCT_OBJ_P(object);
+						} else {
+							obj = Z_OBJ_P(object);
+						}
 						if (OP1_TYPE & IS_VAR) {
 							if (UNEXPECTED(GC_DELREF(ref) == 0)) {
 								efree_size(ref, sizeof(zend_reference));
@@ -3706,27 +3858,46 @@ ZEND_VM_HOT_OBJ_HANDLER(112, ZEND_INIT_METHOD_CALL, CONST|TMPVAR|UNUSED|THIS|CV,
 		FREE_OP2();
 	}
 
-	call_info = ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_HAS_THIS;
-	if (UNEXPECTED((fbc->common.fn_flags & ZEND_ACC_STATIC) != 0)) {
-		if ((OP1_TYPE & (IS_VAR|IS_TMP_VAR)) && GC_DELREF(obj) == 0) {
-			zend_objects_store_del(obj);
-			if (UNEXPECTED(EG(exception))) {
-				HANDLE_EXCEPTION();
+	/* For struct method calls, we need to store the handle in call->This, not the object */
+	if (is_struct_call) {
+		/* Get the struct handle from the object zval */
+		zend_struct_handle *handle = Z_STRUCT_HANDLE_P(object);
+
+		this_ptr = handle;
+		call_info = ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_HAS_THIS;
+
+		/* Only add ref and set RELEASE_THIS for certain operand types, like regular objects */
+		if (OP1_TYPE & (IS_VAR|IS_TMP_VAR|IS_CV)) {
+			if (OP1_TYPE == IS_CV) {
+				GC_ADDREF(handle); /* For $this pointer */
 			}
+			/* CV may be changed indirectly (e.g. when it's a reference) */
+			call_info = ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_HAS_THIS | ZEND_CALL_RELEASE_THIS;
 		}
-		/* call static method */
-		obj = (zend_object*)called_scope;
-		call_info = ZEND_CALL_NESTED_FUNCTION;
-	} else if (OP1_TYPE & (IS_VAR|IS_TMP_VAR|IS_CV)) {
-		if (OP1_TYPE == IS_CV) {
-			GC_ADDREF(obj); /* For $this pointer */
+	} else {
+		this_ptr = obj;
+		call_info = ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_HAS_THIS;
+		if (UNEXPECTED((fbc->common.fn_flags & ZEND_ACC_STATIC) != 0)) {
+			if ((OP1_TYPE & (IS_VAR|IS_TMP_VAR)) && GC_DELREF(obj) == 0) {
+				zend_objects_store_del(obj);
+				if (UNEXPECTED(EG(exception))) {
+					HANDLE_EXCEPTION();
+				}
+			}
+			/* call static method */
+			this_ptr = (void*)called_scope;
+			call_info = ZEND_CALL_NESTED_FUNCTION;
+		} else if (OP1_TYPE & (IS_VAR|IS_TMP_VAR|IS_CV)) {
+			if (OP1_TYPE == IS_CV) {
+				GC_ADDREF(obj); /* For $this pointer */
+			}
+			/* CV may be changed indirectly (e.g. when it's a reference) */
+			call_info = ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_HAS_THIS | ZEND_CALL_RELEASE_THIS;
 		}
-		/* CV may be changed indirectly (e.g. when it's a reference) */
-		call_info = ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_HAS_THIS | ZEND_CALL_RELEASE_THIS;
 	}
 
 	call = zend_vm_stack_push_call_frame(call_info,
-		fbc, opline->extended_value, obj);
+		fbc, opline->extended_value, this_ptr);
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -4414,7 +4585,18 @@ ZEND_VM_C_LABEL(fcall_end):
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		OBJ_RELEASE(Z_OBJ(call->This));
+		/* Check if $this is a struct handle or regular object */
+		if (Z_TYPE(call->This) == IS_STRUCT) {
+			/* Release the struct handle - similar to OBJ_RELEASE */
+			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
+			if (GC_DELREF(handle) == 0) {
+				zend_struct_handle_free(handle);
+			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
+				gc_possible_root((zend_refcounted*)handle);
+			}
+		} else {
+			OBJ_RELEASE(Z_OBJ(call->This));
+		}
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -5968,7 +6150,15 @@ ZEND_VM_HANDLER(68, ZEND_NEW, UNUSED|CLASS_FETCH|CONST|VAR, UNUSED|CACHE_SLOT, N
 		HANDLE_EXCEPTION();
 	}
 
-	constructor = Z_OBJ_HT_P(result)->get_constructor(Z_OBJ_P(result));
+	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	zend_object *obj;
+	if (Z_TYPE_P(result) == IS_STRUCT) {
+		obj = Z_STRUCT_OBJ_P(result);
+	} else {
+		obj = Z_OBJ_P(result);
+	}
+
+	constructor = obj->handlers->get_constructor(obj);
 	if (constructor == NULL) {
 		/* If there are no arguments, skip over the DO_FCALL opcode. We check if the next
 		 * opcode is DO_FCALL in case EXT instructions are used. */
@@ -5993,7 +6183,7 @@ ZEND_VM_HANDLER(68, ZEND_NEW, UNUSED|CLASS_FETCH|CONST|VAR, UNUSED|CACHE_SLOT, N
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			Z_OBJ_P(result));
+			obj);
 		Z_ADDREF_P(result);
 	}
 

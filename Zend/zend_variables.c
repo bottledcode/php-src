@@ -25,6 +25,7 @@
 #include "zend_globals.h"
 #include "zend_constants.h"
 #include "zend_list.h"
+#include "zend_struct.h"
 
 #if ZEND_DEBUG
 static void ZEND_FASTCALL zend_string_destroy(zend_string *str);
@@ -48,12 +49,22 @@ static const zend_rc_dtor_func_t zend_rc_dtor_func[] = {
 	[IS_OBJECT] =       (zend_rc_dtor_func_t)zend_objects_store_del,
 	[IS_RESOURCE] =     (zend_rc_dtor_func_t)zend_list_free,
 	[IS_REFERENCE] =    (zend_rc_dtor_func_t)zend_reference_destroy,
-	[IS_CONSTANT_AST] = (zend_rc_dtor_func_t)zend_ast_ref_destroy
+	[IS_CONSTANT_AST] = (zend_rc_dtor_func_t)zend_ast_ref_destroy,
+	/* Entries up to IS_STRUCT */
+	[12] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[13] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[14] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[15] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[16] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[17] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[18] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[19] =              (zend_rc_dtor_func_t)zend_empty_destroy,
+	[IS_STRUCT] =       (zend_rc_dtor_func_t)zend_struct_handle_free
 };
 
 ZEND_API void ZEND_FASTCALL rc_dtor_func(zend_refcounted *p)
 {
-	ZEND_ASSERT(GC_TYPE(p) <= IS_CONSTANT_AST);
+	ZEND_ASSERT(GC_TYPE(p) <= IS_STRUCT);
 	zend_rc_dtor_func[GC_TYPE(p)](p);
 }
 
@@ -143,6 +154,14 @@ ZEND_API void ZEND_FASTCALL zval_copy_ctor_func(zval *zvalue)
 		ZEND_ASSERT(!ZSTR_IS_INTERNED(Z_STR_P(zvalue)));
 		CHECK_ZVAL_STRING(Z_STR_P(zvalue));
 		ZVAL_NEW_STR(zvalue, zend_string_dup(Z_STR_P(zvalue), 0));
+	} else if (EXPECTED(Z_TYPE_P(zvalue) == IS_STRUCT)) {
+		/* Create a new handle pointing to the same object for value semantics */
+		zend_struct_handle *old_handle = Z_STRUCT_HANDLE_P(zvalue);
+		zend_object *obj = old_handle->obj;
+		GC_ADDREF(obj);  /* New handle needs its own reference to the object */
+		zend_struct_handle *new_handle = zend_struct_handle_alloc(obj);
+		/* Update zvalue to point to new handle */
+		zvalue->value.sh = new_handle;
 	} else {
 		ZEND_UNREACHABLE();
 	}

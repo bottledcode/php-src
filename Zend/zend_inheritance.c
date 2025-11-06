@@ -28,6 +28,7 @@
 #include "zend_operators.h"
 #include "zend_exceptions.h"
 #include "zend_enum.h"
+#include "zend_struct.h"
 #include "zend_attributes.h"
 #include "zend_constants.h"
 #include "zend_observer.h"
@@ -3698,6 +3699,9 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 		}
 		if (ce->ce_flags & ZEND_ACC_ENUM) {
 			zend_verify_enum(ce);
+		}
+		if (ce->ce_flags & ZEND_ACC_STRUCT) {
+			zend_verify_struct(ce);
 		}
 		if (ce->num_hooked_prop_variance_checks) {
 			const zend_property_info *prop_info;

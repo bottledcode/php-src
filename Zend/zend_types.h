@@ -92,13 +92,14 @@ typedef struct _zend_execute_data    zend_execute_data;
 typedef struct _zval_struct     zval;
 
 typedef struct _zend_refcounted zend_refcounted;
-typedef struct _zend_string     zend_string;
-typedef struct _zend_array      zend_array;
-typedef struct _zend_object     zend_object;
-typedef struct _zend_resource   zend_resource;
-typedef struct _zend_reference  zend_reference;
-typedef struct _zend_ast_ref    zend_ast_ref;
-typedef struct _zend_ast        zend_ast;
+typedef struct _zend_string        zend_string;
+typedef struct _zend_array         zend_array;
+typedef struct _zend_object        zend_object;
+typedef struct _zend_resource      zend_resource;
+typedef struct _zend_reference     zend_reference;
+typedef struct _zend_ast_ref       zend_ast_ref;
+typedef struct _zend_ast           zend_ast;
+typedef struct _zend_struct_handle zend_struct_handle;
 
 typedef int  (*compare_func_t)(const void *, const void *);
 typedef void (*swap_func_t)(void *, void *);
@@ -342,6 +343,7 @@ typedef union _zend_value {
 	zend_resource    *res;
 	zend_reference   *ref;
 	zend_ast_ref     *ast;
+	zend_struct_handle *sh;             /* struct handle */
 	zval             *zv;
 	void             *ptr;
 	zend_class_entry *ce;
@@ -590,6 +592,11 @@ struct _zend_resource {
 	void             *ptr;
 };
 
+struct _zend_struct_handle {
+	zend_refcounted_h gc;
+	zend_object      *obj;  /* Pointer to actual struct instance */
+};
+
 typedef struct {
 	size_t num;
 	size_t num_allocated;
@@ -648,6 +655,9 @@ struct _zend_ast_ref {
 /* used for casts */
 #define _IS_BOOL					18
 #define _IS_NUMBER					19
+
+/* Struct handle type (value object wrapper) */
+#define IS_STRUCT					20
 
 /* guard flags */
 #define ZEND_GUARD_PROPERTY_GET		(1<<0)
@@ -820,6 +830,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 #define GC_RESOURCE					(IS_RESOURCE     | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
 #define GC_REFERENCE				(IS_REFERENCE    | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
 #define GC_CONSTANT_AST				(IS_CONSTANT_AST | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
+#define GC_STRUCT					IS_STRUCT
 
 /* zval.u1.v.type_flags */
 #define IS_TYPE_REFCOUNTED			(1<<0)
@@ -841,6 +852,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 #define IS_OBJECT_EX				(IS_OBJECT         | (IS_TYPE_REFCOUNTED << Z_TYPE_FLAGS_SHIFT) | (IS_TYPE_COLLECTABLE << Z_TYPE_FLAGS_SHIFT))
 #define IS_RESOURCE_EX				(IS_RESOURCE       | (IS_TYPE_REFCOUNTED << Z_TYPE_FLAGS_SHIFT))
 #define IS_REFERENCE_EX				(IS_REFERENCE      | (IS_TYPE_REFCOUNTED << Z_TYPE_FLAGS_SHIFT) | (IS_TYPE_COLLECTABLE << Z_TYPE_FLAGS_SHIFT))
+#define IS_STRUCT_EX				(IS_STRUCT         | (IS_TYPE_REFCOUNTED << Z_TYPE_FLAGS_SHIFT) | (IS_TYPE_COLLECTABLE << Z_TYPE_FLAGS_SHIFT))
 
 #define IS_CONSTANT_AST_EX			(IS_CONSTANT_AST   | (IS_TYPE_REFCOUNTED << Z_TYPE_FLAGS_SHIFT))
 
