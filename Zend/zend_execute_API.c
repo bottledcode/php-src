@@ -1063,7 +1063,7 @@ cleanup_args:
 		}
 
 		if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(call->This));
+			zend_release_this(&call->This);
 		}
 	}
 	EG(fake_scope) = orig_fake_scope;

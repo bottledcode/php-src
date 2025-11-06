@@ -1198,7 +1198,7 @@ static zend_never_inline ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV 
 		call_info = EX_CALL_INFO();
 #endif
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}
@@ -1232,7 +1232,7 @@ static zend_never_inline ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV 
 		zend_vm_stack_free_extra_args_ex(call_info, execute_data);
 
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}
@@ -2059,18 +2059,7 @@ fcall_end:
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		/* Check if $this is a struct handle or regular object */
-		if (Z_TYPE(call->This) == IS_STRUCT) {
-			/* Release the struct handle - similar to OBJ_RELEASE */
-			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
-			if (GC_DELREF(handle) == 0) {
-				zend_struct_handle_free(handle);
-			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
-				gc_possible_root((zend_refcounted*)handle);
-			}
-		} else {
-			OBJ_RELEASE(Z_OBJ(call->This));
-		}
+		zend_release_this(&call->This);
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -2200,18 +2189,7 @@ fcall_end:
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		/* Check if $this is a struct handle or regular object */
-		if (Z_TYPE(call->This) == IS_STRUCT) {
-			/* Release the struct handle - similar to OBJ_RELEASE */
-			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
-			if (GC_DELREF(handle) == 0) {
-				zend_struct_handle_free(handle);
-			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
-				gc_possible_root((zend_refcounted*)handle);
-			}
-		} else {
-			OBJ_RELEASE(Z_OBJ(call->This));
-		}
+		zend_release_this(&call->This);
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -2337,18 +2315,7 @@ fcall_end:
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		/* Check if $this is a struct handle or regular object */
-		if (Z_TYPE(call->This) == IS_STRUCT) {
-			/* Release the struct handle - similar to OBJ_RELEASE */
-			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
-			if (GC_DELREF(handle) == 0) {
-				zend_struct_handle_free(handle);
-			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
-				gc_possible_root((zend_refcounted*)handle);
-			}
-		} else {
-			OBJ_RELEASE(Z_OBJ(call->This));
-		}
+		zend_release_this(&call->This);
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -3735,8 +3702,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CALL_TRAMPOLI
 	}
 
 	if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-		zend_object *object = Z_OBJ(call->This);
-		OBJ_RELEASE(object);
+		zend_release_this(&call->This);
 	}
 	zend_vm_stack_free_call_frame(call);
 
@@ -3879,8 +3845,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CALL_TRAMPOLI
 	}
 
 	if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-		zend_object *object = Z_OBJ(call->This);
-		OBJ_RELEASE(object);
+		zend_release_this(&call->This);
 	}
 	zend_vm_stack_free_call_frame(call);
 
@@ -7521,6 +7486,13 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -10266,6 +10238,13 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -11399,10 +11378,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_CONS
 	}
 
 	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	bool is_struct = (Z_TYPE_P(result) == IS_STRUCT);
 	zend_object *obj;
-	if (Z_TYPE_P(result) == IS_STRUCT) {
+	void *this_ptr;
+
+	if (is_struct) {
+		/* For structs, pass the handle itself to the constructor */
+		this_ptr = Z_STRUCT_HANDLE_P(result);
 		obj = Z_STRUCT_OBJ_P(result);
 	} else {
+		/* For regular objects, pass the object */
+		this_ptr = Z_OBJ_P(result);
 		obj = Z_OBJ_P(result);
 	}
 
@@ -11431,8 +11417,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_CONS
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			obj);
+			this_ptr);
 		Z_ADDREF_P(result);
+
+		/* For struct constructors, ensure call->This has IS_STRUCT type */
+		if (is_struct) {
+			Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+		}
 	}
 
 	call->prev_execute_data = EX(call);
@@ -12886,6 +12877,13 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -17464,6 +17462,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -18999,6 +19004,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -20457,6 +20469,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -24378,8 +24397,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -24392,8 +24411,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CONST == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -27779,8 +27802,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -27793,8 +27816,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if ((IS_TMP_VAR|IS_VAR) == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -32137,10 +32164,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_VAR_
 	}
 
 	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	bool is_struct = (Z_TYPE_P(result) == IS_STRUCT);
 	zend_object *obj;
-	if (Z_TYPE_P(result) == IS_STRUCT) {
+	void *this_ptr;
+
+	if (is_struct) {
+		/* For structs, pass the handle itself to the constructor */
+		this_ptr = Z_STRUCT_HANDLE_P(result);
 		obj = Z_STRUCT_OBJ_P(result);
 	} else {
+		/* For regular objects, pass the object */
+		this_ptr = Z_OBJ_P(result);
 		obj = Z_OBJ_P(result);
 	}
 
@@ -32169,8 +32203,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_VAR_
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			obj);
+			this_ptr);
 		Z_ADDREF_P(result);
+
+		/* For struct constructors, ensure call->This has IS_STRUCT type */
+		if (is_struct) {
+			Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+		}
 	}
 
 	call->prev_execute_data = EX(call);
@@ -32555,8 +32594,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -32569,8 +32608,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CV == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -35622,8 +35665,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -35636,8 +35679,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CONST == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -37485,6 +37532,13 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -38215,8 +38269,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -38229,8 +38283,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if ((IS_TMP_VAR|IS_VAR) == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -40055,6 +40113,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -40804,10 +40869,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_UNUS
 	}
 
 	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	bool is_struct = (Z_TYPE_P(result) == IS_STRUCT);
 	zend_object *obj;
-	if (Z_TYPE_P(result) == IS_STRUCT) {
+	void *this_ptr;
+
+	if (is_struct) {
+		/* For structs, pass the handle itself to the constructor */
+		this_ptr = Z_STRUCT_HANDLE_P(result);
 		obj = Z_STRUCT_OBJ_P(result);
 	} else {
+		/* For regular objects, pass the object */
+		this_ptr = Z_OBJ_P(result);
 		obj = Z_OBJ_P(result);
 	}
 
@@ -40836,8 +40908,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_UNUS
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			obj);
+			this_ptr);
 		Z_ADDREF_P(result);
+
+		/* For struct constructors, ensure call->This has IS_STRUCT type */
+		if (is_struct) {
+			Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+		}
 	}
 
 	call->prev_execute_data = EX(call);
@@ -41199,7 +41276,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CALLABLE_CONV
 	}
 
 	if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
-		OBJ_RELEASE(Z_OBJ(call->This));
+		zend_release_this(&call->This);
 	}
 
 	EX(call) = call->prev_execute_data;
@@ -41269,8 +41346,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -41283,8 +41360,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CV == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -43127,6 +43208,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -45852,8 +45940,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -45866,8 +45954,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CONST == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -48716,6 +48808,13 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -50298,8 +50397,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -50312,8 +50411,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if ((IS_TMP_VAR|IS_VAR) == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -53070,6 +53173,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -56323,8 +56433,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -56337,8 +56447,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ASSIGN_OBJ_OP
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CV == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -59222,6 +59336,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_METHOD_C
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -60318,7 +60439,7 @@ static zend_never_inline ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV  zend
 		call_info = EX_CALL_INFO();
 #endif
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}
@@ -60352,7 +60473,7 @@ static zend_never_inline ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV  zend
 		zend_vm_stack_free_extra_args_ex(call_info, execute_data);
 
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}
@@ -61179,18 +61300,7 @@ fcall_end:
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		/* Check if $this is a struct handle or regular object */
-		if (Z_TYPE(call->This) == IS_STRUCT) {
-			/* Release the struct handle - similar to OBJ_RELEASE */
-			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
-			if (GC_DELREF(handle) == 0) {
-				zend_struct_handle_free(handle);
-			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
-				gc_possible_root((zend_refcounted*)handle);
-			}
-		} else {
-			OBJ_RELEASE(Z_OBJ(call->This));
-		}
+		zend_release_this(&call->This);
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -61320,18 +61430,7 @@ fcall_end:
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		/* Check if $this is a struct handle or regular object */
-		if (Z_TYPE(call->This) == IS_STRUCT) {
-			/* Release the struct handle - similar to OBJ_RELEASE */
-			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
-			if (GC_DELREF(handle) == 0) {
-				zend_struct_handle_free(handle);
-			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
-				gc_possible_root((zend_refcounted*)handle);
-			}
-		} else {
-			OBJ_RELEASE(Z_OBJ(call->This));
-		}
+		zend_release_this(&call->This);
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -61457,18 +61556,7 @@ fcall_end:
 	}
 
 	if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-		/* Check if $this is a struct handle or regular object */
-		if (Z_TYPE(call->This) == IS_STRUCT) {
-			/* Release the struct handle - similar to OBJ_RELEASE */
-			zend_struct_handle *handle = Z_STRUCT_HANDLE(call->This);
-			if (GC_DELREF(handle) == 0) {
-				zend_struct_handle_free(handle);
-			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
-				gc_possible_root((zend_refcounted*)handle);
-			}
-		} else {
-			OBJ_RELEASE(Z_OBJ(call->This));
-		}
+		zend_release_this(&call->This);
 	}
 
 	zend_vm_stack_free_call_frame(call);
@@ -62739,8 +62827,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CALL_TRAMPOLINE_SP
 	}
 
 	if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-		zend_object *object = Z_OBJ(call->This);
-		OBJ_RELEASE(object);
+		zend_release_this(&call->This);
 	}
 	zend_vm_stack_free_call_frame(call);
 
@@ -62883,8 +62970,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CALL_TRAMPOLINE_SP
 	}
 
 	if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-		zend_object *object = Z_OBJ(call->This);
-		OBJ_RELEASE(object);
+		zend_release_this(&call->This);
 	}
 	zend_vm_stack_free_call_frame(call);
 
@@ -66525,6 +66611,13 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -69270,6 +69363,13 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -70301,10 +70401,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_CONST_UNU
 	}
 
 	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	bool is_struct = (Z_TYPE_P(result) == IS_STRUCT);
 	zend_object *obj;
-	if (Z_TYPE_P(result) == IS_STRUCT) {
+	void *this_ptr;
+
+	if (is_struct) {
+		/* For structs, pass the handle itself to the constructor */
+		this_ptr = Z_STRUCT_HANDLE_P(result);
 		obj = Z_STRUCT_OBJ_P(result);
 	} else {
+		/* For regular objects, pass the object */
+		this_ptr = Z_OBJ_P(result);
 		obj = Z_OBJ_P(result);
 	}
 
@@ -70333,8 +70440,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_CONST_UNU
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			obj);
+			this_ptr);
 		Z_ADDREF_P(result);
+
+		/* For struct constructors, ensure call->This has IS_STRUCT type */
+		if (is_struct) {
+			Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+		}
 	}
 
 	call->prev_execute_data = EX(call);
@@ -71788,6 +71900,13 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -76366,6 +76485,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -77901,6 +78027,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -79259,6 +79392,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -83180,8 +83320,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -83194,8 +83334,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CONST == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -86581,8 +86725,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -86595,8 +86739,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if ((IS_TMP_VAR|IS_VAR) == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -90939,10 +91087,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_VAR_UNUSE
 	}
 
 	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	bool is_struct = (Z_TYPE_P(result) == IS_STRUCT);
 	zend_object *obj;
-	if (Z_TYPE_P(result) == IS_STRUCT) {
+	void *this_ptr;
+
+	if (is_struct) {
+		/* For structs, pass the handle itself to the constructor */
+		this_ptr = Z_STRUCT_HANDLE_P(result);
 		obj = Z_STRUCT_OBJ_P(result);
 	} else {
+		/* For regular objects, pass the object */
+		this_ptr = Z_OBJ_P(result);
 		obj = Z_OBJ_P(result);
 	}
 
@@ -90971,8 +91126,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_VAR_UNUSE
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			obj);
+			this_ptr);
 		Z_ADDREF_P(result);
+
+		/* For struct constructors, ensure call->This has IS_STRUCT type */
+		if (is_struct) {
+			Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+		}
 	}
 
 	call->prev_execute_data = EX(call);
@@ -91357,8 +91517,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_VAR != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -91371,8 +91531,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CV == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -94424,8 +94588,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -94438,8 +94602,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CONST == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -96287,6 +96455,13 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_M
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -97017,8 +97192,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -97031,8 +97206,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if ((IS_TMP_VAR|IS_VAR) == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -98857,6 +99036,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -99606,10 +99792,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_UNUSED_UN
 	}
 
 	/* Extract object from IS_STRUCT handle or use directly for IS_OBJECT */
+	bool is_struct = (Z_TYPE_P(result) == IS_STRUCT);
 	zend_object *obj;
-	if (Z_TYPE_P(result) == IS_STRUCT) {
+	void *this_ptr;
+
+	if (is_struct) {
+		/* For structs, pass the handle itself to the constructor */
+		this_ptr = Z_STRUCT_HANDLE_P(result);
 		obj = Z_STRUCT_OBJ_P(result);
 	} else {
+		/* For regular objects, pass the object */
+		this_ptr = Z_OBJ_P(result);
 		obj = Z_OBJ_P(result);
 	}
 
@@ -99638,8 +99831,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_UNUSED_UN
 			ZEND_CALL_FUNCTION | ZEND_CALL_RELEASE_THIS | ZEND_CALL_HAS_THIS,
 			constructor,
 			opline->extended_value,
-			obj);
+			this_ptr);
 		Z_ADDREF_P(result);
+
+		/* For struct constructors, ensure call->This has IS_STRUCT type */
+		if (is_struct) {
+			Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+		}
 	}
 
 	call->prev_execute_data = EX(call);
@@ -100001,7 +100199,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CALLABLE_CONVERT_S
 	}
 
 	if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
-		OBJ_RELEASE(Z_OBJ(call->This));
+		zend_release_this(&call->This);
 	}
 
 	EX(call) = call->prev_execute_data;
@@ -100071,8 +100269,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_UNUSED != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -100085,8 +100283,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CV == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -101929,6 +102131,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -104654,8 +104863,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -104668,8 +104877,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CONST == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -107518,6 +107731,13 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_M
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -109100,8 +109320,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -109114,8 +109334,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if ((IS_TMP_VAR|IS_VAR) == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -111872,6 +112096,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -115023,8 +115254,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 	do {
 		value = get_op_data_zval_ptr_r((opline+1)->op1_type, (opline+1)->op1);
 
-		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT)) {
-			if (Z_ISREF_P(object) && Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT) {
+		if (IS_CV != IS_UNUSED && UNEXPECTED(Z_TYPE_P(object) != IS_OBJECT && Z_TYPE_P(object) != IS_STRUCT)) {
+			if (Z_ISREF_P(object) && (Z_TYPE_P(Z_REFVAL_P(object)) == IS_OBJECT || Z_TYPE_P(Z_REFVAL_P(object)) == IS_STRUCT)) {
 				object = Z_REFVAL_P(object);
 				goto assign_op_object;
 			}
@@ -115037,8 +115268,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ASSIGN_OBJ_OP_SPEC
 		}
 
 assign_op_object:
-		/* here we are sure we are dealing with an object */
-		zobj = Z_OBJ_P(object);
+		/* here we are sure we are dealing with an object or struct */
+		if (Z_TYPE_P(object) == IS_STRUCT) {
+			zobj = Z_STRUCT_OBJ_P(object);
+		} else {
+			zobj = Z_OBJ_P(object);
+		}
 		if (IS_CV == IS_CONST) {
 			name = Z_STR_P(property);
 		} else {
@@ -117922,6 +118157,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_METHOD_CALL_S
 
 	call = zend_vm_stack_push_call_frame(call_info,
 		fbc, opline->extended_value, this_ptr);
+
+	/* For struct calls, ensure call->This has IS_STRUCT type, not IS_OBJECT */
+	if (is_struct_call) {
+		/* Replace IS_OBJECT_EX bits with IS_STRUCT_EX while preserving call_info flags */
+		Z_TYPE_INFO(call->This) = (Z_TYPE_INFO(call->This) & ~0xFFFF) | IS_STRUCT_EX;
+	}
+
 	call->prev_execute_data = EX(call);
 	EX(call) = call;
 
@@ -122973,7 +123215,7 @@ zend_leave_helper_SPEC_LABEL:
 		call_info = EX_CALL_INFO();
 #endif
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}
@@ -123007,7 +123249,7 @@ zend_leave_helper_SPEC_LABEL:
 		zend_vm_stack_free_extra_args_ex(call_info, execute_data);
 
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}

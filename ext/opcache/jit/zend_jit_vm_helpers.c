@@ -59,7 +59,7 @@ ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV zend_jit_leave_func_helper_tai
 
 		zend_vm_stack_free_extra_args_ex(call_info, execute_data);
 		if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 			OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 		}
@@ -110,7 +110,7 @@ ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL zend_jit_leave_nested_func_helper(ZEND_OPC
 
 	zend_vm_stack_free_extra_args_ex(call_info, execute_data);
 	if (UNEXPECTED(call_info & ZEND_CALL_RELEASE_THIS)) {
-		OBJ_RELEASE(Z_OBJ(execute_data->This));
+		zend_release_this(&execute_data->This);
 	} else if (UNEXPECTED(call_info & ZEND_CALL_CLOSURE)) {
 		OBJ_RELEASE(ZEND_CLOSURE_OBJECT(EX(func)));
 	}
@@ -251,7 +251,7 @@ bool ZEND_FASTCALL zend_jit_deprecated_helper(OPLINE_D)
 		zend_vm_stack_free_args(call);
 
 		if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(call->This));
+			zend_release_this(&call->This);
 		}
 
 		zend_vm_stack_free_call_frame(call);
@@ -279,7 +279,7 @@ bool ZEND_FASTCALL zend_jit_nodiscard_helper(OPLINE_D)
 		zend_vm_stack_free_args(call);
 
 		if (UNEXPECTED(ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS)) {
-			OBJ_RELEASE(Z_OBJ(call->This));
+			zend_release_this(&call->This);
 		}
 
 		zend_vm_stack_free_call_frame(call);

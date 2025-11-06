@@ -111,6 +111,9 @@ ZEND_API bool zend_verify_ref_array_assignable(zend_reference *ref);
 ZEND_API bool zend_check_user_type_slow(
 		const zend_type *type, zval *arg, const zend_reference *ref, bool is_return_type);
 
+ZEND_API zend_string *get_active_function_or_method_name(void);
+ZEND_API zend_string *get_function_or_method_name(const zend_function *func);
+
 #if ZEND_DEBUG
 ZEND_API bool zend_internal_call_should_throw(const zend_function *fbc, zend_execute_data *call);
 ZEND_API ZEND_COLD void zend_internal_call_arginfo_violation(const zend_function *fbc);
@@ -151,13 +154,28 @@ static zend_always_inline void zend_copy_to_variable(zval *variable_ptr, zval *v
 		}
 	} else if (value_type & (IS_CONST|IS_CV)) {
 		if (Z_OPT_REFCOUNTED_P(variable_ptr)) {
-			Z_ADDREF_P(variable_ptr);
+			/* Special handling for struct handles - need to create new handle like zval_copy_ctor */
+			if (Z_TYPE_P(variable_ptr) == IS_STRUCT) {
+				zval_copy_ctor_func(variable_ptr);
+			} else {
+				Z_ADDREF_P(variable_ptr);
+			}
 		}
-	} else if (ZEND_CONST_COND(value_type == IS_VAR, 1) && UNEXPECTED(ref)) {
-		if (UNEXPECTED(GC_DELREF(ref) == 0)) {
-			efree_size(ref, sizeof(zend_reference));
-		} else if (Z_OPT_REFCOUNTED_P(variable_ptr)) {
-			Z_ADDREF_P(variable_ptr);
+	} else if (ZEND_CONST_COND(value_type == IS_VAR, 1)) {
+		if (UNEXPECTED(ref)) {
+			if (UNEXPECTED(GC_DELREF(ref) == 0)) {
+				efree_size(ref, sizeof(zend_reference));
+			} else if (Z_OPT_REFCOUNTED_P(variable_ptr)) {
+				/* Special handling for struct handles - need to create new handle */
+				if (Z_TYPE_P(variable_ptr) == IS_STRUCT) {
+					zval_copy_ctor_func(variable_ptr);
+				} else {
+					Z_ADDREF_P(variable_ptr);
+				}
+			}
+		} else if (Z_TYPE_P(variable_ptr) == IS_STRUCT) {
+			/* For IS_VAR non-reference structs, always duplicate the handle for value semantics */
+			zval_copy_ctor_func(variable_ptr);
 		}
 	}
 }
@@ -343,7 +361,10 @@ static zend_always_inline void zend_vm_init_call_frame(zend_execute_data *call, 
 	/* We need to replace those type bits with the correct type (IS_STRUCT_EX or IS_OBJECT_EX) */
 	if (call_info & ZEND_CALL_HAS_THIS) {
 		/* Check if object_or_called_scope is a struct handle by examining GC type */
-		if (object_or_called_scope && GC_TYPE_INFO((zend_refcounted*)object_or_called_scope) == GC_STRUCT) {
+		/* We need to distinguish between struct handles and regular objects */
+		/* Struct handles have GC_STRUCT type, regular objects have IS_OBJECT type */
+		uint32_t gc_type = GC_TYPE((zend_refcounted*)object_or_called_scope);
+		if (gc_type == GC_STRUCT) {
 			/* It's a struct handle - replace IS_OBJECT_EX in call_info with IS_STRUCT_EX */
 			/* call_info contains ZEND_CALL_HAS_THIS (IS_OBJECT_EX), so clear it and set IS_STRUCT_EX */
 			Z_TYPE_INFO(call->This) = (call_info & ~0xFFFF) | IS_STRUCT_EX;
@@ -426,6 +447,32 @@ static zend_always_inline void zend_vm_stack_free_args(zend_execute_data *call)
 	}
 }
 
+#include "zend_struct.h"
+
+static zend_always_inline void zend_release_this(zval *this_zv)
+{
+	if (EXPECTED(Z_TYPE_P(this_zv) == IS_OBJECT)) {
+		zend_refcounted *rc = Z_COUNTED_P(this_zv);
+		if (UNEXPECTED(GC_TYPE_INFO(rc) == GC_STRUCT)) {
+			zend_struct_handle *handle = (zend_struct_handle *) rc;
+			if (GC_DELREF(handle) == 0) {
+				zend_struct_handle_free(handle);
+			} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
+				gc_possible_root((zend_refcounted*)handle);
+			}
+		} else {
+			OBJ_RELEASE((zend_object*)rc);
+		}
+	} else if (Z_TYPE_P(this_zv) == IS_STRUCT) {
+		zend_struct_handle *handle = Z_STRUCT_HANDLE_P(this_zv);
+		if (GC_DELREF(handle) == 0) {
+			zend_struct_handle_free(handle);
+		} else if (UNEXPECTED(GC_MAY_LEAK((zend_refcounted*)handle))) {
+			gc_possible_root((zend_refcounted*)handle);
+		}
+	}
+}
+
 static zend_always_inline void zend_vm_stack_free_call_frame_ex(uint32_t call_info, zend_execute_data *call)
 {
 	ZEND_ASSERT_VM_STACK_GLOBAL;
@@ -483,8 +530,6 @@ static zend_always_inline const zend_function *zend_active_function(void)
 	}
 }
 
-ZEND_API zend_string *get_active_function_or_method_name(void);
-ZEND_API zend_string *get_function_or_method_name(const zend_function *func);
 ZEND_API const char *zend_get_executed_filename(void);
 ZEND_API zend_string *zend_get_executed_filename_ex(void);
 ZEND_API uint32_t zend_get_executed_lineno(void);

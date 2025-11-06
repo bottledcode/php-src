@@ -149,7 +149,7 @@ ZEND_API void zend_generator_close(zend_generator *generator, bool finished_exec
 		}
 
 		if (EX_CALL_INFO() & ZEND_CALL_RELEASE_THIS) {
-			OBJ_RELEASE(Z_OBJ(execute_data->This));
+			zend_release_this(&execute_data->This);
 		}
 
 		/* A fatal error / die occurred during the generator execution.

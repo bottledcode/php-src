@@ -4193,12 +4193,18 @@ static zend_never_inline void zend_fetch_this_var(int type OPLINE_DC EXECUTE_DAT
 	zval *result = EX_VAR(opline->result.var);
 
 	switch (type) {
-		case BP_VAR_R:
+		case BP_VAR_R: {
 			if (EXPECTED(Z_TYPE(EX(This)) == IS_OBJECT)) {
-				ZVAL_OBJ(result, Z_OBJ(EX(This)));
-				Z_ADDREF_P(result);
+				zend_refcounted *rc = Z_COUNTED(EX(This));
+				if (UNEXPECTED(GC_TYPE_INFO(rc) == GC_STRUCT)) {
+					zend_struct_handle *handle = (zend_struct_handle *) rc;
+					GC_ADDREF(handle);
+					ZVAL_STRUCT(result, handle);
+				} else {
+					ZVAL_OBJ(result, (zend_object*)rc);
+					Z_ADDREF_P(result);
+				}
 			} else if (EXPECTED(Z_TYPE(EX(This)) == IS_STRUCT)) {
-				/* $this is a struct handle - return it as-is */
 				zend_struct_handle *handle = Z_STRUCT_HANDLE(EX(This));
 				GC_ADDREF(handle);
 				ZVAL_STRUCT(result, handle);
@@ -4207,12 +4213,19 @@ static zend_never_inline void zend_fetch_this_var(int type OPLINE_DC EXECUTE_DAT
 				zend_error_unchecked(E_WARNING, "Undefined variable $this");
 			}
 			break;
-		case BP_VAR_IS:
+		}
+		case BP_VAR_IS: {
 			if (EXPECTED(Z_TYPE(EX(This)) == IS_OBJECT)) {
-				ZVAL_OBJ(result, Z_OBJ(EX(This)));
-				Z_ADDREF_P(result);
+				zend_refcounted *rc = Z_COUNTED(EX(This));
+				if (UNEXPECTED(GC_TYPE_INFO(rc) == GC_STRUCT)) {
+					zend_struct_handle *handle = (zend_struct_handle *) rc;
+					GC_ADDREF(handle);
+					ZVAL_STRUCT(result, handle);
+				} else {
+					ZVAL_OBJ(result, (zend_object*)rc);
+					Z_ADDREF_P(result);
+				}
 			} else if (EXPECTED(Z_TYPE(EX(This)) == IS_STRUCT)) {
-				/* $this is a struct handle - return it as-is */
 				zend_struct_handle *handle = Z_STRUCT_HANDLE(EX(This));
 				GC_ADDREF(handle);
 				ZVAL_STRUCT(result, handle);
@@ -4220,6 +4233,7 @@ static zend_never_inline void zend_fetch_this_var(int type OPLINE_DC EXECUTE_DAT
 				ZVAL_NULL(result);
 			}
 			break;
+		}
 		case BP_VAR_RW:
 		case BP_VAR_W:
 			ZVAL_UNDEF(result);
@@ -4877,7 +4891,7 @@ static void cleanup_unfinished_calls(zend_execute_data *execute_data, uint32_t o
 			zend_vm_stack_free_args(EX(call));
 
 			if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
-				OBJ_RELEASE(Z_OBJ(call->This));
+				zend_release_this(&call->This);
 			}
 			if (ZEND_CALL_INFO(call) & ZEND_CALL_HAS_EXTRA_NAMED_PARAMS) {
 				zend_free_extra_named_params(call->extra_named_params);
