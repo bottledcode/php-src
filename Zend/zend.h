@@ -230,6 +230,7 @@ struct _zend_class_entry {
 
 	struct _zend_generic_parameter_list *generic_parameters;
 	struct _zend_generic_type_table     *generic_types;
+	struct _zend_type_arg_table         *generic_type_args; /* bindings on a monomorph; NULL on bases */
 
 	union {
 		struct {

@@ -726,6 +726,84 @@ ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(
 	return table;
 }
 
+/* Run PHP's normal arg-type machinery (coerce in weak mode, throw TypeError
+ * in strict mode) against the per-call substituted type for any value-parameter
+ * whose pre-erasure type is a direct TYPE_PARAMETER reference. Returns false
+ * and sets EG(exception) on the first failure. Only bare T at the top level is
+ * substituted in this pass — composite shapes (array<T>, Box<T>, ?T) fall back
+ * to the erased bound check at RECV. */
+ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box)
+{
+	if (!args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+		return true;
+	}
+	const zend_function *fbc = call->func;
+	if (!ZEND_USER_CODE(fbc->common.type)
+			|| !fbc->op_array.generic_types
+			|| !fbc->op_array.generic_types->parameters) {
+		return true;
+	}
+	/* Strict-types is determined by the caller's own declare; that's the
+	 * function whose VERIFY opcode is currently running. */
+	zend_execute_data *caller_ed = EG(current_execute_data);
+	bool strict = caller_ed
+		&& caller_ed->func
+		&& (caller_ed->func->common.fn_flags & ZEND_ACC_STRICT_TYPES);
+	const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+	const HashTable *pre = fbc->op_array.generic_types->parameters;
+	uint32_t num_args = ZEND_CALL_NUM_ARGS(call);
+	zend_ulong arg_idx;
+	zend_type *pe_type_ptr;
+	ZEND_HASH_FOREACH_NUM_KEY_PTR(pre, arg_idx, pe_type_ptr) {
+		if (arg_idx >= num_args) continue;
+		if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe_type_ptr)) continue;
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pe_type_ptr);
+		if (ref->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) continue;
+		if (ref->index >= nwa->count) continue;
+		zend_type substituted = nwa->args[ref->index];
+		if (!ZEND_TYPE_IS_SET(substituted)) continue;
+		zval *arg = ZEND_CALL_ARG(call, (uint32_t) arg_idx + 1);
+		zval *target = arg;
+		const zend_reference *zref = NULL;
+		if (Z_ISREF_P(target)) {
+			zref = Z_REF_P(target);
+			target = Z_REFVAL_P(target);
+		}
+		if (ZEND_TYPE_CONTAINS_CODE(substituted, Z_TYPE_P(target))) {
+			continue;
+		}
+		bool ok;
+		if (ZEND_TYPE_HAS_NAME(substituted) && Z_TYPE_P(target) == IS_OBJECT) {
+			zend_class_entry *ce = zend_lookup_class_ex(ZEND_TYPE_NAME(substituted), NULL,
+				ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+			ok = ce && instanceof_function(Z_OBJCE_P(target), ce);
+		} else if (zref && ZEND_REF_HAS_TYPE_SOURCES(zref)) {
+			ok = false;
+		} else {
+			uint32_t type_mask = ZEND_TYPE_FULL_MASK(substituted);
+			ok = zend_verify_scalar_type_hint(type_mask, target, strict, /* is_internal_arg */ false);
+		}
+		if (!ok) {
+			zend_string *expected = zend_type_to_string(substituted);
+			const zend_arg_info *ai = (arg_idx < fbc->common.num_args)
+				? &fbc->common.arg_info[arg_idx] : NULL;
+			zend_throw_error(zend_ce_type_error,
+				"%s%s%s(): Argument #%u%s%s%s must be of type %s, %s given",
+				fbc->common.scope ? ZSTR_VAL(fbc->common.scope->name) : "",
+				fbc->common.scope ? "::" : "",
+				fbc->common.function_name ? ZSTR_VAL(fbc->common.function_name) : "{closure}",
+				(uint32_t) arg_idx + 1,
+				(ai && ai->name) ? " ($" : "",
+				(ai && ai->name) ? ZSTR_VAL(ai->name) : "",
+				(ai && ai->name) ? ")" : "",
+				ZSTR_VAL(expected), zend_zval_value_name(target));
+			zend_string_release(expected);
+			return false;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return true;
+}
+
 ZEND_API void zend_check_generic_call_arguments(const zend_function *fbc, uint32_t arity, const zend_type *args_box)
 {
 	const zend_generic_parameter_list *params = NULL;
@@ -1987,21 +2065,6 @@ static zend_string *zend_resolve_class_name_ast(zend_ast *ast) /* {{{ */
 		zend_error_noreturn(E_COMPILE_ERROR, "Illegal class name");
 	}
 
-	/* Class-level generic params remain bound-erased and have no runtime
-	 * representation; function-level params are routed to a TYPE_PARAM fetch
-	 * by zend_compile_class_ref before reaching here. */
-	if ((ast->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ) {
-		zend_generic_origin origin;
-		zend_generic_parameter *param = zend_generic_lookup_full(
-			Z_STR_P(class_name), &origin, NULL);
-		if (param && origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE) {
-			zend_error_noreturn(E_COMPILE_ERROR,
-				"Cannot use class-level generic type parameter %s as a class reference at runtime; "
-				"bound-erased generic types have no runtime representation",
-				Z_STRVAL_P(class_name));
-		}
-	}
-
 	return zend_resolve_class_name(Z_STR_P(class_name), ast->attr);
 }
 /* }}} */
@@ -2829,14 +2892,11 @@ static bool zend_try_compile_const_expr_resolve_class_name(zval *zv, zend_ast *c
 		zend_error_noreturn(E_COMPILE_ERROR, "Illegal class name");
 	}
 
-	/* Function-level T::class resolves at runtime through the frame's T-table. */
-	if ((class_ast->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ) {
-		zend_generic_origin origin;
-		zend_generic_parameter *param = zend_generic_lookup_full(
-			Z_STR_P(class_name), &origin, NULL);
-		if (param && origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
-			return false;
-		}
+	/* T::class resolves at runtime through the runtime T-table (frame for
+	 * function-level T, called scope for class-level T). */
+	if ((class_ast->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ
+			&& zend_generic_lookup(Z_STR_P(class_name))) {
+		return false;
 	}
 
 	fetch_type = zend_get_class_fetch_type(Z_STR_P(class_name));
@@ -3140,6 +3200,7 @@ ZEND_API void zend_initialize_class_data(zend_class_entry *ce, bool nullify_hand
 	ce->backed_enum_table = NULL;
 	ce->generic_parameters = NULL;
 	ce->generic_types = NULL;
+	ce->generic_type_args = NULL;
 
 	if (nullify_handlers) {
 		ce->constructor = NULL;
@@ -3917,8 +3978,20 @@ static void zend_compile_class_ref(znode *result, zend_ast *name_ast, uint32_t f
 {
 	uint32_t fetch_type;
 
-	/* Generic named type: discard type arguments and resolve the bare name. */
+	/* Generic named type Box<Animal>: when the args are concrete (no T-refs)
+	 * we resolve to the monomorph's canonical name "Box<Animal>" so callers
+	 * like `instanceof Box<Animal>` and `catch (Box<Animal> $e)` distinguish
+	 * monos. With T-refs we still need a runtime path (not yet implemented),
+	 * so fall through to the bare-name behavior. */
 	if (name_ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
+		zend_type ty = zend_compile_pre_erasure_typename(name_ast);
+		if (!zend_type_contains_type_parameter(ty)) {
+			result->op_type = IS_CONST;
+			ZVAL_STR(&result->u.constant, zend_type_to_canonical_string(ty));
+			zend_type_release(ty, /* persistent */ false);
+			return;
+		}
+		zend_type_release(ty, /* persistent */ false);
 		name_ast = name_ast->child[0];
 	}
 
@@ -3961,17 +4034,18 @@ static void zend_compile_class_ref(znode *result, zend_ast *name_ast, uint32_t f
 		return;
 	}
 
-	/* Function/method-level T in expression position (new T(), T::FOO,
-	 * instanceof T, T::method()) resolves through the call frame's T-table
-	 * at runtime. */
+	/* T in expression position (new T(), T::FOO, instanceof T, T::method())
+	 * resolves through the runtime T-table — function/method-level T from the
+	 * call frame, class-level T from the called scope's monomorph args. */
 	if ((name_ast->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ) {
 		zend_generic_origin origin;
 		uint32_t param_index = 0;
 		zend_generic_parameter *param = zend_generic_lookup_full(
 			zend_ast_get_str(name_ast), &origin, &param_index);
-		if (param && origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
+		if (param) {
 			result->op_type = IS_UNUSED;
-			result->u.op.num = zend_pack_type_param_fetch(param_index, fetch_flags);
+			result->u.op.num = zend_pack_type_param_fetch(param_index, fetch_flags,
+				origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE);
 			return;
 		}
 	}
@@ -8271,20 +8345,6 @@ static void zend_compile_try(const zend_ast *ast) /* {{{ */
 				zend_error_noreturn(E_COMPILE_ERROR, "Bad class name in the catch statement");
 			}
 
-			/* catch needs a class to check at throw time; we don't currently
-			 * resolve generic type parameters through the catch path. */
-			if (class_ast->kind == ZEND_AST_ZVAL) {
-				zend_ast *bare = class_ast;
-				if (bare->kind == ZEND_AST_GENERIC_NAMED_TYPE) bare = bare->child[0];
-				if ((bare->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ
-						&& zend_generic_lookup(zend_ast_get_str(bare))) {
-					zend_error_noreturn(E_COMPILE_ERROR,
-						"Cannot use generic type parameter %s as a class reference at runtime; "
-						"bound-erased generic types have no runtime representation",
-						ZSTR_VAL(zend_ast_get_str(bare)));
-				}
-			}
-
 			opnum_catch = get_next_op_number();
 			if (i == 0 && j == 0) {
 				CG(active_op_array)->try_catch_array[try_catch_offset].catch_op = opnum_catch;
@@ -8292,10 +8352,43 @@ static void zend_compile_try(const zend_ast *ast) /* {{{ */
 
 			opline = get_next_op();
 			opline->opcode = ZEND_CATCH;
-			opline->op1_type = IS_CONST;
-			opline->op1.constant = zend_add_class_name_literal(
-					zend_resolve_class_name_ast(class_ast));
-			opline->extended_value = zend_alloc_cache_slot();
+
+			/* catch (T $e): resolve T at exception-throw time via the runtime
+			 * T-table. Encoded the same way as ZEND_FETCH_CLASS — see
+			 * zend_resolve_generic_type_param. */
+			bool emitted_type_param = false;
+			if (class_ast->kind == ZEND_AST_ZVAL
+					&& (class_ast->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ) {
+				zend_generic_origin origin;
+				uint32_t param_index = 0;
+				zend_generic_parameter *param = zend_generic_lookup_full(
+					zend_ast_get_str(class_ast), &origin, &param_index);
+				if (param) {
+					opline->op1_type = IS_UNUSED;
+					opline->op1.num = zend_pack_type_param_fetch(param_index, 0,
+						origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE);
+					opline->extended_value = 0;
+					emitted_type_param = true;
+				}
+			}
+			if (!emitted_type_param) {
+				zend_string *resolved_name = NULL;
+				/* catch (Box<Animal>): canonical monomorph name when args are
+				 * concrete, matching the semantics of `instanceof Box<Animal>`. */
+				if (class_ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
+					zend_type ty = zend_compile_pre_erasure_typename(class_ast);
+					if (!zend_type_contains_type_parameter(ty)) {
+						resolved_name = zend_type_to_canonical_string(ty);
+					}
+					zend_type_release(ty, /* persistent */ false);
+				}
+				if (!resolved_name) {
+					resolved_name = zend_resolve_class_name_ast(class_ast);
+				}
+				opline->op1_type = IS_CONST;
+				opline->op1.constant = zend_add_class_name_literal(resolved_name);
+				opline->extended_value = zend_alloc_cache_slot();
+			}
 
 			if (var_name && zend_string_equals(var_name, ZSTR_KNOWN(ZEND_STR_THIS))) {
 				zend_error_noreturn(E_COMPILE_ERROR, "Cannot re-assign $this");
@@ -12872,8 +12965,9 @@ static void zend_compile_class_name(znode *result, const zend_ast *ast) /* {{{ *
 			uint32_t param_index = 0;
 			zend_generic_parameter *param = zend_generic_lookup_full(
 				zend_ast_get_str(class_ast), &origin, &param_index);
-			if (param && origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
-				op1_num = zend_pack_type_param_fetch(param_index, 0);
+			if (param) {
+				op1_num = zend_pack_type_param_fetch(param_index, 0,
+					origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE);
 			}
 		}
 		opline->op1.num = op1_num;

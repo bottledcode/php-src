@@ -1,10 +1,17 @@
 --TEST--
-Errors: type parameter cannot be used at runtime in `catch`
+catch (T $e) silently does not match when T has no usable binding
 --FILE--
 <?php
 function f<T>(): void {
-    try { /* ... */ } catch (T $e) {}
+    // T has no class bound and no caller-supplied binding. catch (T $e)
+    // is therefore "catch nothing"; the thrown exception propagates out.
+    try { throw new Exception("boom"); } catch (T $e) { echo "caught\n"; }
+}
+try {
+    f();
+} catch (Throwable $e) {
+    echo "outer: ", $e->getMessage(), "\n";
 }
 ?>
---EXPECTF--
-Fatal error: Cannot use generic type parameter T as a class reference at runtime; bound-erased generic types have no runtime representation in %s on line %d
+--EXPECT--
+outer: boom
