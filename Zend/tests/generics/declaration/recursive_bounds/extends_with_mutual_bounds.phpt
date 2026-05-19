@@ -2,7 +2,7 @@
 Recursive bounds: a child class can extend a parent that uses mutual bounds
 --FILE--
 <?php
-class Box<T> {}
+class Box<T = mixed> {}
 class Pair<T: Box<U>, U: Box<T>> {
     public function __construct(public Box $left, public Box $right) {}
 }

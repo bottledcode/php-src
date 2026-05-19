@@ -1235,6 +1235,26 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 		return ce;
 	}
 
+	/* Monomorphization hook: if the requested name has generic shape
+	 * ("Box<int>"), parse it and synthesize the monomorph. This makes
+	 * unserialize, dynamic `new $name`, `class_exists`, and `instanceof
+	 * "Foo<Bar>"` all transparently materialize the monomorph on demand.
+	 * Runs before autoload so a Box<int> name doesn't trigger a doomed
+	 * autoload for "Box<int>" itself. The synthesizer only succeeds when
+	 * the base class exists and is generic. */
+	if (!zend_is_compiling() && zend_class_name_is_monomorph(name)) {
+		zend_class_entry *mono = zend_try_synthesize_monomorph_by_name(name, flags);
+		if (mono) {
+			if (!key) zend_string_release_ex(lc_name, 0);
+			if (ce_cache) SET_CE_CACHE(ce_cache, mono);
+			return mono;
+		}
+		if (EG(exception)) {
+			if (!key) zend_string_release_ex(lc_name, 0);
+			return NULL;
+		}
+	}
+
 	/* The compiler is not-reentrant. Make sure we autoload only during run-time. */
 	if ((flags & ZEND_FETCH_CLASS_NO_AUTOLOAD) || zend_is_compiling()) {
 		if (!key) {

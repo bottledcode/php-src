@@ -6017,6 +6017,38 @@ ZEND_VM_HANDLER(68, ZEND_NEW, UNUSED|CLASS_FETCH|CONST|VAR, UNUSED|CACHE_SLOT, N
 		ce = Z_CE_P(EX_VAR(opline->op1.var));
 	}
 
+	/* Naked `new` of a bare generic class (via `new static()`, `new $name`,
+	 * or any path that didn't go through compile-time canonical-name rewrite).
+	 * Skip when ZEND_VERIFY_GENERIC_ARGUMENTS follows — that opcode handles
+	 * the synthesis-and-swap for the turbofish path. Otherwise: if every
+	 * type parameter has a default, synthesize and use the defaults monomorph.
+	 * For `new static()` / lexical paths with no defaults, fall back to a
+	 * bare instance (preserves the lexical-self semantic for generic classes
+	 * whose authors didn't declare defaults). For dynamic `new $name()` we
+	 * throw — the caller spelled out a generic class by name and a bare
+	 * instance with erased T is almost never what they want.
+	 *
+	 * OP1_TYPE distinguishes: IS_UNUSED → static/self/parent (lenient);
+	 * IS_VAR → dynamic name resolved via FETCH_CLASS (strict). */
+	if (UNEXPECTED(OP1_TYPE != IS_CONST && ce->generic_parameters
+			&& (opline + 1)->opcode != ZEND_VERIFY_GENERIC_ARGUMENTS)) {
+		if (ce->ce_flags & ZEND_ACC_GENERIC_ALL_DEFAULTS) {
+			ce = zend_synthesize_monomorph(ce, NULL, 0);
+			if (UNEXPECTED(ce == NULL)) {
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				HANDLE_EXCEPTION();
+			}
+		} else if (OP1_TYPE == IS_VAR) {
+			zend_throw_error(NULL,
+				"Cannot instantiate generic class %s without type arguments "
+				"via dynamic class name; no defaults declared",
+				ZSTR_VAL(ce->name));
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
+		}
+		/* IS_UNUSED with no defaults: fall through with the bare ce. */
+	}
+
 	result = EX_VAR(opline->result.var);
 	if (UNEXPECTED(object_init_ex(result, ce) != SUCCESS)) {
 		ZVAL_UNDEF(result);
@@ -8959,6 +8991,23 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 		zval *new_obj = EX_VAR(opline->op1.var);
 		zend_class_entry *ce = Z_OBJCE_P(new_obj);
 		zend_check_generic_new_arguments(ce, arity, args_box);
+		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
+		 * object's class entry and the pending constructor call. The monomorph
+		 * shares Box's property layout, so swapping ce is safe; swapping
+		 * call->func ensures the constructor's RECV opcodes verify against the
+		 * monomorph's substituted arg_info. */
+		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+			if (ce->generic_parameters) {
+				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				if (mono && mono != ce) {
+					Z_OBJ_P(new_obj)->ce = mono;
+					if (mono->constructor && call->func == ce->constructor) {
+						call->func = mono->constructor;
+					}
+				}
+			}
+		}
 	}
 
 	if (UNEXPECTED(EG(exception))) {

@@ -1050,7 +1050,7 @@ static zend_generic_type_table *zend_generic_get_or_create_op_array_table(zend_o
 }
 
 /* Ensure ce->generic_types is allocated, then return it. */
-static zend_generic_type_table *zend_generic_get_or_create_class_table(zend_class_entry *ce)
+ZEND_API zend_generic_type_table *zend_generic_get_or_create_class_table(zend_class_entry *ce)
 {
 	if (!ce->generic_types) {
 		ce->generic_types = zend_generic_type_table_alloc();
@@ -2214,6 +2214,219 @@ zend_string *zend_type_to_string_resolved(const zend_type type, const zend_class
 
 ZEND_API zend_string *zend_type_to_string(zend_type type) {
 	return zend_type_to_string_resolved(type, NULL);
+}
+
+/* === Monomorph canonicalization ===
+ *
+ * Produces a deterministic class-name string for a generic application.
+ * Properties:
+ *   - No whitespace anywhere.
+ *   - Class names appear in fully-resolved form (the caller is expected to
+ *     pass already-resolved zend_types; type-param refs are not allowed).
+ *   - Members of union and intersection lists are sorted by canonical
+ *     sub-string, so int|string and string|int collapse to "int|string".
+ *   - `?T` is normalized to the union form `T|null`.
+ *   - Intersection branches inside a union are wrapped in parens: "(A&B)|C".
+ *   - Nested generic applications recurse: Box<Foo<int|string>>.
+ *
+ * Two type-arg lists that PHP would treat as equivalent types must produce
+ * the same canonical string. */
+
+static int zend_canonical_strptr_cmp(const void *a, const void *b)
+{
+	const zend_string *const *sa = a;
+	const zend_string *const *sb = b;
+	return zend_binary_strcmp(
+		ZSTR_VAL(*sa), ZSTR_LEN(*sa),
+		ZSTR_VAL(*sb), ZSTR_LEN(*sb));
+}
+
+static zend_string *zend_canonical_join_sorted(
+	zend_string **pieces, uint32_t count, char sep)
+{
+	qsort(pieces, count, sizeof(zend_string *), zend_canonical_strptr_cmp);
+	smart_str buf = {0};
+	for (uint32_t i = 0; i < count; i++) {
+		if (i > 0) smart_str_appendc(&buf, sep);
+		smart_str_append(&buf, pieces[i]);
+	}
+	smart_str_0(&buf);
+	return buf.s;
+}
+
+static void zend_canonical_append_scalar_pieces(
+	uint32_t type_mask, zend_string ***pieces, uint32_t *count, uint32_t *cap)
+{
+	/* Fixed-order scalar emission so each scalar bit yields exactly one
+	 * piece; the outer sort then merges these with class-name pieces. */
+	struct { uint32_t bit; zend_string *str; } table[] = {
+		{ MAY_BE_CALLABLE, ZSTR_KNOWN(ZEND_STR_CALLABLE) },
+		{ MAY_BE_OBJECT,   ZSTR_KNOWN(ZEND_STR_OBJECT)   },
+		{ MAY_BE_ARRAY,    ZSTR_KNOWN(ZEND_STR_ARRAY)    },
+		{ MAY_BE_STRING,   ZSTR_KNOWN(ZEND_STR_STRING)   },
+		{ MAY_BE_LONG,     ZSTR_KNOWN(ZEND_STR_INT)      },
+		{ MAY_BE_DOUBLE,   ZSTR_KNOWN(ZEND_STR_FLOAT)    },
+		{ MAY_BE_VOID,     ZSTR_KNOWN(ZEND_STR_VOID)     },
+		{ MAY_BE_NEVER,    ZSTR_KNOWN(ZEND_STR_NEVER)    },
+	};
+	for (size_t i = 0; i < sizeof(table)/sizeof(table[0]); i++) {
+		if (type_mask & table[i].bit) {
+			if (*count == *cap) {
+				*cap = *cap ? *cap * 2 : 4;
+				*pieces = erealloc(*pieces, sizeof(zend_string *) * (*cap));
+			}
+			(*pieces)[(*count)++] = zend_string_copy(table[i].str);
+		}
+	}
+	if ((type_mask & MAY_BE_BOOL) == MAY_BE_BOOL) {
+		if (*count == *cap) { *cap = *cap ? *cap * 2 : 4; *pieces = erealloc(*pieces, sizeof(zend_string *) * (*cap)); }
+		(*pieces)[(*count)++] = zend_string_copy(ZSTR_KNOWN(ZEND_STR_BOOL));
+	} else {
+		if (type_mask & MAY_BE_FALSE) {
+			if (*count == *cap) { *cap = *cap ? *cap * 2 : 4; *pieces = erealloc(*pieces, sizeof(zend_string *) * (*cap)); }
+			(*pieces)[(*count)++] = zend_string_copy(ZSTR_KNOWN(ZEND_STR_FALSE));
+		}
+		if (type_mask & MAY_BE_TRUE) {
+			if (*count == *cap) { *cap = *cap ? *cap * 2 : 4; *pieces = erealloc(*pieces, sizeof(zend_string *) * (*cap)); }
+			(*pieces)[(*count)++] = zend_string_copy(ZSTR_KNOWN(ZEND_STR_TRUE));
+		}
+	}
+	if (type_mask & MAY_BE_NULL) {
+		if (*count == *cap) { *cap = *cap ? *cap * 2 : 4; *pieces = erealloc(*pieces, sizeof(zend_string *) * (*cap)); }
+		(*pieces)[(*count)++] = zend_string_copy(ZSTR_KNOWN(ZEND_STR_NULL_LOWERCASE));
+	}
+}
+
+static zend_string *zend_canonical_one(zend_type type);
+
+static zend_string *zend_canonical_intersection(const zend_type_list *list)
+{
+	zend_string **pieces = safe_emalloc(list->num_types, sizeof(zend_string *), 0);
+	uint32_t n = 0;
+	const zend_type *single;
+	ZEND_TYPE_LIST_FOREACH(list, single) {
+		/* Intersection branches are class-name leaves or NAMED_WITH_ARGS. */
+		pieces[n++] = zend_canonical_one(*single);
+	} ZEND_TYPE_LIST_FOREACH_END();
+	zend_string *result = zend_canonical_join_sorted(pieces, n, '&');
+	for (uint32_t i = 0; i < n; i++) zend_string_release(pieces[i]);
+	efree(pieces);
+	return result;
+}
+
+static zend_string *zend_canonical_one(zend_type type)
+{
+	uint32_t scalar_mask = ZEND_TYPE_PURE_MASK(type);
+	/* MAY_BE_ANY appearing alone is "mixed"; otherwise it's an unbounded
+	 * bag of scalar bits we expand individually. */
+	bool is_mixed_pure = scalar_mask == MAY_BE_ANY
+		&& !ZEND_TYPE_HAS_LIST(type)
+		&& !ZEND_TYPE_HAS_NAME(type)
+		&& !ZEND_TYPE_HAS_NAMED_WITH_ARGS(type);
+	if (is_mixed_pure) {
+		return zend_string_copy(ZSTR_KNOWN(ZEND_STR_MIXED));
+	}
+
+	zend_string **pieces = NULL;
+	uint32_t n = 0, cap = 0;
+
+	if (ZEND_TYPE_IS_INTERSECTION(type)) {
+		zend_string *s = zend_canonical_intersection(ZEND_TYPE_LIST(type));
+		if (n == cap) { cap = cap ? cap * 2 : 4; pieces = erealloc(pieces, sizeof(zend_string *) * cap); }
+		pieces[n++] = s;
+	} else if (ZEND_TYPE_HAS_LIST(type)) {
+		const zend_type *list_type;
+		ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(type), list_type) {
+			zend_string *s;
+			if (ZEND_TYPE_IS_INTERSECTION(*list_type)) {
+				zend_string *inner = zend_canonical_intersection(ZEND_TYPE_LIST(*list_type));
+				s = zend_string_concat3("(", 1, ZSTR_VAL(inner), ZSTR_LEN(inner), ")", 1);
+				zend_string_release(inner);
+			} else {
+				s = zend_canonical_one(*list_type);
+			}
+			if (n == cap) { cap = cap ? cap * 2 : 4; pieces = erealloc(pieces, sizeof(zend_string *) * cap); }
+			pieces[n++] = s;
+		} ZEND_TYPE_LIST_FOREACH_END();
+	} else if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(type)) {
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(type);
+		smart_str buf = {0};
+		if (nwa->name) smart_str_append(&buf, nwa->name);
+		smart_str_appendc(&buf, '<');
+		for (uint32_t i = 0; i < nwa->count; i++) {
+			if (i > 0) smart_str_appendc(&buf, ',');
+			zend_string *inner = zend_canonical_one(nwa->args[i]);
+			smart_str_append(&buf, inner);
+			zend_string_release(inner);
+		}
+		smart_str_appendc(&buf, '>');
+		smart_str_0(&buf);
+		if (n == cap) { cap = cap ? cap * 2 : 4; pieces = erealloc(pieces, sizeof(zend_string *) * cap); }
+		pieces[n++] = buf.s;
+	} else if (ZEND_TYPE_HAS_NAME(type)) {
+		if (n == cap) { cap = cap ? cap * 2 : 4; pieces = erealloc(pieces, sizeof(zend_string *) * cap); }
+		pieces[n++] = zend_string_copy(ZEND_TYPE_NAME(type));
+	} else if (ZEND_TYPE_HAS_TYPE_PARAMETER(type)) {
+		/* Canonicalization runs against already-substituted types; a stray
+		 * T-ref means somebody handed us pre-erasure data by mistake. */
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(type);
+		if (n == cap) { cap = cap ? cap * 2 : 4; pieces = erealloc(pieces, sizeof(zend_string *) * cap); }
+		pieces[n++] = ref->name ? zend_string_copy(ref->name) : ZSTR_EMPTY_ALLOC();
+	}
+
+	zend_canonical_append_scalar_pieces(scalar_mask, &pieces, &n, &cap);
+
+	zend_string *result;
+	if (n == 0) {
+		result = ZSTR_EMPTY_ALLOC();
+	} else if (n == 1) {
+		result = zend_string_copy(pieces[0]);
+	} else {
+		result = zend_canonical_join_sorted(pieces, n, '|');
+	}
+	for (uint32_t i = 0; i < n; i++) zend_string_release(pieces[i]);
+	if (pieces) efree(pieces);
+	return result;
+}
+
+ZEND_API zend_string *zend_type_to_canonical_string(zend_type type)
+{
+	return zend_canonical_one(type);
+}
+
+ZEND_API bool zend_type_contains_type_parameter(zend_type type)
+{
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(type)) return true;
+	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(type)) {
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(type);
+		for (uint32_t i = 0; i < nwa->count; i++) {
+			if (zend_type_contains_type_parameter(nwa->args[i])) return true;
+		}
+	}
+	if (ZEND_TYPE_HAS_LIST(type)) {
+		const zend_type *member;
+		ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(type), member) {
+			if (zend_type_contains_type_parameter(*member)) return true;
+		} ZEND_TYPE_LIST_FOREACH_END();
+	}
+	return false;
+}
+
+ZEND_API zend_string *zend_generic_canonical_class_name(
+	zend_string *base_name, const zend_type *args, uint32_t arity)
+{
+	smart_str buf = {0};
+	smart_str_append(&buf, base_name);
+	smart_str_appendc(&buf, '<');
+	for (uint32_t i = 0; i < arity; i++) {
+		if (i > 0) smart_str_appendc(&buf, ',');
+		zend_string *piece = zend_canonical_one(args[i]);
+		smart_str_append(&buf, piece);
+		zend_string_release(piece);
+	}
+	smart_str_appendc(&buf, '>');
+	smart_str_0(&buf);
+	return buf.s;
 }
 
 static bool is_generator_compatible_class_type(const zend_string *name) {
@@ -6415,6 +6628,10 @@ static void zend_compile_new(znode *result, zend_ast *ast) /* {{{ */
 	}
 
 	zend_class_entry *ce = NULL;
+	/* If parent_extends_args is non-NULL, we resolved `new parent()` where the
+	 * active class's extends clause specified type arguments — in that case we
+	 * use the user-supplied args directly rather than the parent's defaults. */
+	const zend_type *parent_extends_args = NULL;
 	if (opline->op1_type == IS_CONST) {
 		zend_string *lcname = Z_STR_P(CT_CONSTANT(opline->op1) + 1);
 		ce = zend_hash_find_ptr(CG(class_table), lcname);
@@ -6427,11 +6644,91 @@ static void zend_compile_new(znode *result, zend_ast *ast) /* {{{ */
 			ce = CG(active_class_entry);
 		}
 	} else if (opline->op1_type == IS_UNUSED
-			&& (opline->op1.num & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_SELF
 			&& zend_is_scope_known()) {
-		ce = CG(active_class_entry);
+		uint32_t fetch = opline->op1.num & ZEND_FETCH_CLASS_MASK;
+		if (fetch == ZEND_FETCH_CLASS_SELF) {
+			ce = CG(active_class_entry);
+		} else if (fetch == ZEND_FETCH_CLASS_PARENT
+				&& CG(active_class_entry)
+				&& CG(active_class_entry)->parent_name) {
+			zend_string *lc_parent = zend_string_tolower(CG(active_class_entry)->parent_name);
+			ce = zend_hash_find_ptr(CG(class_table), lc_parent);
+			zend_string_release(lc_parent);
+			/* `new parent()` honours the active class's `extends Box<int>` args
+			 * if present, so it instantiates the same monomorph the active
+			 * class extends rather than the parent's defaults. */
+			if (ce && CG(active_class_entry)->generic_types
+					&& CG(active_class_entry)->generic_types->extends
+					&& ZEND_TYPE_HAS_NAMED_WITH_ARGS(
+						*CG(active_class_entry)->generic_types->extends)
+					&& !zend_type_contains_type_parameter(
+						*CG(active_class_entry)->generic_types->extends)) {
+				parent_extends_args = CG(active_class_entry)->generic_types->extends;
+			}
+		}
 	}
 
+	/* Naked `new GenericClass()` (no turbofish): build the canonical monomorph
+	 * name and rewrite op1 to it so the lookup hook synthesizes the monomorph.
+	 *
+	 * Handles three resolved-at-compile-time forms:
+	 *   - literal class name → use its declared defaults; error if any param
+	 *     has no default (the user has no way to bind T here)
+	 *   - `self` → use the active class's declared defaults; if any param has
+	 *     no default, leave the opcode alone and the runtime creates a bare
+	 *     instance (preserving the existing lexical-self semantic and letting
+	 *     code inside a generic class refer to itself without forcing a
+	 *     defaults declaration)
+	 *   - `parent` → use the args from the `extends Foo<...>` clause if any,
+	 *     otherwise the parent's defaults; same lenient fallback as `self`
+	 *
+	 * `static` and dynamic names are handled at runtime in ZEND_NEW. */
+	if (ce && ce->generic_parameters && !turbofish_ast) {
+		uint32_t count = ce->generic_parameters->count;
+		const zend_type *src_args = NULL;
+		uint32_t src_arity = 0;
+		if (parent_extends_args) {
+			const zend_type_named_with_args *nwa =
+				ZEND_TYPE_NAMED_WITH_ARGS(*parent_extends_args);
+			src_args = nwa->args;
+			src_arity = nwa->count;
+		}
+		zend_type chosen[ZEND_GENERIC_MAX_PARAMS];
+		bool ok = true;
+		/* Strict (compile-error on missing defaults) when the call site refers
+		 * to a generic class from outside that class. Lenient (fall through to
+		 * the bare class) when it's a lexical self-reference — including both
+		 * `new self()` and `new ThisClass()` inside the class's own body —
+		 * since the lexical scope semantically has access to T even though we
+		 * can't bind it at compile time. */
+		bool is_lexical_self = ce == CG(active_class_entry);
+		for (uint32_t i = 0; i < count; i++) {
+			if (i < src_arity) {
+				chosen[i] = src_args[i];
+				continue;
+			}
+			const zend_generic_parameter *p = &ce->generic_parameters->parameters[i];
+			if (!ZEND_TYPE_IS_SET(p->default_type)) {
+				if (!is_lexical_self) {
+					zend_error_noreturn(E_COMPILE_ERROR,
+						"Cannot instantiate generic class %s without type arguments; "
+						"type parameter %s has no default",
+						ZSTR_VAL(ce->name), ZSTR_VAL(p->name));
+				}
+				ok = false;
+				break;
+			}
+			chosen[i] = ZEND_TYPE_IS_SET(p->default_pre_erasure)
+				? p->default_pre_erasure : p->default_type;
+		}
+		if (ok) {
+			zend_string *canonical =
+				zend_generic_canonical_class_name(ce->name, chosen, count);
+			opline->op1_type = IS_CONST;
+			opline->op1.constant = zend_add_class_name_literal(canonical);
+			opline->op2.num = zend_alloc_cache_slot();
+		}
+	}
 
 	const zend_function *fbc = NULL;
 	if (ce
@@ -10226,6 +10523,15 @@ static void zend_compile_class_const_decl(zend_ast *ast, uint32_t flags, zend_as
 				zend_error_noreturn(E_COMPILE_ERROR, "Class constant %s::%s cannot have type %s",
 					ZSTR_VAL(ce->name), ZSTR_VAL(name), ZSTR_VAL(type_str));
 			}
+
+			/* Capture the pre-erasure type when the declared type references a
+			 * generic type parameter, so monomorph synthesis can substitute
+			 * T → arg in the mono's class-constant type. */
+			if (zend_type_ast_has_generic_content(type_ast)) {
+				zend_type pre = zend_compile_pre_erasure_typename(type_ast);
+				zend_generic_type_table_set_class_constant(
+					zend_generic_get_or_create_class_table(ce), name, pre);
+			}
 		}
 
 		if (UNEXPECTED((flags & ZEND_ACC_PRIVATE) && (flags & ZEND_ACC_FINAL))) {
@@ -10552,15 +10858,27 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 		ZEND_ASSERT(!(decl->flags & ZEND_ACC_ANON_CLASS));
 		ce->generic_parameters = zend_compile_generic_type_parameter_list(decl->child[5], ZEND_GENERIC_ORIGIN_CLASS_LIKE);
 		zend_generic_scope_push(ce->generic_parameters, ZEND_GENERIC_ORIGIN_CLASS_LIKE);
+		bool all_defaults = true;
+		for (uint32_t i = 0; i < ce->generic_parameters->count; i++) {
+			if (!ZEND_TYPE_IS_SET(ce->generic_parameters->parameters[i].default_type)) {
+				all_defaults = false;
+				break;
+			}
+		}
+		if (all_defaults) {
+			ce->ce_flags |= ZEND_ACC_GENERIC_ALL_DEFAULTS;
+		}
 	}
 
 	if (extends_ast) {
 		ce->parent_name =
 			zend_resolve_const_class_name_reference(extends_ast, "class name");
 		/* Capture the pre-erasure type when the extends clause specifies type
-		 * arguments (e.g. `extends Box<int>`). For an interface declaration
-		 * this AST holds the list of parent interfaces; for class/trait it's
-		 * the single parent class. */
+		 * arguments (e.g. `extends Box<int>`). At link time
+		 * (`zend_do_link_class`) this side-table entry triggers
+		 * pre-synthesis of the `Box<int>` monomorph and a rewrite of
+		 * `parent_name` to the canonical name, so this class's direct
+		 * parent is the monomorph and `instanceof Box<int>` holds. */
 		if (extends_ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
 			zend_type pre = zend_compile_pre_erasure_typename(extends_ast);
 			zend_generic_type_table_set_extends(

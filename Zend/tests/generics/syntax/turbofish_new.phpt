@@ -29,4 +29,4 @@ echo get_class($c), "\n";
 1
 2
 3
-Container
+Container<int>

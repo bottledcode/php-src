@@ -58,6 +58,47 @@ static zend_always_inline void zend_do_inheritance(zend_class_entry *ce, zend_cl
 
 ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string *lc_parent_name, const zend_string *key);
 
+/* Monomorphization: synthesize a generic class application as a real
+ * class_entry registered in EG(class_table) under the canonical name. The
+ * synthesized class extends `base` with the supplied type args, inheriting
+ * all methods/properties/constants with proper substitution.
+ *
+ * Idempotent: a second call with the same (base, args) canonicalizing to an
+ * existing entry returns that entry. Returns NULL on failure (exception will
+ * be set). The args array is copied; the caller retains ownership. */
+ZEND_API zend_class_entry *zend_synthesize_monomorph(
+	zend_class_entry *base, const zend_type *args, uint32_t arity);
+
+/* For a bare generic class `base`, synthesize (or return the cached) monomorph
+ * built from the parameters' declared defaults. Returns NULL and throws Error
+ * if any parameter has no default. If `base` is itself a monomorph (no
+ * generic_parameters), returns `base` unchanged. Used by ZEND_NEW for the
+ * `new static()` and dynamic `new $name()` paths. */
+ZEND_API zend_class_entry *zend_get_defaults_monomorph(zend_class_entry *base);
+
+/* True when the name has monomorph-canonical shape (contains `<`). The canonical
+ * encoding for synthesized monomorphs embeds `<...>` in the class name, which is
+ * invalid in any user-declared class. Use these helpers rather than open-coding
+ * the memchr check so the encoding stays in one place. */
+static zend_always_inline bool zend_class_name_is_monomorph(const zend_string *name)
+{
+	return memchr(ZSTR_VAL(name), '<', ZSTR_LEN(name)) != NULL;
+}
+
+static zend_always_inline bool zend_class_is_monomorph(const zend_class_entry *ce)
+{
+	return zend_class_name_is_monomorph(ce->name);
+}
+
+/* Parses a generic-shaped class-name string ("Box<int|null>", etc.), looks
+ * up the base class, and synthesizes the monomorph. Returns NULL if the
+ * name doesn't have generic shape, the base isn't generic, or parsing fails.
+ * Used by `zend_lookup_class_ex` to make unserialize, dynamic
+ * `new $name()`, and `class_exists()` all transparently materialize
+ * monomorphs on demand. */
+ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
+	zend_string *name, uint32_t flags);
+
 void zend_verify_abstract_class(zend_class_entry *ce);
 void zend_build_properties_info_table(zend_class_entry *ce);
 ZEND_API zend_class_entry *zend_try_early_bind(zend_class_entry *ce, zend_class_entry *parent_ce, zend_string *lcname, zval *delayed_early_binding);
