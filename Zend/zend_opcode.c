@@ -145,6 +145,7 @@ ZEND_API zend_generic_parameter_list *zend_generic_parameter_list_alloc(uint32_t
 	ZEND_ASSERT(count > 0);
 	zend_generic_parameter_list *list = pemalloc(ZEND_GENERIC_PARAMETER_LIST_SIZE(count), persistent);
 	list->count = count;
+	list->inferable_mask = 0;
 	for (uint32_t i = 0; i < count; i++) {
 		list->parameters[i].name = NULL;
 		list->parameters[i].variance = 0;
@@ -288,6 +289,36 @@ ZEND_API void zend_generic_type_table_set_trait_use(zend_generic_type_table *t, 
 
 ZEND_API void zend_generic_type_table_set_turbofish_args(zend_generic_type_table *t, uint32_t op_num, zend_type type) {
 	zend_hash_index_update_ptr(zend_generic_type_table_ensure_indexed(&t->turbofish_args), op_num, zend_type_box(type));
+}
+
+ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count) {
+	zend_type_arg_table *table = emalloc(ZEND_TYPE_ARG_TABLE_SIZE(count));
+	table->count = count;
+	for (uint32_t i = 0; i < count; i++) {
+		table->names[i] = NULL;
+	}
+	return table;
+}
+
+ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table) {
+	if (!table) {
+		return;
+	}
+	for (uint32_t i = 0; i < table->count; i++) {
+		if (table->names[i]) {
+			zend_string_release(table->names[i]);
+		}
+	}
+	efree(table);
+}
+
+/* Returns NULL when the type is not a concrete class reference — the resolver
+ * reads NULL as "fall back to the parameter's bound". */
+ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type) {
+	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(type) || ZEND_TYPE_HAS_NAME(type)) {
+		return zend_type_to_canonical_string(type);
+	}
+	return NULL;
 }
 
 ZEND_API void zend_free_internal_arg_info(zend_internal_function *function,

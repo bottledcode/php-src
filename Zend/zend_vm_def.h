@@ -8986,7 +8986,26 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 	SAVE_OPLINE();
 
 	if (OP1_TYPE == IS_UNUSED) {
+		/* Speculative emission for dispatchable calls: when there's no
+		 * turbofish AND the resolved callee turns out to be non-generic,
+		 * there's nothing to verify and no table to build. With turbofish
+		 * present the arity check still needs to fire (the user supplied
+		 * type args to a non-generic callee — explicit "too many" error). */
+		if (args_box == NULL
+				&& (!ZEND_USER_CODE(call->func->type)
+					|| !call->func->op_array.generic_parameters)) {
+			ZEND_VM_NEXT_OPCODE();
+		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
+		if (!EG(exception)) {
+			zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
+			if (t) {
+				if (call->type_args) {
+					zend_type_arg_table_destroy(call->type_args);
+				}
+				call->type_args = t;
+			}
+		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
 		zend_class_entry *ce = Z_OBJCE_P(new_obj);
@@ -9091,6 +9110,17 @@ ZEND_VM_HANDLER(157, ZEND_FETCH_CLASS_NAME, CV|TMP|UNUSED|CLASS_FETCH, ANY)
 	}
 
 	fetch_type = opline->op1.num;
+	if ((fetch_type & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_TYPE_PARAM) {
+		SAVE_OPLINE();
+		zend_class_entry *resolved = zend_resolve_generic_type_param(
+			zend_unpack_type_param_index(fetch_type), fetch_type);
+		if (UNEXPECTED(!resolved)) {
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
+		}
+		ZVAL_STR_COPY(EX_VAR(opline->result.var), resolved->name);
+		ZEND_VM_NEXT_OPCODE();
+	}
 	scope = EX(func)->op_array.scope;
 	if (UNEXPECTED(scope == NULL)) {
 		SAVE_OPLINE();

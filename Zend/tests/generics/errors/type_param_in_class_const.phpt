@@ -1,10 +1,11 @@
 --TEST--
-Errors: type parameter cannot be used at runtime in `T::class`
+Errors: bare function-level type parameter used in `T::class` errors at runtime when nothing pins it
 --FILE--
 <?php
 function f<T>(): string {
     return T::class;
 }
+f();
 ?>
 --EXPECTF--
-Fatal error: Cannot use generic type parameter T as a class reference at runtime; bound-erased generic types have no runtime representation in %s on line %d
+Fatal error: Cannot resolve generic type parameter T at runtime: no binding was supplied and its bound is not a class in %s on line %d

@@ -148,6 +148,7 @@ typedef struct _zend_generic_parameter {
 
 typedef struct _zend_generic_parameter_list {
 	uint32_t count;
+	uint64_t inferable_mask;        /* bit i set when some value-parameter's pre-erasure type is exactly param i */
 	zend_generic_parameter parameters[1];
 } zend_generic_parameter_list;
 
@@ -196,6 +197,24 @@ ZEND_API void zend_check_generic_arg_list_size(zend_ast *list_ast);
 ZEND_API void zend_check_generic_call_arguments(const zend_function *fbc, uint32_t arity, const zend_type *args_box);
 ZEND_API void zend_check_generic_new_arguments(const zend_class_entry *ce, uint32_t arity, const zend_type *args_box);
 ZEND_API const zend_type *zend_generic_get_turbofish_args(const zend_op_array *caller_op_array, uint32_t args_id);
+
+/* Per-call-frame mapping of generic type parameters to bound class names. NULL
+ * entries mean "use the parameter's bound" (the erased default). Lifetime is
+ * tied to the call frame: allocated by VERIFY_GENERIC_ARGUMENTS for a function
+ * call (or inferred at RECV time), freed when the frame unwinds. */
+typedef struct _zend_type_arg_table {
+	uint32_t count;
+	zend_string *names[1];
+} zend_type_arg_table;
+
+#define ZEND_TYPE_ARG_TABLE_SIZE(count) \
+	(sizeof(zend_type_arg_table) + ((count) - 1) * sizeof(zend_string *))
+
+ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count);
+ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
+ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type);
+ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(zend_execute_data *call, const zend_type *args_box);
+ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type);
 
 typedef union _zend_parser_stack_elem {
 	zend_ast *ast;
@@ -740,6 +759,7 @@ struct _zend_execute_data {
 	zend_array          *symbol_table;
 	void               **run_time_cache;   /* cache op_array->run_time_cache */
 	zend_array          *extra_named_params;
+	zend_type_arg_table *type_args;        /* generic type-argument table; NULL when none */
 };
 
 #define ZEND_CALL_HAS_THIS           IS_OBJECT_EX
@@ -1143,7 +1163,18 @@ ZEND_API bool zend_type_contains_type_parameter(zend_type type);
 #define ZEND_FETCH_CLASS_AUTO		4
 #define ZEND_FETCH_CLASS_INTERFACE	5
 #define ZEND_FETCH_CLASS_TRAIT		6
+#define ZEND_FETCH_CLASS_TYPE_PARAM	7
 #define ZEND_FETCH_CLASS_MASK        0x0f
+#define ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT 16
+
+static zend_always_inline uint32_t zend_pack_type_param_fetch(uint32_t param_index, uint32_t flags) {
+	ZEND_ASSERT(param_index < (1u << (32 - ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT)));
+	return ZEND_FETCH_CLASS_TYPE_PARAM | (param_index << ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT) | flags;
+}
+
+static zend_always_inline uint32_t zend_unpack_type_param_index(uint32_t fetch_type) {
+	return fetch_type >> ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT;
+}
 #define ZEND_FETCH_CLASS_NO_AUTOLOAD 0x80
 #define ZEND_FETCH_CLASS_SILENT      0x0100
 #define ZEND_FETCH_CLASS_EXCEPTION   0x0200
