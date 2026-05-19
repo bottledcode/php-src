@@ -2560,6 +2560,56 @@ ZEND_API bool ZEND_FASTCALL zend_class_implements_interface(const zend_class_ent
 }
 /* }}} */
 
+/* Variance-aware comparison of two siblings monos `a` and `b` of the same
+ * generic base. Returns true if `a` is a subtype of `b` under the base's
+ * declared variance markers. Both monos must have generic_type_args populated
+ * with the same arity as base->generic_parameters. */
+static bool zend_mono_subtype_under_variance(const zend_class_entry *base,
+		const zend_class_entry *a, const zend_class_entry *b)
+{
+	if (!base->generic_parameters
+			|| !a->generic_type_args
+			|| !b->generic_type_args) {
+		return false;
+	}
+	uint32_t count = base->generic_parameters->count;
+	if (a->generic_type_args->count != count
+			|| b->generic_type_args->count != count) {
+		return false;
+	}
+	for (uint32_t i = 0; i < count; i++) {
+		zend_string *a_name = a->generic_type_args->names[i];
+		zend_string *b_name = b->generic_type_args->names[i];
+		if (!a_name || !b_name) {
+			return false;
+		}
+		if (zend_string_equals(a_name, b_name)) {
+			continue;
+		}
+		zend_generic_variance variance = base->generic_parameters->parameters[i].variance;
+		if (variance == ZEND_GENERIC_VARIANCE_INVARIANT) {
+			return false;
+		}
+		zend_class_entry *a_ce = zend_lookup_class_ex(a_name, NULL,
+			ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		zend_class_entry *b_ce = zend_lookup_class_ex(b_name, NULL,
+			ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		if (!a_ce || !b_ce) {
+			return false;
+		}
+		bool ok;
+		if (variance == ZEND_GENERIC_VARIANCE_COVARIANT) {
+			ok = instanceof_function(a_ce, b_ce);
+		} else { /* CONTRAVARIANT */
+			ok = instanceof_function(b_ce, a_ce);
+		}
+		if (!ok) {
+			return false;
+		}
+	}
+	return true;
+}
+
 ZEND_API bool ZEND_FASTCALL instanceof_function_slow(const zend_class_entry *instance_ce, const zend_class_entry *ce) /* {{{ */
 {
 	ZEND_ASSERT(instance_ce != ce && "Should have been checked already");
@@ -2576,12 +2626,24 @@ ZEND_API bool ZEND_FASTCALL instanceof_function_slow(const zend_class_entry *ins
 		}
 		return 0;
 	} else {
+		/* When the target is a monomorph (e.g. Box<Animal>), the instance may
+		 * be a sibling monomorph of the same base (Box<Dog>) — siblings via
+		 * the parent chain are not subtypes via `==`, so check the variance
+		 * markers on the shared base. */
+		const zend_class_entry *target_base = ce->generic_type_args ? ce->parent : NULL;
+		const zend_class_entry *walker = instance_ce;
 		while (1) {
-			instance_ce = instance_ce->parent;
-			if (instance_ce == ce) {
+			if (target_base
+					&& walker->parent == target_base
+					&& walker->generic_type_args
+					&& zend_mono_subtype_under_variance(target_base, walker, ce)) {
 				return 1;
 			}
-			if (instance_ce == NULL) {
+			walker = walker->parent;
+			if (walker == ce) {
+				return 1;
+			}
+			if (walker == NULL) {
 				return 0;
 			}
 		}

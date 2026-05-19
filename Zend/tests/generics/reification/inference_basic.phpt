@@ -1,5 +1,5 @@
 --TEST--
-Reification: T is inferred from an argument whose declared type is exactly T
+Reification: T is inferred from an argument whose declared type is exactly T; the substituted parameter type is enforced when turbofish disagrees with the value
 --FILE--
 <?php
 class Foo { public string $kind = "foo"; }
@@ -12,10 +12,13 @@ function kind<T : object>(T $x): string {
 echo kind(new Foo()), "\n";
 echo kind(new Bar()), "\n";
 
-// Turbofish overrides inference.
-echo kind::<Foo>(new Bar()), "\n";
+try {
+    kind::<Foo>(new Bar());
+} catch (TypeError $e) {
+    echo "TypeError: ", $e->getMessage(), "\n";
+}
 ?>
 --EXPECT--
 Foo
 Bar
-Foo
+TypeError: kind(): Argument #1 ($x) must be of type Foo, Bar given
