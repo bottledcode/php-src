@@ -2754,11 +2754,18 @@ ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *par
 			arity = ZEND_TYPE_NAMED_WITH_ARGS(*extends_args)->count;
 		}
 
-		if (arity > 0 || parent_ce->generic_parameters) {
-			zend_check_generic_link_arity(parent_ce, arity, "extends", ce->name);
-		}
+		/* If parent_ce is a synthesized monomorph (its name carries `<`),
+		 * the type args were already validated against the base's bounds
+		 * during synthesis. The side-table args we have here refer to the
+		 * original base, not the mono — re-checking them against the
+		 * mono's (empty) generic_parameters would spuriously fail. */
+		if (!zend_class_is_monomorph(parent_ce)) {
+			if (arity > 0 || parent_ce->generic_parameters) {
+				zend_check_generic_link_arity(parent_ce, arity, "extends", ce->name);
+			}
 
-		zend_check_generic_link_bounds(parent_ce, extends_args, "extends", ce);
+			zend_check_generic_link_bounds(parent_ce, extends_args, "extends", ce);
+		}
 	}
 
 	if (UNEXPECTED(ce->ce_flags & ZEND_ACC_INTERFACE)) {
@@ -3421,6 +3428,16 @@ static void zend_substitute_trait_method_arg_info(
 
 	uint32_t return_slot_offset = has_return ? 1 : 0;
 
+	/* The substituted `sub` zend_type comes from compiling the pre-erasure
+	 * AST and carries only the type bits — none of the arg_info-level flags
+	 * (send mode / by-ref, variadic, promoted, tentative) which live in the
+	 * type_mask's extra-flag region. Preserve those from the original slot. */
+	const uint32_t arg_extra_flags_mask =
+		(3u << _ZEND_SEND_MODE_SHIFT)
+		| _ZEND_IS_VARIADIC_BIT
+		| _ZEND_IS_PROMOTED_BIT
+		| _ZEND_IS_TENTATIVE_BIT;
+
 	if (has_return && orig_op->generic_types->return_type) {
 		const zend_type *pre = orig_op->generic_types->return_type;
 		if (ZEND_TYPE_HAS_TYPE_PARAMETER(*pre)) {
@@ -3429,7 +3446,9 @@ static void zend_substitute_trait_method_arg_info(
 				if (!new_block) {
 					new_block = zend_clone_arg_info_block(orig_block, total);
 				}
+				uint32_t carry = ZEND_TYPE_FULL_MASK(new_block[0].type) & arg_extra_flags_mask;
 				new_block[0].type = sub;
+				ZEND_TYPE_FULL_MASK(new_block[0].type) |= carry;
 				zend_type_copy_ctor(&new_block[0].type, /* use_arena */ true, /* persistent */ false);
 			}
 		}
@@ -3456,7 +3475,9 @@ static void zend_substitute_trait_method_arg_info(
 			if (!new_block) {
 				new_block = zend_clone_arg_info_block(orig_block, total);
 			}
+			uint32_t carry = ZEND_TYPE_FULL_MASK(new_block[return_slot_offset + idx].type) & arg_extra_flags_mask;
 			new_block[return_slot_offset + idx].type = sub;
+			ZEND_TYPE_FULL_MASK(new_block[return_slot_offset + idx].type) |= carry;
 			zend_type_copy_ctor(&new_block[return_slot_offset + idx].type, /* use_arena */ true, /* persistent */ false);
 		} ZEND_HASH_FOREACH_END();
 	}
@@ -5506,6 +5527,12 @@ static void zend_validate_generic_inheritance_arities(
 	for (uint32_t i = 0; i < ce->num_traits; i++) {
 		zend_class_entry *trait_ce = traits_and_interfaces[i];
 		if (!trait_ce) continue;
+		/* Skip when the resolved trait is a synthesized monomorph — its args
+		 * were already validated against the base trait's bounds at synthesis
+		 * time and the side-table args are pre-rewrite (refer to the base). */
+		if (zend_class_is_monomorph(trait_ce)) {
+			continue;
+		}
 		uint32_t arity = zend_lookup_inheritance_arity(trait_uses_table, i);
 		if (arity > 0 || trait_ce->generic_parameters) {
 			zend_check_generic_link_arity(trait_ce, arity, "use", ce->name);
@@ -5519,12 +5546,40 @@ static void zend_validate_generic_inheritance_arities(
 	for (uint32_t i = 0; i < ce->num_interfaces; i++) {
 		zend_class_entry *iface_ce = traits_and_interfaces[ce->num_traits + i];
 		if (!iface_ce) continue;
+		/* Same monomorph-skip as the trait loop above. */
+		if (zend_class_is_monomorph(iface_ce)) {
+			continue;
+		}
 		uint32_t arity = zend_lookup_inheritance_arity(implements_table, i);
 		if (arity > 0 || iface_ce->generic_parameters) {
 			zend_check_generic_link_arity(iface_ce, arity, clause, ce->name);
 		}
 
 		zend_check_generic_link_bounds(iface_ce, zend_lookup_inheritance_args(implements_table, i), clause, ce);
+	}
+}
+
+/* Mark entries in `names` that share an lc_name with another entry — the
+ * diamond-of-same-base case for `implements Sink<int>, Sink<string>` and
+ * `use Box<int>, Box<string>`. The marked indices fall back to the bare-base
+ * + side-table inheritance path so the existing diamond-merge machinery in
+ * `do_inherit_method` can compute the merged signature. Skipped entirely when
+ * count <= 1 (the common case). */
+static void zend_mark_duplicate_lc_names(
+		const zend_class_name *names, uint32_t count, bool *out)
+{
+	if (count <= 1) {
+		memset(out, 0, sizeof(bool) * count);
+		return;
+	}
+	memset(out, 0, sizeof(bool) * count);
+	for (uint32_t a = 0; a < count; a++) {
+		for (uint32_t b = a + 1; b < count; b++) {
+			if (zend_string_equals(names[a].lc_name, names[b].lc_name)) {
+				out[a] = true;
+				out[b] = true;
+			}
+		}
 	}
 }
 
@@ -5540,10 +5595,63 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 	uint32_t is_cacheable = ce->ce_flags & ZEND_ACC_IMMUTABLE;
 	uint32_t i, j;
 	zval *zv;
+	zend_string *synthesized_lc_parent = NULL;
 	ALLOCA_FLAG(use_heap)
 
 	SET_ALLOCA_FLAG(use_heap);
 	ZEND_ASSERT(!(ce->ce_flags & ZEND_ACC_LINKED));
+
+	/* Bound-erased generics, extends-with-args: when this class declared
+	 * `extends Box<int>`, its compile-time side table holds the pre-erasure
+	 * `Box<int>` payload while `parent_name` is the bare base name. Before
+	 * touching anything else, synthesize the `Box<int>` monomorph as a
+	 * fully separate top-level link and rewrite `parent_name` to the
+	 * canonical name. That makes this class's direct parent be the
+	 * monomorph entry, so `$this instanceof Box<int>` holds and inherited
+	 * substituted member types come through the normal inheritance
+	 * pipeline. Doing it here (rather than inline during compile) keeps
+	 * the synthesizer's recursive link sequential — it completes before
+	 * we begin linking ce, which is what fixes the property-hook
+	 * corruption seen in the earlier inline attempt.
+	 *
+	 * Skip when ce is itself a synthesized monomorph (its name carries `<`,
+	 * which is invalid in user class names) — in that case the side-table
+	 * extends entry exists for substitution, not for redirection. */
+	if (ce->parent_name && ce->generic_types && ce->generic_types->extends
+			&& ZEND_TYPE_HAS_NAMED_WITH_ARGS(*ce->generic_types->extends)
+			&& !zend_class_is_monomorph(ce)
+			&& !zend_type_contains_type_parameter(*ce->generic_types->extends)) {
+		const zend_type_named_with_args *nwa =
+			ZEND_TYPE_NAMED_WITH_ARGS(*ce->generic_types->extends);
+		zend_class_entry *base = zend_fetch_class_by_name(
+			ce->parent_name, lc_parent_name,
+			ZEND_FETCH_CLASS_ALLOW_NEARLY_LINKED | ZEND_FETCH_CLASS_EXCEPTION);
+		if (!base) {
+			check_unrecoverable_load_failure(ce);
+			return NULL;
+		}
+		if (base->generic_parameters) {
+			/* Validate arity and bounds against the base's parameters first
+			 * (so the user gets the contextual "extends X in Y" error wording
+			 * rather than a generic synthesizer error). */
+			zend_check_generic_link_arity(base, nwa->count, "extends", ce->name);
+			zend_check_generic_link_bounds(base, ce->generic_types->extends,
+				"extends", ce);
+			if (EG(exception)) {
+				check_unrecoverable_load_failure(ce);
+				return NULL;
+			}
+			zend_class_entry *mono = zend_synthesize_monomorph(base, nwa->args, nwa->count);
+			if (!mono) {
+				check_unrecoverable_load_failure(ce);
+				return NULL;
+			}
+			zend_string_release(ce->parent_name);
+			ce->parent_name = zend_string_copy(mono->name);
+			synthesized_lc_parent = zend_string_tolower(mono->name);
+			lc_parent_name = synthesized_lc_parent;
+		}
+	}
 
 	if (ce->parent_name) {
 		parent = zend_fetch_class_by_name(
@@ -5551,30 +5659,103 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 			ZEND_FETCH_CLASS_ALLOW_NEARLY_LINKED | ZEND_FETCH_CLASS_EXCEPTION);
 		if (!parent) {
 			check_unrecoverable_load_failure(ce);
+			if (synthesized_lc_parent) zend_string_release(synthesized_lc_parent);
 			return NULL;
 		}
 		UPDATE_IS_CACHEABLE(parent);
+	}
+	if (synthesized_lc_parent) {
+		zend_string_release(synthesized_lc_parent);
+		synthesized_lc_parent = NULL;
 	}
 
 	if (ce->num_traits || ce->num_interfaces) {
 		traits_and_interfaces = do_alloca(sizeof(zend_class_entry*) * (ce->num_traits + ce->num_interfaces), use_heap);
 
+		const HashTable *trait_uses_table_for_synth =
+			(ce->generic_types && ce->generic_types->trait_uses)
+				? ce->generic_types->trait_uses : NULL;
+		bool ce_is_mono_for_trait = zend_class_is_monomorph(ce);
+		bool *trait_skip_mono = NULL;
+		ALLOCA_FLAG(trait_skip_use_heap)
+		if (trait_uses_table_for_synth && ce->num_traits > 1) {
+			trait_skip_mono = do_alloca(sizeof(bool) * ce->num_traits, trait_skip_use_heap);
+			zend_mark_duplicate_lc_names(ce->trait_names, ce->num_traits, trait_skip_mono);
+		}
+
 		for (i = 0; i < ce->num_traits; i++) {
+			/* Bound-erased generics, trait-use-with-args: if the use clause is
+			 * `use Foo<int>;`, synthesize the Foo<int> mono trait now and
+			 * rewrite trait_names[i] to the canonical name. Skip when ce is
+			 * itself a mono, when args carry a type-parameter ref (still
+			 * symbolic), or when the same base trait is used multiple times
+			 * with different args (diamond fallback). */
+			const zend_type *trait_args = trait_uses_table_for_synth
+				? (const zend_type *) zend_hash_index_find_ptr(trait_uses_table_for_synth, i)
+				: NULL;
+			if (!ce_is_mono_for_trait && trait_args
+					&& ZEND_TYPE_HAS_NAMED_WITH_ARGS(*trait_args)
+					&& !zend_type_contains_type_parameter(*trait_args)
+					&& !(trait_skip_mono && trait_skip_mono[i])) {
+				const zend_type_named_with_args *nwa =
+					ZEND_TYPE_NAMED_WITH_ARGS(*trait_args);
+				zend_class_entry *base_trait = zend_fetch_class_by_name(
+					ce->trait_names[i].name, ce->trait_names[i].lc_name,
+					ZEND_FETCH_CLASS_TRAIT | ZEND_FETCH_CLASS_EXCEPTION);
+				if (UNEXPECTED(base_trait == NULL)) {
+					free_alloca(traits_and_interfaces, use_heap);
+					if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+					return NULL;
+				}
+				if (UNEXPECTED(!(base_trait->ce_flags & ZEND_ACC_TRAIT))) {
+					zend_throw_error(NULL, "%s cannot use %s - it is not a trait",
+						ZSTR_VAL(ce->name), ZSTR_VAL(base_trait->name));
+					free_alloca(traits_and_interfaces, use_heap);
+					if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+					return NULL;
+				}
+				if (base_trait->generic_parameters) {
+					zend_check_generic_link_arity(base_trait, nwa->count, "use", ce->name);
+					zend_check_generic_link_bounds(base_trait, trait_args, "use", ce);
+					if (EG(exception)) {
+						check_unrecoverable_load_failure(ce);
+						free_alloca(traits_and_interfaces, use_heap);
+						if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+						return NULL;
+					}
+					zend_class_entry *mono = zend_synthesize_monomorph(
+						base_trait, nwa->args, nwa->count);
+					if (!mono) {
+						check_unrecoverable_load_failure(ce);
+						free_alloca(traits_and_interfaces, use_heap);
+						if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+						return NULL;
+					}
+					zend_string_release(ce->trait_names[i].name);
+					zend_string_release(ce->trait_names[i].lc_name);
+					ce->trait_names[i].name = zend_string_copy(mono->name);
+					ce->trait_names[i].lc_name = zend_string_tolower(mono->name);
+				}
+			}
+
 			zend_class_entry *trait = zend_fetch_class_by_name(ce->trait_names[i].name,
 				ce->trait_names[i].lc_name, ZEND_FETCH_CLASS_TRAIT | ZEND_FETCH_CLASS_EXCEPTION);
 			if (UNEXPECTED(trait == NULL)) {
 				free_alloca(traits_and_interfaces, use_heap);
+				if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
 				return NULL;
 			}
 			if (UNEXPECTED(!(trait->ce_flags & ZEND_ACC_TRAIT))) {
 				zend_throw_error(NULL, "%s cannot use %s - it is not a trait", ZSTR_VAL(ce->name), ZSTR_VAL(trait->name));
 				free_alloca(traits_and_interfaces, use_heap);
+				if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
 				return NULL;
 			}
 			if (UNEXPECTED(trait->ce_flags & ZEND_ACC_DEPRECATED)) {
 				zend_use_of_deprecated_trait(trait, ce->name);
 				if (UNEXPECTED(EG(exception))) {
 					free_alloca(traits_and_interfaces, use_heap);
+					if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
 					return NULL;
 				}
 			}
@@ -5604,10 +5785,73 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 				UPDATE_IS_CACHEABLE(trait);
 			}
 		}
+		if (trait_skip_mono) {
+			free_alloca(trait_skip_mono, trait_skip_use_heap);
+		}
 	}
 
 	if (ce->num_interfaces) {
+		const HashTable *impl_table = (ce->generic_types && ce->generic_types->implements)
+			? ce->generic_types->implements : NULL;
+		bool ce_is_mono = zend_class_is_monomorph(ce);
+		bool *skip_mono = NULL;
+		ALLOCA_FLAG(skip_mono_use_heap)
+		if (impl_table && ce->num_interfaces > 1) {
+			skip_mono = do_alloca(sizeof(bool) * ce->num_interfaces, skip_mono_use_heap);
+			zend_mark_duplicate_lc_names(ce->interface_names, ce->num_interfaces, skip_mono);
+		}
 		for (i = 0; i < ce->num_interfaces; i++) {
+			/* Bound-erased generics, implements-with-args: if this interface was
+			 * declared as `implements Iter<int>`, the side-table holds the
+			 * pre-erasure args. Synthesize Iter<int> as a sequential top-level
+			 * link, then rewrite ce->interface_names[i] to the canonical name
+			 * so the existing fetch+inheritance machinery sees the monomorph as
+			 * the implemented interface (and `$obj instanceof Iter<int>`
+			 * resolves correctly via the inheritance chain). Skip when ce is
+			 * itself a monomorph or when args contain a type-parameter ref. */
+			const zend_type *impl_args = impl_table
+				? (const zend_type *) zend_hash_index_find_ptr(impl_table, i)
+				: NULL;
+			if (!ce_is_mono && impl_args && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*impl_args)
+					&& !zend_type_contains_type_parameter(*impl_args)
+					&& !(skip_mono && skip_mono[i])) {
+				const zend_type_named_with_args *nwa =
+					ZEND_TYPE_NAMED_WITH_ARGS(*impl_args);
+				zend_class_entry *base_iface = zend_fetch_class_by_name(
+					ce->interface_names[i].name, ce->interface_names[i].lc_name,
+					ZEND_FETCH_CLASS_INTERFACE | ZEND_FETCH_CLASS_ALLOW_NEARLY_LINKED
+						| ZEND_FETCH_CLASS_EXCEPTION);
+				if (!base_iface) {
+					check_unrecoverable_load_failure(ce);
+					free_alloca(traits_and_interfaces, use_heap);
+					return NULL;
+				}
+				if (base_iface->generic_parameters) {
+					const char *clause = (ce->ce_flags & ZEND_ACC_INTERFACE)
+						? "extends" : "implements";
+					zend_check_generic_link_arity(base_iface, nwa->count,
+						clause, ce->name);
+					zend_check_generic_link_bounds(base_iface, impl_args,
+						clause, ce);
+					if (EG(exception)) {
+						check_unrecoverable_load_failure(ce);
+						free_alloca(traits_and_interfaces, use_heap);
+						return NULL;
+					}
+					zend_class_entry *mono = zend_synthesize_monomorph(
+						base_iface, nwa->args, nwa->count);
+					if (!mono) {
+						check_unrecoverable_load_failure(ce);
+						free_alloca(traits_and_interfaces, use_heap);
+						return NULL;
+					}
+					zend_string_release(ce->interface_names[i].name);
+					zend_string_release(ce->interface_names[i].lc_name);
+					ce->interface_names[i].name = zend_string_copy(mono->name);
+					ce->interface_names[i].lc_name = zend_string_tolower(mono->name);
+				}
+			}
+
 			zend_class_entry *iface = zend_fetch_class_by_name(
 				ce->interface_names[i].name, ce->interface_names[i].lc_name,
 				ZEND_FETCH_CLASS_INTERFACE |
@@ -5621,6 +5865,9 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 			if (iface) {
 				UPDATE_IS_CACHEABLE(iface);
 			}
+		}
+		if (skip_mono) {
+			free_alloca(skip_mono, skip_mono_use_heap);
 		}
 	}
 
@@ -5989,6 +6236,37 @@ ZEND_API zend_class_entry *zend_try_early_bind(zend_class_entry *ce, zend_class_
 		return ce;
 	}
 
+	/* Bound-erased generics, extends-with-args: same redirect as in
+	 * zend_do_link_class but for the early-binding path. Validate arity
+	 * against the base's parameter list (so we keep the original "Too
+	 * few/many type arguments to extends" error wording), then synthesize
+	 * the canonical monomorph as a completed top-level link before ce's
+	 * link begins, then rewrite parent_ce (local) and ce->parent_name to
+	 * point at the monomorph. Skip when any arg contains a type-parameter
+	 * ref (e.g. `class Derived<U> extends Base<U>`) — the args are still
+	 * symbolic and would only become concrete when Derived itself is
+	 * monomorphized. */
+	if (parent_ce && parent_ce->generic_parameters
+			&& ce->generic_types && ce->generic_types->extends
+			&& ZEND_TYPE_HAS_NAMED_WITH_ARGS(*ce->generic_types->extends)
+			&& !zend_class_is_monomorph(ce)
+			&& !zend_type_contains_type_parameter(*ce->generic_types->extends)) {
+		const zend_type_named_with_args *nwa =
+			ZEND_TYPE_NAMED_WITH_ARGS(*ce->generic_types->extends);
+		zend_check_generic_link_arity(parent_ce, nwa->count, "extends", ce->name);
+		zend_check_generic_link_bounds(parent_ce, ce->generic_types->extends,
+			"extends", ce);
+		zend_class_entry *mono = zend_synthesize_monomorph(parent_ce, nwa->args, nwa->count);
+		if (!mono) {
+			return NULL;
+		}
+		if (ce->parent_name) {
+			zend_string_release(ce->parent_name);
+		}
+		ce->parent_name = zend_string_copy(mono->name);
+		parent_ce = mono;
+	}
+
 	uint32_t is_cacheable = ce->ce_flags & ZEND_ACC_IMMUTABLE;
 	UPDATE_IS_CACHEABLE(parent_ce);
 	if (is_cacheable) {
@@ -6104,4 +6382,572 @@ ZEND_API zend_inheritance_status zend_check_generic_arg_satisfies_bound(
 	}
 
 	return zend_perform_covariant_type_check(arg_scope, arg, bound_scope, bound);
+}
+
+/* === Monomorph synthesis ===
+ *
+ * Builds a real class_entry for a generic application like `Box<int>` and
+ * registers it in EG(class_table) under the canonical name. The synthesized
+ * class extends the base with the supplied type args; inheritance does the
+ * rest (substituted arg_info via the TRAIT_CLONE machinery, substituted
+ * property types, etc.). */
+
+static zend_type zend_monomorph_dup_type(zend_type t)
+{
+	zend_type_copy_ctor(&t, /* use_arena */ false, /* persistent */ false);
+	return t;
+}
+
+static zend_type zend_monomorph_build_extends_payload(
+	zend_class_entry *base, const zend_type *args, uint32_t arity)
+{
+	zend_type_named_with_args *payload = emalloc(ZEND_TYPE_NAMED_WITH_ARGS_SIZE(arity));
+	payload->name = zend_string_copy(base->name);
+	payload->name_attr = 0;
+	payload->count = arity;
+	for (uint32_t i = 0; i < arity; i++) {
+		payload->args[i] = zend_monomorph_dup_type(args[i]);
+	}
+	zend_type result = ZEND_TYPE_INIT_NONE(0);
+	ZEND_TYPE_SET_PTR(result, payload);
+	ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NAMED_WITH_ARGS_BIT;
+	return result;
+}
+
+ZEND_API zend_class_entry *zend_get_defaults_monomorph(zend_class_entry *base)
+{
+	if (!base->generic_parameters) {
+		return base;
+	}
+	if (EXPECTED(base->ce_flags & ZEND_ACC_GENERIC_ALL_DEFAULTS)) {
+		return zend_synthesize_monomorph(base, NULL, 0);
+	}
+	uint32_t total = base->generic_parameters->count;
+	for (uint32_t i = 0; i < total; i++) {
+		if (!ZEND_TYPE_IS_SET(base->generic_parameters->parameters[i].default_type)) {
+			zend_throw_error(NULL,
+				"Cannot instantiate generic class %s without type arguments; "
+				"type parameter %s has no default",
+				ZSTR_VAL(base->name),
+				ZSTR_VAL(base->generic_parameters->parameters[i].name));
+			return NULL;
+		}
+	}
+	ZEND_UNREACHABLE();
+}
+
+ZEND_API zend_class_entry *zend_synthesize_monomorph(
+	zend_class_entry *base, const zend_type *args, uint32_t arity)
+{
+	if (!base->generic_parameters) {
+		zend_throw_error(NULL,
+			"Cannot monomorphize non-generic class %s",
+			ZSTR_VAL(base->name));
+		return NULL;
+	}
+	uint32_t total = base->generic_parameters->count;
+	if (arity > total) {
+		zend_throw_error(NULL,
+			"Cannot monomorphize %s: expected at most %u type argument(s), got %u",
+			ZSTR_VAL(base->name), total, arity);
+		return NULL;
+	}
+	/* Fill in defaults for any trailing parameters not supplied. */
+	zend_type filled[ZEND_GENERIC_MAX_PARAMS];
+	if (arity < total) {
+		for (uint32_t i = 0; i < arity; i++) {
+			filled[i] = args[i];
+		}
+		for (uint32_t i = arity; i < total; i++) {
+			const zend_generic_parameter *p = &base->generic_parameters->parameters[i];
+			if (!ZEND_TYPE_IS_SET(p->default_type)) {
+				zend_throw_error(NULL,
+					"Cannot monomorphize %s: type parameter %s has no default and was not supplied",
+					ZSTR_VAL(base->name), ZSTR_VAL(p->name));
+				return NULL;
+			}
+			filled[i] = p->default_type;
+		}
+		args = filled;
+		arity = total;
+	}
+
+	zend_string *canonical = zend_generic_canonical_class_name(base->name, args, arity);
+	zend_string *lc_canonical = zend_string_tolower(canonical);
+
+	zend_class_entry *existing = zend_hash_find_ptr(EG(class_table), lc_canonical);
+	if (existing) {
+		zend_string_release(canonical);
+		zend_string_release(lc_canonical);
+		return existing;
+	}
+
+	/* Validate bounds before committing to a class entry. */
+	zend_type extends_payload = zend_monomorph_build_extends_payload(base, args, arity);
+	{
+		zend_class_entry tmp_scope;
+		memset(&tmp_scope, 0, sizeof(tmp_scope));
+		tmp_scope.name = canonical;
+		tmp_scope.type = ZEND_USER_CLASS;
+		zend_check_generic_link_bounds(base, &extends_payload, "new", &tmp_scope);
+		if (EG(exception)) {
+			zend_type_release(extends_payload, /* persistent */ false);
+			zend_string_release(canonical);
+			zend_string_release(lc_canonical);
+			return NULL;
+		}
+	}
+
+	zend_class_entry *ce = zend_arena_alloc(&CG(arena), sizeof(zend_class_entry));
+	ce->type = ZEND_USER_CLASS;
+	zend_initialize_class_data(ce, /* nullify_handlers */ true);
+	ce->ce_flags &= ~ZEND_ACC_IMMUTABLE;
+	ce->ce_flags |= ZEND_ACC_TOP_LEVEL;
+	/* Carry the base's class-shape flags (interface, trait, enum) so the
+	 * monomorph is the same kind of class-like as the base. Without this,
+	 * an interface base would synthesize a class trying to extend the
+	 * interface, which the linker rejects. */
+	ce->ce_flags |= base->ce_flags & (ZEND_ACC_INTERFACE | ZEND_ACC_TRAIT | ZEND_ACC_ENUM);
+	ce->info.user.filename = base->info.user.filename
+		? zend_string_copy(base->info.user.filename)
+		: ZSTR_EMPTY_ALLOC();
+	ce->info.user.line_start = base->info.user.line_start;
+	ce->info.user.line_end = base->info.user.line_end;
+	ce->name = canonical;
+
+	bool base_is_interface = (base->ce_flags & ZEND_ACC_INTERFACE) != 0;
+	bool base_is_trait = (base->ce_flags & ZEND_ACC_TRAIT) != 0;
+	if (base_is_interface) {
+		/* Interface inheritance in PHP goes through `interface_names[]`, not
+		 * `parent_name`. Wire the mono to the base interface via one entry in
+		 * `interfaces[]` and store the substitution args in the `implements`
+		 * side-table so the inheritance pipeline can substitute T → arg in
+		 * the inherited methods. */
+		ce->num_interfaces = 1;
+		ce->interface_names = emalloc(sizeof(zend_class_name));
+		ce->interface_names[0].name = zend_string_copy(base->name);
+		ce->interface_names[0].lc_name = zend_string_tolower(base->name);
+		zend_generic_type_table_set_implements(
+			zend_generic_get_or_create_class_table(ce), 0, extends_payload);
+	} else if (base_is_trait) {
+		/* Trait composition in PHP goes through `trait_names[]`/`num_traits`.
+		 * The mono `uses` the base trait with the substitution args recorded
+		 * in `trait_uses` so the trait-method import path picks them up. */
+		ce->num_traits = 1;
+		ce->trait_names = emalloc(sizeof(zend_class_name));
+		ce->trait_names[0].name = zend_string_copy(base->name);
+		ce->trait_names[0].lc_name = zend_string_tolower(base->name);
+		zend_generic_type_table_set_trait_use(
+			zend_generic_get_or_create_class_table(ce), 0, extends_payload);
+	} else {
+		ce->parent_name = zend_string_copy(base->name);
+		zend_generic_type_table_set_extends(
+			zend_generic_get_or_create_class_table(ce), extends_payload);
+	}
+
+	zval ce_zv;
+	ZVAL_PTR(&ce_zv, ce);
+	if (zend_hash_add(EG(class_table), lc_canonical, &ce_zv) == NULL) {
+		/* Race: another path registered this canonical name first. */
+		zend_class_entry *winner = zend_hash_find_ptr(EG(class_table), lc_canonical);
+		destroy_zend_class(&ce_zv);
+		zend_string_release(lc_canonical);
+		return winner;
+	}
+
+	zend_string *parent_lc = (base_is_interface || base_is_trait)
+		? NULL : zend_string_tolower(base->name);
+
+	/* Monomorph synthesis is an engine-internal child of the base, not a
+	 * user-declared subclass. final/readonly restrictions that gate
+	 * user-level extension are temporarily suppressed for the link and then
+	 * re-applied to the monomorph so user code still can't `extends Box<int>`
+	 * if Box itself was final. Abstract is propagated so the monomorph of an
+	 * abstract class stays abstract (and a concrete subclass can implement
+	 * its methods). */
+	uint32_t suppressed = base->ce_flags & (ZEND_ACC_FINAL | ZEND_ACC_READONLY_CLASS);
+	uint32_t propagated = base->ce_flags & (ZEND_ACC_EXPLICIT_ABSTRACT_CLASS);
+	base->ce_flags &= ~suppressed;
+	ce->ce_flags |= propagated;
+	zend_class_entry *linked = zend_do_link_class(ce, parent_lc, lc_canonical);
+	base->ce_flags |= suppressed;
+	if (linked) {
+		linked->ce_flags |= suppressed;
+	}
+	if (parent_lc) zend_string_release(parent_lc);
+
+	if (!linked) {
+		zend_hash_del(EG(class_table), lc_canonical);
+		zend_string_release(lc_canonical);
+		return NULL;
+	}
+
+	/* Isolate static-property storage from the base class. Inheritance normally
+	 * makes the child's `default_static_members_table` slots IS_INDIRECT back to
+	 * the parent so that all subclasses share the same live storage. For
+	 * monomorphs that's the wrong semantic: `Box<int>::$count` and
+	 * `Box<string>::$count` should be independent counters. Convert each
+	 * INDIRECT slot to a direct copy of the underlying default; at first access
+	 * `zend_class_init_statics` will then allocate the monomorph its own live
+	 * slot and `ZVAL_COPY_OR_DUP` the default into it. */
+	if (linked->default_static_members_count) {
+		for (uint32_t i = 0; i < linked->default_static_members_count; i++) {
+			zval *slot = &linked->default_static_members_table[i];
+			if (Z_TYPE_P(slot) == IS_INDIRECT) {
+				zval *src = Z_INDIRECT_P(slot);
+				ZVAL_DEINDIRECT(src);
+				ZVAL_COPY_OR_DUP(slot, src);
+			}
+		}
+	}
+
+	/* Substitute T-typed class constants. When the base declares `const T FOO`,
+	 * the inherited entry in the mono is a shared pointer to the base's
+	 * `zend_class_constant` with type T (erased to mixed). For the mono,
+	 * clone any entry whose pre-erasure side-table type references a generic
+	 * parameter, and substitute T → arg so reflection and assignability
+	 * checks see the concrete type for this monomorph. */
+	if (base->generic_types && base->generic_types->class_constants) {
+		zend_string *cname;
+		zval *zv;
+		ZEND_HASH_FOREACH_STR_KEY_VAL(base->generic_types->class_constants, cname, zv) {
+			const zend_type *pre = (const zend_type *) Z_PTR_P(zv);
+			if (!ZEND_TYPE_IS_SET(*pre) || !zend_type_contains_type_parameter(*pre)) {
+				continue;
+			}
+			zend_type sub = zend_substitute_leaf_type_param(*pre, args, arity);
+			if (ZEND_TYPE_HAS_TYPE_PARAMETER(sub)) {
+				continue;
+			}
+			zval *cv = zend_hash_find_known_hash(&linked->constants_table, cname);
+			if (!cv) continue;
+			zend_class_constant *orig = (zend_class_constant *) Z_PTR_P(cv);
+			zend_class_constant *clone = zend_arena_alloc(&CG(arena), sizeof(zend_class_constant));
+			memcpy(clone, orig, sizeof(zend_class_constant));
+			clone->type = sub;
+			zend_type_copy_ctor(&clone->type, /* use_arena */ true, /* persistent */ false);
+			Z_PTR_P(cv) = clone;
+		} ZEND_HASH_FOREACH_END();
+	}
+
+	zend_string_release(lc_canonical);
+	return linked;
+}
+
+/* === Monomorph name parser ===
+ *
+ * Parses class-name strings like "Box<int|string,Foo<int>>" into a base
+ * class name plus a type-args list. Used by the class-lookup hook so that
+ * unserialize, dynamic `new $name`, and `class_exists` all synthesize the
+ * monomorph on demand if it hasn't been materialized in this request yet.
+ *
+ * Accepts the same shape the canonicalizer produces, plus generally any
+ * type-expression syntax: unions with `|`, intersections with `&`, DNF
+ * parens, nested generics, fully-qualified namespaced names, scalar
+ * keywords (int, string, bool, float, array, object, callable, mixed,
+ * void, never, null, true, false). Whitespace is permitted.
+ *
+ * The parser is intentionally permissive about input form; the synthesizer
+ * canonicalizes anyway, so semantically-equivalent inputs collapse to one
+ * class entry. */
+
+typedef struct {
+	const char *p;
+	const char *end;
+	bool error;
+} zend_monomorph_parser;
+
+static void zend_mp_skip_ws(zend_monomorph_parser *s) {
+	while (s->p < s->end && (*s->p == ' ' || *s->p == '\t')) s->p++;
+}
+
+static bool zend_mp_eat(zend_monomorph_parser *s, char c) {
+	zend_mp_skip_ws(s);
+	if (s->p < s->end && *s->p == c) { s->p++; return true; }
+	return false;
+}
+
+static bool zend_mp_peek(zend_monomorph_parser *s, char c) {
+	zend_mp_skip_ws(s);
+	return s->p < s->end && *s->p == c;
+}
+
+static zend_string *zend_mp_read_ident(zend_monomorph_parser *s) {
+	zend_mp_skip_ws(s);
+	const char *start = s->p;
+	while (s->p < s->end) {
+		unsigned char ch = (unsigned char)*s->p;
+		bool ok = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+			|| (ch >= '0' && ch <= '9') || ch == '_' || ch == '\\' || ch >= 0x80;
+		if (!ok) break;
+		s->p++;
+	}
+	if (s->p == start) return NULL;
+	return zend_string_init(start, s->p - start, 0);
+}
+
+static struct { const char *kw; uint32_t bit; } zend_mp_scalars[] = {
+	{ "int", MAY_BE_LONG },
+	{ "string", MAY_BE_STRING },
+	{ "float", MAY_BE_DOUBLE },
+	{ "bool", MAY_BE_BOOL },
+	{ "true", MAY_BE_TRUE },
+	{ "false", MAY_BE_FALSE },
+	{ "null", MAY_BE_NULL },
+	{ "array", MAY_BE_ARRAY },
+	{ "object", MAY_BE_OBJECT },
+	{ "callable", MAY_BE_CALLABLE },
+	{ "void", MAY_BE_VOID },
+	{ "never", MAY_BE_NEVER },
+	{ "mixed", MAY_BE_ANY },
+	{ NULL, 0 }
+};
+
+static uint32_t zend_mp_scalar_bit(const zend_string *ident) {
+	for (size_t i = 0; zend_mp_scalars[i].kw; i++) {
+		size_t kwlen = strlen(zend_mp_scalars[i].kw);
+		if (ZSTR_LEN(ident) == kwlen
+			&& zend_binary_strcasecmp(
+				ZSTR_VAL(ident), ZSTR_LEN(ident),
+				zend_mp_scalars[i].kw, kwlen) == 0) {
+			return zend_mp_scalars[i].bit;
+		}
+	}
+	return 0;
+}
+
+static zend_type zend_mp_parse_type(zend_monomorph_parser *s);
+
+/* Single atomic type: scalar keyword, class name (with optional <...>),
+ * or a parenthesized intersection used inside a union (DNF). */
+static zend_type zend_mp_parse_atom(zend_monomorph_parser *s)
+{
+	zend_mp_skip_ws(s);
+	if (zend_mp_eat(s, '(')) {
+		/* DNF intersection branch */
+		zend_type inner = zend_mp_parse_type(s);
+		if (s->error || !zend_mp_eat(s, ')')) {
+			s->error = true;
+			zend_type_release(inner, /* persistent */ false);
+			return (zend_type) ZEND_TYPE_INIT_NONE(0);
+		}
+		return inner;
+	}
+
+	zend_string *ident = zend_mp_read_ident(s);
+	if (!ident) { s->error = true; return (zend_type) ZEND_TYPE_INIT_NONE(0); }
+
+	/* Nested generic? */
+	if (zend_mp_peek(s, '<')) {
+		s->p++;  /* consume '<' */
+		uint32_t cap = 4, count = 0;
+		zend_type *args = emalloc(sizeof(zend_type) * cap);
+		do {
+			if (count == cap) {
+				cap *= 2;
+				args = erealloc(args, sizeof(zend_type) * cap);
+			}
+			args[count++] = zend_mp_parse_type(s);
+			if (s->error) break;
+		} while (zend_mp_eat(s, ','));
+		if (!s->error && !zend_mp_eat(s, '>')) s->error = true;
+		if (s->error) {
+			for (uint32_t i = 0; i < count; i++) {
+				zend_type_release(args[i], false);
+			}
+			efree(args);
+			zend_string_release(ident);
+			return (zend_type) ZEND_TYPE_INIT_NONE(0);
+		}
+		zend_type_named_with_args *payload = emalloc(ZEND_TYPE_NAMED_WITH_ARGS_SIZE(count));
+		payload->name = ident;
+		payload->name_attr = 0;
+		payload->count = count;
+		for (uint32_t i = 0; i < count; i++) payload->args[i] = args[i];
+		efree(args);
+		zend_type result = ZEND_TYPE_INIT_NONE(0);
+		ZEND_TYPE_SET_PTR(result, payload);
+		ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NAMED_WITH_ARGS_BIT;
+		return result;
+	}
+
+	uint32_t scalar = zend_mp_scalar_bit(ident);
+	if (scalar) {
+		zend_string_release(ident);
+		zend_type t = ZEND_TYPE_INIT_NONE(0);
+		ZEND_TYPE_FULL_MASK(t) = scalar;
+		return t;
+	}
+	return (zend_type) ZEND_TYPE_INIT_CLASS(ident, 0, 0);
+}
+
+/* `atom (& atom)*` -- a single intersection branch.
+ * Returns either a single atom or an intersection list. */
+static zend_type zend_mp_parse_intersection(zend_monomorph_parser *s)
+{
+	zend_type first = zend_mp_parse_atom(s);
+	if (s->error || !zend_mp_peek(s, '&')) return first;
+
+	uint32_t cap = 4, count = 1;
+	zend_type *parts = emalloc(sizeof(zend_type) * cap);
+	parts[0] = first;
+	while (zend_mp_eat(s, '&')) {
+		if (count == cap) { cap *= 2; parts = erealloc(parts, sizeof(zend_type) * cap); }
+		parts[count++] = zend_mp_parse_atom(s);
+		if (s->error) break;
+	}
+	if (s->error) {
+		for (uint32_t i = 0; i < count; i++) zend_type_release(parts[i], false);
+		efree(parts);
+		return (zend_type) ZEND_TYPE_INIT_NONE(0);
+	}
+	zend_type_list *list = emalloc(ZEND_TYPE_LIST_SIZE(count));
+	list->num_types = count;
+	for (uint32_t i = 0; i < count; i++) list->types[i] = parts[i];
+	efree(parts);
+	zend_type result = ZEND_TYPE_INIT_INTERSECTION(list, 0);
+	return result;
+}
+
+/* `intersection ('|' intersection)*` -- top-level type expression.
+ * Returns either a single intersection, a single atom, or a union list. */
+static zend_type zend_mp_parse_type(zend_monomorph_parser *s)
+{
+	zend_type first = zend_mp_parse_intersection(s);
+	if (s->error || !zend_mp_peek(s, '|')) return first;
+
+	uint32_t cap = 4, count = 1;
+	zend_type *parts = emalloc(sizeof(zend_type) * cap);
+	parts[0] = first;
+	while (zend_mp_eat(s, '|')) {
+		if (count == cap) { cap *= 2; parts = erealloc(parts, sizeof(zend_type) * cap); }
+		parts[count++] = zend_mp_parse_intersection(s);
+		if (s->error) break;
+	}
+	if (s->error) {
+		for (uint32_t i = 0; i < count; i++) zend_type_release(parts[i], false);
+		efree(parts);
+		return (zend_type) ZEND_TYPE_INIT_NONE(0);
+	}
+
+	/* Collapse scalar-bit-only parts into the type_mask of the resulting list
+	 * so e.g. "int|string" lands as a single zend_type with both bits set, no
+	 * list needed. */
+	uint32_t scalar_mask = 0;
+	uint32_t complex_count = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		bool is_pure_scalar = !ZEND_TYPE_HAS_NAME(parts[i])
+			&& !ZEND_TYPE_HAS_LIST(parts[i])
+			&& !ZEND_TYPE_HAS_NAMED_WITH_ARGS(parts[i]);
+		if (is_pure_scalar) {
+			scalar_mask |= ZEND_TYPE_FULL_MASK(parts[i]);
+		} else {
+			complex_count++;
+		}
+	}
+	if (complex_count == 0) {
+		efree(parts);
+		zend_type t = ZEND_TYPE_INIT_NONE(0);
+		ZEND_TYPE_FULL_MASK(t) = scalar_mask;
+		return t;
+	}
+	if (complex_count == 1 && scalar_mask == 0) {
+		zend_type only = (zend_type) ZEND_TYPE_INIT_NONE(0);
+		for (uint32_t i = 0; i < count; i++) {
+			if (ZEND_TYPE_HAS_NAME(parts[i]) || ZEND_TYPE_HAS_LIST(parts[i])
+				|| ZEND_TYPE_HAS_NAMED_WITH_ARGS(parts[i])) {
+				only = parts[i];
+				break;
+			}
+		}
+		efree(parts);
+		return only;
+	}
+	zend_type_list *list = emalloc(ZEND_TYPE_LIST_SIZE(complex_count));
+	list->num_types = complex_count;
+	uint32_t li = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		bool is_pure_scalar = !ZEND_TYPE_HAS_NAME(parts[i])
+			&& !ZEND_TYPE_HAS_LIST(parts[i])
+			&& !ZEND_TYPE_HAS_NAMED_WITH_ARGS(parts[i]);
+		if (!is_pure_scalar) {
+			list->types[li++] = parts[i];
+		}
+	}
+	efree(parts);
+	zend_type result = ZEND_TYPE_INIT_UNION(list, 0);
+	ZEND_TYPE_FULL_MASK(result) |= scalar_mask;
+	return result;
+}
+
+/* Find the matching `>` for the outermost `<` in `name`. Returns the offset
+ * of `<` (in bytes from the start) and the length of the args span. Returns
+ * false if `name` doesn't have generic shape or has unbalanced angles. */
+static bool zend_mp_split_name(
+	const zend_string *name, size_t *out_lt_pos, size_t *out_args_len)
+{
+	const char *s = ZSTR_VAL(name);
+	size_t n = ZSTR_LEN(name);
+	if (n < 4) return false;  /* shortest possible: X<Y> */
+	if (s[n - 1] != '>') return false;
+
+	int depth = 0;
+	size_t lt = SIZE_MAX;
+	for (size_t i = 0; i < n; i++) {
+		if (s[i] == '<') {
+			if (depth == 0) lt = i;
+			depth++;
+		} else if (s[i] == '>') {
+			depth--;
+			if (depth == 0 && i != n - 1) return false;  /* trailing data after closing */
+		}
+	}
+	if (depth != 0 || lt == SIZE_MAX || lt == 0) return false;
+	*out_lt_pos = lt;
+	*out_args_len = n - lt - 2;  /* exclude '<' and '>' */
+	return true;
+}
+
+ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
+	zend_string *name, uint32_t flags)
+{
+	size_t lt_pos, args_len;
+	if (!zend_mp_split_name(name, &lt_pos, &args_len)) return NULL;
+
+	zend_string *base_name = zend_string_init(ZSTR_VAL(name), lt_pos, 0);
+
+	/* Recursively look up the base class. If the base is itself a monomorph
+	 * name, the lookup hook will be reentrant and synthesize it first. */
+	uint32_t lookup_flags = flags | ZEND_FETCH_CLASS_NO_AUTOLOAD;
+	zend_class_entry *base = zend_lookup_class_ex(base_name, NULL, lookup_flags);
+	if (!base && !(flags & ZEND_FETCH_CLASS_NO_AUTOLOAD)) {
+		/* Allow autoload for the base name only, in case it isn't loaded yet. */
+		base = zend_lookup_class_ex(base_name, NULL, flags & ~ZEND_FETCH_CLASS_NO_AUTOLOAD);
+	}
+	zend_string_release(base_name);
+	if (!base || !base->generic_parameters) return NULL;
+
+	zend_monomorph_parser parser = {
+		.p = ZSTR_VAL(name) + lt_pos + 1,
+		.end = ZSTR_VAL(name) + ZSTR_LEN(name) - 1,
+		.error = false,
+	};
+	uint32_t cap = 4, count = 0;
+	zend_type *args = emalloc(sizeof(zend_type) * cap);
+	do {
+		if (count == cap) { cap *= 2; args = erealloc(args, sizeof(zend_type) * cap); }
+		args[count++] = zend_mp_parse_type(&parser);
+		if (parser.error) break;
+	} while (zend_mp_eat(&parser, ','));
+	zend_mp_skip_ws(&parser);
+	if (parser.error || parser.p != parser.end) {
+		for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+		efree(args);
+		return NULL;
+	}
+
+	zend_class_entry *mono = zend_synthesize_monomorph(base, args, count);
+	for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+	efree(args);
+	return mono;
 }

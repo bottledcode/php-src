@@ -11,7 +11,7 @@ $closure_make = function <+T>(): T { return null; };
 $arrow_take   = fn<-T>(T $x): int => 0;
 $arrow_make   = fn<+T>(): T => null;
 
-class A<+T> {
+class A<+T = mixed> {
     public function map<-A_, +B>(A_ $a): B { return null; }
 }
 

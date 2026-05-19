@@ -1,5 +1,5 @@
 --TEST--
-Erasure: extends type arguments don't change runtime parent
+Inheritance: `extends Base<int>` makes the direct parent the synthesized monomorph
 --FILE--
 <?php
 class Base<T> {}
@@ -9,5 +9,5 @@ $d = new Derived;
 var_dump($d instanceof Base);
 ?>
 --EXPECT--
-Base
+Base<int>
 bool(true)

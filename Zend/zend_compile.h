@@ -182,6 +182,7 @@ ZEND_API zend_generic_type_table *zend_generic_type_table_alloc(void);
 ZEND_API void zend_generic_type_table_destroy(zend_generic_type_table *table);
 ZEND_API void zend_generic_type_table_set_return(zend_generic_type_table *t, zend_type type);
 ZEND_API void zend_generic_type_table_set_extends(zend_generic_type_table *t, zend_type type);
+ZEND_API zend_generic_type_table *zend_generic_get_or_create_class_table(zend_class_entry *ce);
 ZEND_API void zend_generic_type_table_set_parameter(zend_generic_type_table *t, uint32_t idx, zend_type type);
 ZEND_API void zend_generic_type_table_set_property(zend_generic_type_table *t, zend_string *name, zend_type type);
 ZEND_API void zend_generic_type_table_set_class_constant(zend_generic_type_table *t, zend_string *name, zend_type type);
@@ -417,6 +418,11 @@ typedef struct _zend_oparray_context {
 /*                                                        |     |     |     */
 /* Class cannot be serialized or unserialized             |     |     |     */
 #define ZEND_ACC_NOT_SERIALIZABLE        (1 << 29) /*  X  |     |     |     */
+/*                                                        |     |     |     */
+/* Generic class whose every parameter has a default —    |     |     |     */
+/* hot-path bit for ZEND_NEW to skip the per-parameter    |     |     |     */
+/* default scan when synthesizing a defaults monomorph.   |     |     |     */
+#define ZEND_ACC_GENERIC_ALL_DEFAULTS    (1u << 31) /* X  |     |     |     */
 /*                                                        |     |     |     */
 /* Class Flags 2 (ce_flags2) (unused: 0-31)               |     |     |     */
 /* =========================                              |     |     |     */
@@ -1119,6 +1125,15 @@ void zend_assert_valid_class_name(const zend_string *const_name, const char *typ
 
 zend_string *zend_type_to_string_resolved(zend_type type, const zend_class_entry *scope);
 ZEND_API zend_string *zend_type_to_string(zend_type type);
+
+/* Monomorphization: a canonical form of a generic class application like
+ * "Box<int|string,Foo<int>>". Stable across permutations of union/intersection
+ * order so that semantically equivalent type-arg lists hash to the same name
+ * and resolve to the same synthesized class entry. */
+ZEND_API zend_string *zend_type_to_canonical_string(zend_type type);
+ZEND_API zend_string *zend_generic_canonical_class_name(
+	zend_string *base_name, const zend_type *args, uint32_t arity);
+ZEND_API bool zend_type_contains_type_parameter(zend_type type);
 
 /* class fetches */
 #define ZEND_FETCH_CLASS_DEFAULT	0

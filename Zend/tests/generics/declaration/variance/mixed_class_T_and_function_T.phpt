@@ -2,7 +2,7 @@
 Variance: class-T and function-T variance markers are checked independently in the same method
 --FILE--
 <?php
-class C<+T> {
+class C<+T = mixed> {
     public function map<-A, +B>(A $a): B { return null; }
 }
 

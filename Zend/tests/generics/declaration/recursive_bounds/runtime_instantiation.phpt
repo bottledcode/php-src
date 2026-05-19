@@ -2,7 +2,7 @@
 Recursive bounds: a class with mutually recursive bounds can be instantiated and used
 --FILE--
 <?php
-class Box<T> {
+class Box<T = mixed> {
     public function __construct(public mixed $value) {}
 }
 
@@ -12,7 +12,7 @@ final class Pair<T: Box<U>, U: Box<T>> {
 
 $bx = new Box(1);
 $by = new Box("hi");
-$p  = new Pair($bx, $by);
+$p  = new Pair::<Box<int>, Box<string>>($bx, $by);
 var_dump($p->left->value, $p->right->value);
 ?>
 --EXPECT--

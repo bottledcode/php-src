@@ -124,6 +124,19 @@ PHPAPI zend_class_entry *reflection_property_hook_type_ptr;
 	target = intern->ptr; \
 } while (0)
 
+/* When reflecting a bare generic class, swap in the defaults monomorph (same
+ * contract as `new ClassName()`); throws and returns from the caller if any
+ * type parameter has no default. Reflecting an existing monomorph leaves
+ * `ce` unchanged. */
+#define REFLECTION_RESOLVE_GENERIC_DEFAULTS(ce) do { \
+	if ((ce)->generic_parameters) { \
+		(ce) = zend_get_defaults_monomorph(ce); \
+		if (UNEXPECTED((ce) == NULL)) { \
+			RETURN_THROWS(); \
+		} \
+	} \
+} while (0)
+
 /* {{{ Object structure */
 
 /* Struct for properties */
@@ -5283,6 +5296,8 @@ ZEND_METHOD(ReflectionClass, newInstance)
 
 	GET_REFLECTION_OBJECT_PTR(ce);
 
+	REFLECTION_RESOLVE_GENERIC_DEFAULTS(ce);
+
 	if (UNEXPECTED(object_init_ex(return_value, ce) != SUCCESS)) {
 		return;
 	}
@@ -5337,6 +5352,8 @@ ZEND_METHOD(ReflectionClass, newInstanceWithoutConstructor)
 		RETURN_THROWS();
 	}
 
+	REFLECTION_RESOLVE_GENERIC_DEFAULTS(ce);
+
 	object_init_ex(return_value, ce);
 }
 /* }}} */
@@ -5359,6 +5376,8 @@ ZEND_METHOD(ReflectionClass, newInstanceArgs)
 	if (args) {
 		argc = zend_hash_num_elements(args);
 	}
+
+	REFLECTION_RESOLVE_GENERIC_DEFAULTS(ce);
 
 	if (UNEXPECTED(object_init_ex(return_value, ce) != SUCCESS)) {
 		return;
