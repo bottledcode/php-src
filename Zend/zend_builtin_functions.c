@@ -371,6 +371,47 @@ ZEND_FUNCTION(func_get_args)
 }
 /* }}} */
 
+/* {{{ Get an array mapping generic type-parameter names to their resolved
+ * class names for the currently-executed generic function call. Unbound slots
+ * (parameter has no turbofish, no default, and no inferable position) yield
+ * NULL — the caller can detect them and fall back to the parameter's bound. */
+ZEND_FUNCTION(func_get_type_args)
+{
+	zend_execute_data *ex = EX(prev_execute_data);
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	if (ex && (ZEND_CALL_INFO(ex) & ZEND_CALL_CODE)) {
+		zend_throw_error(NULL, "func_get_type_args() cannot be called from the global scope");
+		RETURN_THROWS();
+	}
+
+	if (zend_forbid_dynamic_call() == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	const zend_generic_parameter_list *params = NULL;
+	if (ex && ZEND_USER_CODE(ex->func->type)) {
+		params = ex->func->op_array.generic_parameters;
+	}
+	if (!params || params->count == 0) {
+		RETURN_EMPTY_ARRAY();
+	}
+
+	zend_type_arg_table *table = ex->type_args;
+	array_init_size(return_value, params->count);
+	for (uint32_t i = 0; i < params->count; i++) {
+		zval entry;
+		if (table && i < table->count && table->names[i]) {
+			ZVAL_STR_COPY(&entry, table->names[i]);
+		} else {
+			ZVAL_NULL(&entry);
+		}
+		zend_hash_add(Z_ARRVAL_P(return_value), params->parameters[i].name, &entry);
+	}
+}
+/* }}} */
+
 /* {{{ Get string length
    Warning: This function is special-cased by zend_compile.c and so is usually bypassed */
 ZEND_FUNCTION(strlen)
