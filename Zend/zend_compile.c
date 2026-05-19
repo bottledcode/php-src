@@ -3393,8 +3393,16 @@ static void zend_emit_return_type_check(
 		}
 
 		if (expr && ZEND_TYPE_PURE_MASK(type) == MAY_BE_ANY) {
-			/* we don't need run-time check for mixed return type */
-			return;
+			/* Mixed normally needs no run-time check, but if the return is a
+			 * generic parameter that erased to mixed, a child substituting T to
+			 * a concrete type relies on this opcode being present in the shared
+			 * body so its substituted arg_info gets checked. */
+			zend_op_array *active = CG(active_op_array);
+			const zend_type *pre_return =
+				active->generic_types ? active->generic_types->return_type : NULL;
+			if (!pre_return || !ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_return)) {
+				return;
+			}
 		}
 
 		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {

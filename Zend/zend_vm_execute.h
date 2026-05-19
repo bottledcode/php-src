@@ -2826,6 +2826,14 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_R
 		ZEND_VM_TAIL_CALL(zend_missing_arg_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
 	}
 
+	/* Origin compiled this parameter as mixed (MAY_BE_ANY), but a generic
+	 * inheritance clone may carry a substituted type in arg_info that we must
+	 * verify against. */
+	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
+		zval *param = EX_VAR(opline->result.var);
+		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
+	}
+
 	ZEND_VM_NEXT_OPCODE();
 }
 
@@ -4338,6 +4346,14 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_R
 	param = EX_VAR(opline->result.var);
 
 	if (UNEXPECTED(!(opline->op2.num & (1u << Z_TYPE_P(param))))) {
+		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
+	}
+
+	/* The inline op2.num mask was baked in at the origin's compile time. A
+	 * generic-inheritance clone may carry a tighter substituted arg_info that
+	 * the mask doesn't reflect, so force the slow path when the function is a
+	 * clone with substituted types. */
+	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
 		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
 	}
 
@@ -55664,6 +55680,14 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_RECV_N
 		ZEND_VM_TAIL_CALL(zend_missing_arg_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
 	}
 
+	/* Origin compiled this parameter as mixed (MAY_BE_ANY), but a generic
+	 * inheritance clone may carry a substituted type in arg_info that we must
+	 * verify against. */
+	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
+		zval *param = EX_VAR(opline->result.var);
+		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
+	}
+
 	ZEND_VM_NEXT_OPCODE();
 }
 
@@ -57082,6 +57106,14 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_RECV_S
 	param = EX_VAR(opline->result.var);
 
 	if (UNEXPECTED(!(opline->op2.num & (1u << Z_TYPE_P(param))))) {
+		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
+	}
+
+	/* The inline op2.num mask was baked in at the origin's compile time. A
+	 * generic-inheritance clone may carry a tighter substituted arg_info that
+	 * the mask doesn't reflect, so force the slow path when the function is a
+	 * clone with substituted types. */
+	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
 		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX param));
 	}
 
