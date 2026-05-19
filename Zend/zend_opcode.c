@@ -533,6 +533,13 @@ ZEND_API void destroy_zend_class(zval *zv)
 				p++;
 			}
 		}
+		/* Monomorph args are heap-allocated per request, not relocated into
+		 * the opcache file cache; free them even when the rest of the ce is
+		 * cache-resident. */
+		if (ce->generic_type_args) {
+			zend_type_arg_table_destroy(ce->generic_type_args);
+			ce->generic_type_args = NULL;
+		}
 		return;
 	}
 
@@ -652,6 +659,9 @@ ZEND_API void destroy_zend_class(zval *zv)
 			}
 			if (ce->generic_types) {
 				zend_generic_type_table_destroy(ce->generic_types);
+			}
+			if (ce->generic_type_args) {
+				zend_type_arg_table_destroy(ce->generic_type_args);
 			}
 			break;
 		case ZEND_INTERNAL_CLASS:

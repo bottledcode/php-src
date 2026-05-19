@@ -4848,7 +4848,7 @@ ZEND_VM_COLD_CONST_HANDLER(108, ZEND_THROW, CONST|TMP|CV, ANY)
 	HANDLE_EXCEPTION();
 }
 
-ZEND_VM_HANDLER(107, ZEND_CATCH, CONST, JMP_ADDR, LAST_CATCH|CACHE_SLOT)
+ZEND_VM_HANDLER(107, ZEND_CATCH, CONST|UNUSED, JMP_ADDR, LAST_CATCH|CACHE_SLOT)
 {
 	USE_OPLINE
 	zend_class_entry *ce, *catch_ce;
@@ -4859,11 +4859,20 @@ ZEND_VM_HANDLER(107, ZEND_CATCH, CONST, JMP_ADDR, LAST_CATCH|CACHE_SLOT)
 	if (EG(exception) == NULL) {
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
-	catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
-	if (UNEXPECTED(catch_ce == NULL)) {
-		catch_ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+	if (OP1_TYPE == IS_UNUSED) {
+		/* catch (T $e): T resolved per execution against the runtime T-table
+		 * — not cached, since the same opline runs in monos with different
+		 * bindings. */
+		catch_ce = zend_resolve_generic_type_param(
+			zend_unpack_type_param_index(opline->op1.num),
+			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+	} else {
+		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
+		if (UNEXPECTED(catch_ce == NULL)) {
+			catch_ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
 
-		CACHE_PTR(opline->extended_value & ~ZEND_LAST_CATCH, catch_ce);
+			CACHE_PTR(opline->extended_value & ~ZEND_LAST_CATCH, catch_ce);
+		}
 	}
 	ce = EG(exception)->ce;
 
@@ -9008,6 +9017,7 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 				}
 				call->type_args = t;
 			}
+			zend_verify_generic_arg_types(call, args_box);
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
@@ -9033,6 +9043,11 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 	}
 
 	if (UNEXPECTED(EG(exception))) {
+		/* Args have already been pushed by the SEND opcodes preceding the
+		 * VERIFY emission for call kind; release them so refcounted values
+		 * don't leak. */
+		zend_vm_stack_free_args(call);
+
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
 			zend_string_release_ex(call->func->common.function_name, 0);
 			zend_free_trampoline(call->func);
@@ -9113,7 +9128,7 @@ ZEND_VM_HANDLER(157, ZEND_FETCH_CLASS_NAME, CV|TMP|UNUSED|CLASS_FETCH, ANY)
 	}
 
 	fetch_type = opline->op1.num;
-	if ((fetch_type & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_TYPE_PARAM) {
+	if (zend_fetch_is_type_param(fetch_type)) {
 		SAVE_OPLINE();
 		zend_class_entry *resolved = zend_resolve_generic_type_param(
 			zend_unpack_type_param_index(fetch_type), fetch_type);

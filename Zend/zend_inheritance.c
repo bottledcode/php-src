@@ -6515,6 +6515,13 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph(
 	ce->info.user.line_end = base->info.user.line_end;
 	ce->name = canonical;
 
+	/* Stash the bindings the runtime needs when method bodies reference the
+	 * class-level T directly (e.g. `new T()` inside `class Box<T>`'s body). */
+	ce->generic_type_args = zend_type_arg_table_alloc(arity);
+	for (uint32_t i = 0; i < arity; i++) {
+		ce->generic_type_args->names[i] = zend_type_arg_canonical_name(args[i]);
+	}
+
 	bool base_is_interface = (base->ce_flags & ZEND_ACC_INTERFACE) != 0;
 	bool base_is_trait = (base->ce_flags & ZEND_ACC_TRAIT) != 0;
 	if (base_is_interface) {
