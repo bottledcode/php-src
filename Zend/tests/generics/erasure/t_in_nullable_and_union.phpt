@@ -9,7 +9,7 @@ function unionMultiUnbounded<T>(int|bool|T $x): int|bool|T { return $x; }
 function unionNullBounded<T : int>(null|T $x): null|T { return $x; }
 function unionMultiBounded<T : Stringable>(int|T $x): int|T { return $x; }
 
-class Holder<T> {
+class Holder<T = mixed> {
     public function __construct(public ?T $value) {}
     public function set(?T $v): void { $this->value = $v; }
     public function get(): ?T { return $this->value; }

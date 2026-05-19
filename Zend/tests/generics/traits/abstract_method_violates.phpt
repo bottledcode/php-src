@@ -12,4 +12,4 @@ class A {
 }
 ?>
 --EXPECTF--
-Fatal error: Declaration of A::foo(int $v): int must be compatible with Thing::foo(string $v): string in %s on line %d
+Fatal error: Declaration of A::foo(int $v): int must be compatible with Thing<string>::foo(string $v): string in %s on line %d

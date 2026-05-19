@@ -1,5 +1,5 @@
 --TEST--
-Erasure: var_dump shows erased class name
+Monomorphization: var_dump shows the canonical monomorph name
 --FILE--
 <?php
 class Box<T> {
@@ -8,7 +8,7 @@ class Box<T> {
 var_dump(new Box::<int>);
 ?>
 --EXPECT--
-object(Box)#1 (1) {
+object(Box<int>)#1 (1) {
   ["x"]=>
   int(1)
 }

@@ -3,7 +3,7 @@ RFC example: covariant Pair/Box with self-referential return type, zip, map, ide
 --FILE--
 <?php
 
-final readonly class Pair<+L, +R> {
+final readonly class Pair<+L = mixed, +R = mixed> {
     public function __construct(
         public L $left,
         public R $right,
@@ -14,7 +14,7 @@ final readonly class Pair<+L, +R> {
     }
 }
 
-final readonly class Box<+T> {
+final readonly class Box<+T = mixed> {
     public function __construct(
         public T $value,
     ) {}
