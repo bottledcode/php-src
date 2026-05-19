@@ -1685,6 +1685,12 @@ static zend_function *zend_maybe_substitute_inherited_method(
 		return NULL;
 	}
 
+	/* The clone shares the parent's opcode stream but holds tightened arg_info
+	 * from generic substitution. Mark it like a trait-method clone so opcache
+	 * persistence and the RECV handler can detect that the inline RECV type
+	 * mask may be looser than the live arg_info. */
+	clone->common.fn_flags |= ZEND_ACC_TRAIT_CLONE;
+
 	function_add_ref(clone);
 	return clone;
 }
