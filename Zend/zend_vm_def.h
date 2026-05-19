@@ -5742,6 +5742,14 @@ ZEND_VM_HOT_HANDLER(63, ZEND_RECV, NUM, UNUSED)
 		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
 	}
 
+	/* The inline op2.num mask was baked in at the origin's compile time. A
+	 * generic-inheritance clone may carry a tighter substituted arg_info that
+	 * the mask doesn't reflect, so force the slow path when the function is a
+	 * clone with substituted types. */
+	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
+		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
+	}
+
 	ZEND_VM_NEXT_OPCODE();
 }
 
@@ -5752,6 +5760,14 @@ ZEND_VM_HOT_TYPE_SPEC_HANDLER(ZEND_RECV, op->op2.num == MAY_BE_ANY, ZEND_RECV_NO
 
 	if (UNEXPECTED(arg_num > EX_NUM_ARGS())) {
 		ZEND_VM_DISPATCH_TO_HELPER(zend_missing_arg_helper);
+	}
+
+	/* Origin compiled this parameter as mixed (MAY_BE_ANY), but a generic
+	 * inheritance clone may carry a substituted type in arg_info that we must
+	 * verify against. */
+	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
+		zval *param = EX_VAR(opline->result.var);
+		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
 	}
 
 	ZEND_VM_NEXT_OPCODE();
