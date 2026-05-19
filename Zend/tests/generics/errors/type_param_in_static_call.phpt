@@ -1,10 +1,15 @@
 --TEST--
-Errors: type parameter cannot be used at runtime as a static-call target
+Errors: bare function-level type parameter used as a static-call target errors at runtime when nothing pins it
 --FILE--
 <?php
 function f<T>(): void {
     T::foo();
 }
+f();
 ?>
 --EXPECTF--
-Fatal error: Cannot use generic type parameter T as a class reference at runtime; bound-erased generic types have no runtime representation in %s on line %d
+Fatal error: Uncaught Error: Cannot resolve generic type parameter T at runtime: no binding was supplied and its bound is not a class in %s:%d
+Stack trace:
+#0 %s(%d): f()
+#1 {main}
+  thrown in %s on line %d

@@ -4302,6 +4302,10 @@ static zend_always_inline void i_free_compiled_variables(zend_execute_data *exec
 		cv++;
 		count--;
 	}
+	if (UNEXPECTED(execute_data->type_args)) {
+		zend_type_arg_table_destroy(execute_data->type_args);
+		execute_data->type_args = NULL;
+	}
 }
 /* }}} */
 

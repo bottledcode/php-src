@@ -1,5 +1,5 @@
 /* This is a generated file, edit zend_builtin_functions.stub.php instead.
- * Stub hash: 64c61862de86d9968930893bf21b516119724064 */
+ * Stub hash: b435953eed1678fa83dd72073c0e95e997ce1d07 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_clone, 0, 1, IS_OBJECT, 0)
 	ZEND_ARG_TYPE_INFO(0, object, IS_OBJECT, 0)
@@ -24,6 +24,8 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_func_get_args, 0, 0, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
+
+#define arginfo_func_get_type_args arginfo_func_get_args
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_strlen, 0, 1, IS_LONG, 0)
 	ZEND_ARG_TYPE_INFO(0, string, IS_STRING, 0)
@@ -254,6 +256,7 @@ ZEND_FUNCTION(zend_version);
 ZEND_FUNCTION(func_num_args);
 ZEND_FUNCTION(func_get_arg);
 ZEND_FUNCTION(func_get_args);
+ZEND_FUNCTION(func_get_type_args);
 ZEND_FUNCTION(strlen);
 ZEND_FUNCTION(strcmp);
 ZEND_FUNCTION(strncmp);
@@ -330,6 +333,11 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_RAW_FENTRY("func_get_args", zif_func_get_args, arginfo_func_get_args, ZEND_FENTRY_FLAGS(0, ZEND_ACC2_FORBID_DYN_CALLS), NULL, NULL)
 #elif (PHP_VERSION_ID >= 80400)
 	ZEND_RAW_FENTRY("func_get_args", zif_func_get_args, arginfo_func_get_args, 0, NULL, NULL)
+#endif
+#if (PHP_VERSION_ID >= 80600)
+	ZEND_RAW_FENTRY("func_get_type_args", zif_func_get_type_args, arginfo_func_get_type_args, ZEND_FENTRY_FLAGS(0, ZEND_ACC2_FORBID_DYN_CALLS), NULL, NULL)
+#elif (PHP_VERSION_ID >= 80400)
+	ZEND_RAW_FENTRY("func_get_type_args", zif_func_get_type_args, arginfo_func_get_type_args, 0, NULL, NULL)
 #endif
 	ZEND_FE(strlen, arginfo_strlen)
 	ZEND_RAW_FENTRY("strcmp", zif_strcmp, arginfo_strcmp, ZEND_ACC_COMPILE_TIME_EVAL, NULL, NULL)

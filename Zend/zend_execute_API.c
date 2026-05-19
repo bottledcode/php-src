@@ -1729,6 +1729,38 @@ static ZEND_COLD void report_class_fetch_error(const zend_string *class_name, ui
 	}
 }
 
+/* Resolve a function/method-level generic type parameter at runtime by reading
+ * the current frame's T-table. Falls back to the parameter's declared bound when
+ * no concrete binding was supplied (e.g. the function was called without
+ * turbofish and inference produced nothing). Throws when neither a binding nor
+ * a usable class bound is available. */
+ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	zend_type_arg_table *table = ex ? ex->type_args : NULL;
+	if (table && param_index < table->count && table->names[param_index]) {
+		return zend_fetch_class_by_name(table->names[param_index], NULL, fetch_type);
+	}
+
+	if (ex && ZEND_USER_CODE(ex->func->type)) {
+		zend_generic_parameter_list *params = ex->func->op_array.generic_parameters;
+		if (params && param_index < params->count) {
+			zend_type bound = params->parameters[param_index].bound;
+			if (ZEND_TYPE_HAS_NAME(bound)) {
+				return zend_fetch_class_by_name(ZEND_TYPE_NAME(bound), NULL, fetch_type);
+			}
+			ZEND_ASSERT(params->parameters[param_index].name);
+			zend_throw_or_error(fetch_type, NULL,
+				"Cannot resolve generic type parameter %s at runtime: no binding was supplied and its bound is not a class",
+				ZSTR_VAL(params->parameters[param_index].name));
+			return NULL;
+		}
+	}
+
+	zend_throw_or_error(fetch_type, NULL, "Cannot resolve generic type parameter at runtime: not in a generic function call");
+	return NULL;
+}
+
 zend_class_entry *zend_fetch_class(zend_string *class_name, uint32_t fetch_type) /* {{{ */
 {
 	zend_class_entry *ce, *scope;
@@ -1736,6 +1768,9 @@ zend_class_entry *zend_fetch_class(zend_string *class_name, uint32_t fetch_type)
 
 check_fetch_type:
 	switch (fetch_sub_type) {
+		case ZEND_FETCH_CLASS_TYPE_PARAM:
+			return zend_resolve_generic_type_param(
+				zend_unpack_type_param_index(fetch_type), fetch_type);
 		case ZEND_FETCH_CLASS_SELF:
 			scope = zend_get_executed_scope();
 			if (UNEXPECTED(!scope)) {

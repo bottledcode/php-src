@@ -46,6 +46,7 @@ ZEND_API void zend_generator_restore_call_stack(zend_generator *generator) /* {{
 			Z_PTR(call->This));
 		memcpy(((zval*)new_call) + ZEND_CALL_FRAME_SLOT, ((zval*)call) + ZEND_CALL_FRAME_SLOT, ZEND_CALL_NUM_ARGS(call) * sizeof(zval));
 		new_call->extra_named_params = call->extra_named_params;
+		new_call->type_args = call->type_args;
 		new_call->prev_execute_data = prev_call;
 		prev_call = new_call;
 
@@ -83,6 +84,10 @@ ZEND_API zend_execute_data* zend_generator_freeze_call_stack(zend_execute_data *
 		used_stack -= frame_size;
 		new_call->prev_execute_data = prev_call;
 		prev_call = new_call;
+
+		/* Frozen copy owns type_args; null the original so frame teardown
+		 * below does not free what the generator still needs on resume. */
+		call->type_args = NULL;
 
 		new_call = call->prev_execute_data;
 		zend_vm_stack_free_call_frame(call);
@@ -145,6 +150,10 @@ ZEND_API void zend_generator_close(zend_generator *generator, bool finished_exec
 		zend_free_compiled_variables(execute_data);
 		if (EX_CALL_INFO() & ZEND_CALL_HAS_EXTRA_NAMED_PARAMS) {
 			zend_free_extra_named_params(execute_data->extra_named_params);
+		}
+		if (execute_data->type_args) {
+			zend_type_arg_table_destroy(execute_data->type_args);
+			execute_data->type_args = NULL;
 		}
 
 		if (EX_CALL_INFO() & ZEND_CALL_RELEASE_THIS) {

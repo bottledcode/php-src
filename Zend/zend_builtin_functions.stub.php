@@ -30,6 +30,12 @@ function func_get_arg(int $position): mixed {}
  */
 function func_get_args(): array {}
 
+/**
+ * @return array<string, ?string>
+ * @forbid-dynamic-calls
+ */
+function func_get_type_args(): array {}
+
 function strlen(string $string): int {}
 
 /** @compile-time-eval */
