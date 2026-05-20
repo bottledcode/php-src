@@ -4857,11 +4857,11 @@ ZEND_VM_HANDLER(107, ZEND_CATCH, CONST|UNUSED, JMP_ADDR, LAST_CATCH|CACHE_SLOT)
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (OP1_TYPE == IS_UNUSED) {
-		/* catch (T $e): T resolved per execution against the runtime T-table
-		 * — not cached, since the same opline runs in monos with different
-		 * bindings. */
-		catch_ce = zend_resolve_generic_type_param(
-			zend_unpack_type_param_index(opline->op1.num),
+		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
+		 * against the runtime T-table — not cached, since the same opline
+		 * runs in monos with different bindings. zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type. */
+		catch_ce = zend_fetch_class(NULL,
 			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);

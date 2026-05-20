@@ -5191,11 +5191,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CATCH_SPEC_CO
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_CONST == IS_UNUSED) {
-		/* catch (T $e): T resolved per execution against the runtime T-table
-		 * — not cached, since the same opline runs in monos with different
-		 * bindings. */
-		catch_ce = zend_resolve_generic_type_param(
-			zend_unpack_type_param_index(opline->op1.num),
+		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
+		 * against the runtime T-table — not cached, since the same opline
+		 * runs in monos with different bindings. zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type. */
+		catch_ce = zend_fetch_class(NULL,
 			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
@@ -32944,11 +32944,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CATCH_SPEC_UN
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_UNUSED == IS_UNUSED) {
-		/* catch (T $e): T resolved per execution against the runtime T-table
-		 * — not cached, since the same opline runs in monos with different
-		 * bindings. */
-		catch_ce = zend_resolve_generic_type_param(
-			zend_unpack_type_param_index(opline->op1.num),
+		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
+		 * against the runtime T-table — not cached, since the same opline
+		 * runs in monos with different bindings. zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type. */
+		catch_ce = zend_fetch_class(NULL,
 			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
@@ -58232,11 +58232,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CATCH_SPEC_CONST_T
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_CONST == IS_UNUSED) {
-		/* catch (T $e): T resolved per execution against the runtime T-table
-		 * — not cached, since the same opline runs in monos with different
-		 * bindings. */
-		catch_ce = zend_resolve_generic_type_param(
-			zend_unpack_type_param_index(opline->op1.num),
+		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
+		 * against the runtime T-table — not cached, since the same opline
+		 * runs in monos with different bindings. zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type. */
+		catch_ce = zend_fetch_class(NULL,
 			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
@@ -85783,11 +85783,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CATCH_SPEC_UNUSED_
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_UNUSED == IS_UNUSED) {
-		/* catch (T $e): T resolved per execution against the runtime T-table
-		 * — not cached, since the same opline runs in monos with different
-		 * bindings. */
-		catch_ce = zend_resolve_generic_type_param(
-			zend_unpack_type_param_index(opline->op1.num),
+		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
+		 * against the runtime T-table — not cached, since the same opline
+		 * runs in monos with different bindings. zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type. */
+		catch_ce = zend_fetch_class(NULL,
 			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);

@@ -312,13 +312,15 @@ ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table) {
 	efree(table);
 }
 
-/* Returns NULL when the type is not a concrete class reference — the resolver
- * reads NULL as "fall back to the parameter's bound". */
+/* Always returns the canonical name of the bound type — class names, monomorph
+ * applications (`Box<int>`), scalars (`int`, `string`), and unions/intersections.
+ * Callers that only care about class-name dispatch should themselves check
+ * whether the lookup succeeded. Returns NULL only for unset/empty types. */
 ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type) {
-	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(type) || ZEND_TYPE_HAS_NAME(type)) {
-		return zend_type_to_canonical_string(type);
+	if (!ZEND_TYPE_IS_SET(type)) {
+		return NULL;
 	}
-	return NULL;
+	return zend_type_to_canonical_string(type);
 }
 
 ZEND_API void zend_free_internal_arg_info(zend_internal_function *function,
