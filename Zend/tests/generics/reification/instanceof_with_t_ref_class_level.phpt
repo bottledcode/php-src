@@ -1,6 +1,3 @@
-<?php
-declare(strict_types=1);
-?>
 --TEST--
 Reification: instanceof Box<T> with class-level T resolves against the called scope's monomorph args
 --FILE--

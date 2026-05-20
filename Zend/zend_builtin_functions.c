@@ -402,8 +402,8 @@ ZEND_FUNCTION(func_get_type_args)
 	array_init_size(return_value, params->count);
 	for (uint32_t i = 0; i < params->count; i++) {
 		zval entry;
-		if (table && i < table->count && table->names[i]) {
-			ZVAL_STR_COPY(&entry, table->names[i]);
+		if (table && i < table->count && table->entries[i].name) {
+			ZVAL_STR_COPY(&entry, table->entries[i].name);
 		} else {
 			ZVAL_NULL(&entry);
 		}

@@ -8744,6 +8744,12 @@ static int zend_jit_push_call_frame(zend_jit_ctx *jit, const zend_op *opline, co
 	// JIT: ZEND_CALL_NUM_ARGS(call) = num_args;
 	ir_STORE(jit_CALL(rx, This.u2.num_args), ir_CONST_U32(opline->extended_value));
 
+	// JIT: call->type_args = NULL;
+	// Mirrors zend_vm_init_call_frame; without this the field is stack
+	// garbage and zend_vm_stack_free_call_frame_ex dereferences it on
+	// frame teardown (segfault on the exception / undef-prop path).
+	ir_STORE(jit_CALL(rx, type_args), IR_NULL);
+
 	return 1;
 }
 
@@ -11033,6 +11039,23 @@ static int zend_jit_free_cvs(zend_jit_ctx *jit)
 
 	// JIT: zend_free_compiled_variables(execute_data);
 	ir_CALL_1(IR_VOID, ir_CONST_FC_FUNC(zend_free_compiled_variables), jit_FP(jit));
+	return 1;
+}
+
+/* The inline CV-free fast path that callers use when last_var <= 100 frees
+ * each CV individually and bypasses zend_free_compiled_variables, which is
+ * where the interpreter teardown destroys EX(type_args). Without this helper
+ * the table allocated by VERIFY_GENERIC_ARGUMENTS / INSTALL_GENERIC_ARGS
+ * leaks on every JIT'd generic call return — and for inference calls each
+ * leaked table also carries refcounted owned_type fragments, so the rate is
+ * fast enough to OOM tight loops in seconds. */
+static int zend_jit_free_type_args(zend_jit_ctx *jit)
+{
+	ir_ref ta = ir_LOAD_A(jit_EX(type_args));
+	ir_ref if_ta = ir_IF(ta);
+	ir_IF_TRUE_cold(if_ta);
+	ir_CALL_1(IR_VOID, ir_CONST_FC_FUNC(zend_type_arg_table_destroy), ta);
+	ir_MERGE_WITH_EMPTY_FALSE(if_ta);
 	return 1;
 }
 

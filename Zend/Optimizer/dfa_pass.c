@@ -297,6 +297,13 @@ static inline bool can_elide_return_type_check(
 	if (use_type & MAY_BE_REF) {
 		return false;
 	}
+	/* When the declared return type contains a generic parameter, the
+	 * compile-time arg_info is the erased type (typically mixed) but the
+	 * effective type on a monomorph is the substituted one — eliding the
+	 * VERIFY_RETURN_TYPE here would skip the per-monomorph runtime check. */
+	if (op_array->generic_types && op_array->generic_types->return_type) {
+		return false;
+	}
 
 	if (use_type & MAY_BE_UNDEF) {
 		use_type &= ~MAY_BE_UNDEF;

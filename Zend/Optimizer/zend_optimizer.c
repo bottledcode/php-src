@@ -902,6 +902,87 @@ const zend_class_constant *zend_fetch_class_const_info(
 	return const_info;
 }
 
+/* Returns the unique opcode in this op_array that writes to the given CV, or
+ * NULL if there are zero or multiple writers, or if any operation could mutate
+ * the CV through a reference. This is sound enough to use as a single-value
+ * assumption for CV-based callsite resolution: if we conclude a CV holds X at
+ * the call, eliding the runtime VERIFY is safe because any other actual value
+ * at runtime would cause the call itself to fail before VERIFY ever ran. */
+static const zend_op *zend_find_unique_cv_writer(
+		const zend_op_array *op_array, uint32_t cv_var)
+{
+	const zend_op *end = op_array->opcodes + op_array->last;
+	const zend_op *unique = NULL;
+
+	for (const zend_op *op = op_array->opcodes; op < end; op++) {
+		if (op->result_type == IS_CV && op->result.var == cv_var) {
+			if (op->opcode == ZEND_QM_ASSIGN) {
+				if (unique) return NULL;
+				unique = op;
+				continue;
+			}
+			return NULL;
+		}
+
+		switch (op->opcode) {
+			case ZEND_ASSIGN:
+				if (op->op1_type == IS_CV && op->op1.var == cv_var) {
+					if (unique) return NULL;
+					unique = op;
+				}
+				break;
+			case ZEND_ASSIGN_REF:
+			case ZEND_BIND_GLOBAL:
+			case ZEND_BIND_INIT_STATIC_OR_JMP:
+			case ZEND_BIND_STATIC:
+			case ZEND_SEND_REF:
+			case ZEND_SEND_VAR_NO_REF:
+			case ZEND_SEND_VAR_NO_REF_EX:
+			case ZEND_SEND_USER:
+			case ZEND_SEND_UNPACK:
+			case ZEND_SEND_ARRAY:
+			case ZEND_FE_FETCH_RW:
+			case ZEND_FE_RESET_RW:
+			case ZEND_ASSIGN_OP:
+			case ZEND_ASSIGN_DIM:
+			case ZEND_ASSIGN_OBJ:
+			case ZEND_ASSIGN_DIM_OP:
+			case ZEND_ASSIGN_OBJ_OP:
+			case ZEND_ASSIGN_OBJ_REF:
+			case ZEND_ASSIGN_STATIC_PROP_OP:
+			case ZEND_PRE_INC:
+			case ZEND_PRE_DEC:
+			case ZEND_POST_INC:
+			case ZEND_POST_DEC:
+			case ZEND_UNSET_CV:
+			case ZEND_FETCH_W:
+			case ZEND_FETCH_REF:
+			case ZEND_FETCH_FUNC_ARG:
+				if (op->op1_type == IS_CV && op->op1.var == cv_var) {
+					return NULL;
+				}
+				break;
+		}
+	}
+
+	return unique;
+}
+
+/* Walks backward from `from` to find the most recent opcode whose result port
+ * wrote to the given TMP/VAR slot. Used to chain `ASSIGN CV = TMP`-style
+ * patterns through to the value-producing opcode (e.g. NEW). */
+static const zend_op *zend_find_recent_tmp_writer(
+		const zend_op_array *op_array, const zend_op *from, uint32_t tmp_var)
+{
+	for (const zend_op *op = from - 1; op >= op_array->opcodes; op--) {
+		if ((op->result_type == IS_TMP_VAR || op->result_type == IS_VAR)
+				&& op->result.var == tmp_var) {
+			return op;
+		}
+	}
+	return NULL;
+}
+
 zend_function *zend_optimizer_get_called_func(
 		const zend_script *script, const zend_op_array *op_array, zend_op *opline, bool *is_prototype)
 {
@@ -978,6 +1059,65 @@ zend_function *zend_optimizer_get_called_func(
 						*is_prototype = true;
 					}
 					return fbc;
+				}
+			} else if (opline->op1_type == IS_CV
+					&& opline->op2_type == IS_CONST && Z_TYPE_P(CRT_CONSTANT(opline->op2)) == IS_STRING) {
+				/* `$o->method()` where $o has a unique ASSIGN whose source is a
+				 * NEW result. The instance class is then known exactly (not just
+				 * a base class), so the resolved method isn't a prototype. */
+				const zend_op *cv_writer = zend_find_unique_cv_writer(op_array, opline->op1.var);
+				if (cv_writer && cv_writer->opcode == ZEND_ASSIGN
+						&& (cv_writer->op2_type == IS_TMP_VAR || cv_writer->op2_type == IS_VAR)) {
+					const zend_op *src = zend_find_recent_tmp_writer(
+						op_array, cv_writer, cv_writer->op2.var);
+					if (src && src->opcode == ZEND_NEW) {
+						const zend_class_entry *ce = zend_optimizer_get_class_entry_from_op1(
+							script, op_array, src);
+						if (ce && ce->type == ZEND_USER_CLASS) {
+							zend_string *method_name = Z_STR_P(CRT_CONSTANT(opline->op2) + 1);
+							zend_function *fbc = zend_hash_find_ptr(&ce->function_table, method_name);
+							if (fbc) {
+								uint32_t flags = fbc->common.fn_flags;
+								if (flags & ZEND_ACC_PRIVATE) {
+									if (fbc->common.scope != op_array->scope) return NULL;
+								} else if (flags & ZEND_ACC_PROTECTED) {
+									if (!op_array->scope
+											|| !instanceof_function(op_array->scope, fbc->common.scope)) {
+										return NULL;
+									}
+								}
+								return fbc;
+							}
+						}
+					}
+				}
+			}
+			break;
+		case ZEND_INIT_DYNAMIC_CALL:
+			/* `$f(...)` where $f's unique writer is `ASSIGN $f = "name"`. The
+			 * literal string isn't normalized at compile time the way an
+			 * INIT_FCALL_BY_NAME literal is, so lowercase it for the lookup. */
+			if (opline->op2_type == IS_CV) {
+				const zend_op *cv_writer = zend_find_unique_cv_writer(op_array, opline->op2.var);
+				if (cv_writer && cv_writer->opcode == ZEND_ASSIGN
+						&& cv_writer->op2_type == IS_CONST) {
+					const zval *val = CRT_CONSTANT_EX(op_array, cv_writer, cv_writer->op2);
+					if (Z_TYPE_P(val) == IS_STRING && Z_STRLEN_P(val) > 0
+							&& Z_STRVAL_P(val)[0] != '\\') {
+						zend_string *lc_name = zend_string_tolower(Z_STR_P(val));
+						zend_function *func;
+						zval *func_zv;
+						zend_function *result = NULL;
+						if (script && (func = zend_hash_find_ptr(&script->function_table, lc_name)) != NULL) {
+							result = func;
+						} else if ((func_zv = zend_hash_find(EG(function_table), lc_name)) != NULL) {
+							if (!zend_optimizer_ignore_function(func_zv, op_array->filename)) {
+								result = Z_PTR_P(func_zv);
+							}
+						}
+						zend_string_release_ex(lc_name, 0);
+						if (result) return result;
+					}
 				}
 			}
 			break;

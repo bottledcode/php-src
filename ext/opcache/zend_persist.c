@@ -375,6 +375,16 @@ static void zend_persist_type(zend_type *type) {
 
 	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(*type)) {
 		zend_type_named_with_args *named = ZEND_TYPE_NAMED_WITH_ARGS(*type);
+		/* Compile-time NWAs can be structurally shared across the script
+		 * (e.g. two `extends Foo<Box<int>, ...>` clauses end up referencing
+		 * the same `Box<int>` payload). Use the xlat-aware variant so the
+		 * second visit short-circuits to the already-persisted SHM copy
+		 * instead of memdup'ing from the now-freed heap source. */
+		zend_type_named_with_args *prev = zend_shared_alloc_get_xlat_entry(named);
+		if (prev) {
+			ZEND_TYPE_SET_PTR(*type, prev);
+			return;
+		}
 		named = zend_shared_memdup_put_free(named, ZEND_TYPE_NAMED_WITH_ARGS_SIZE(named->count));
 		if (named->name) {
 			zend_accel_store_interned_string(named->name);
@@ -478,6 +488,97 @@ static HashTable *zend_persist_generic_type_table_ht(HashTable *ht)
 	return ptr;
 }
 
+/* Persist the turbofish_args HT. Each entry is a zend_turbofish_args_entry —
+ * args_box is serialized to SHM, but cached_table/cache_key are runtime-only
+ * (per-process call cache) and must be reset to NULL/0 on the persisted copy
+ * so a fresh worker starts cold. */
+static HashTable *zend_persist_turbofish_args_ht(HashTable *ht)
+{
+	zend_hash_persist(ht);
+	if (HT_IS_PACKED(ht)) {
+		zval *v;
+		ZEND_HASH_PACKED_FOREACH_VAL(ht, v) {
+			zend_turbofish_args_entry *entry = Z_PTR_P(v);
+			zend_turbofish_args_entry *copy = zend_shared_memdup_put_free(entry, sizeof(*entry));
+			zend_persist_type(&copy->args_box);
+			copy->cached_table = NULL;
+			copy->cache_key = 0;
+			Z_PTR_P(v) = copy;
+		} ZEND_HASH_FOREACH_END();
+	} else {
+		Bucket *p;
+		ZEND_HASH_MAP_FOREACH_BUCKET(ht, p) {
+			if (p->key) {
+				zend_accel_store_interned_string(p->key);
+			}
+			zend_turbofish_args_entry *entry = Z_PTR(p->val);
+			zend_turbofish_args_entry *copy = zend_shared_memdup_put_free(entry, sizeof(*entry));
+			zend_persist_type(&copy->args_box);
+			copy->cached_table = NULL;
+			copy->cache_key = 0;
+			Z_PTR(p->val) = copy;
+		} ZEND_HASH_FOREACH_END();
+	}
+	HashTable *ptr = zend_shared_memdup_put_free(ht, sizeof(HashTable));
+	GC_SET_REFCOUNT(ptr, 2);
+	GC_TYPE_INFO(ptr) = GC_ARRAY | ((IS_ARRAY_IMMUTABLE|GC_NOT_COLLECTABLE) << GC_FLAGS_SHIFT);
+	return ptr;
+}
+
+/* Locate the post-persistence NWA payload that holds this monomorph's
+ * bindings — `extends` for class monos, the first `implements` entry for
+ * interface monos, the first `trait_uses` entry for trait monos. Returns
+ * NULL when the ce isn't a monomorph (no generic_types side table). */
+static const zend_type_named_with_args *zend_persist_mono_binding_nwa(const zend_class_entry *ce)
+{
+	if (!ce->generic_types) {
+		return NULL;
+	}
+	if (ce->generic_types->extends && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*ce->generic_types->extends)) {
+		return ZEND_TYPE_NAMED_WITH_ARGS(*ce->generic_types->extends);
+	}
+	HashTable *tables[] = { ce->generic_types->implements, ce->generic_types->trait_uses };
+	for (size_t k = 0; k < sizeof(tables) / sizeof(tables[0]); k++) {
+		if (!tables[k] || zend_hash_num_elements(tables[k]) == 0) continue;
+		zval *zv;
+		ZEND_HASH_FOREACH_VAL(tables[k], zv) {
+			zend_type *boxed = (zend_type *) Z_PTR_P(zv);
+			if (boxed && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*boxed)) {
+				return ZEND_TYPE_NAMED_WITH_ARGS(*boxed);
+			}
+			break;
+		} ZEND_HASH_FOREACH_END();
+	}
+	return NULL;
+}
+
+/* Persist a monomorph's generic_type_args. Each entry's `type_ref` was
+ * borrowed from a heap NWA payload that has just been relocated into SHM
+ * as part of the surrounding ce->generic_types; rebuild type_ref against
+ * the SHM payload so it stays valid after the heap source is freed. */
+static zend_type_arg_table *zend_persist_type_arg_table(
+	zend_type_arg_table *table, const zend_class_entry *ce)
+{
+	if (!table) {
+		return NULL;
+	}
+	const zend_type_named_with_args *new_nwa = zend_persist_mono_binding_nwa(ce);
+	for (uint32_t i = 0; i < table->count; i++) {
+		if (table->entries[i].name) {
+			zend_accel_store_interned_string(table->entries[i].name);
+		}
+		table->entries[i].type_ref =
+			(new_nwa && i < new_nwa->count) ? &new_nwa->args[i] : NULL;
+		if (ZEND_TYPE_IS_SET(table->entries[i].owned_type)) {
+			zend_persist_type(&table->entries[i].owned_type);
+		}
+	}
+	zend_type_arg_table *persisted = zend_shared_memdup_put_free(
+		table, ZEND_TYPE_ARG_TABLE_SIZE(table->count));
+	persisted->persisted = true;
+	return persisted;
+}
+
 static zend_generic_type_table *zend_persist_generic_type_table(zend_generic_type_table *table)
 {
 	if (!table) {
@@ -517,7 +618,7 @@ static zend_generic_type_table *zend_persist_generic_type_table(zend_generic_typ
 	}
 
 	if (persisted->turbofish_args) {
-		persisted->turbofish_args = zend_persist_generic_type_table_ht(persisted->turbofish_args);
+		persisted->turbofish_args = zend_persist_turbofish_args_ht(persisted->turbofish_args);
 	}
 
 	return persisted;
@@ -1348,6 +1449,10 @@ zend_class_entry *zend_persist_class_entry(zend_class_entry *orig_ce)
 
 		if (ce->generic_types) {
 			ce->generic_types = zend_persist_generic_type_table(ce->generic_types);
+		}
+
+		if (ce->generic_type_args) {
+			ce->generic_type_args = zend_persist_type_arg_table(ce->generic_type_args, ce);
 		}
 
 		if (ce->num_interfaces && !(ce->ce_flags & ZEND_ACC_LINKED)) {

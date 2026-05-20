@@ -2578,8 +2578,8 @@ static bool zend_mono_subtype_under_variance(const zend_class_entry *base,
 		return false;
 	}
 	for (uint32_t i = 0; i < count; i++) {
-		zend_string *a_name = a->generic_type_args->names[i];
-		zend_string *b_name = b->generic_type_args->names[i];
+		zend_string *a_name = a->generic_type_args->entries[i].name;
+		zend_string *b_name = b->generic_type_args->entries[i].name;
 		if (!a_name || !b_name) {
 			return false;
 		}

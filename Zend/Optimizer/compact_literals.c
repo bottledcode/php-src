@@ -674,6 +674,12 @@ void zend_optimizer_compact_literals(zend_op_array *op_array, zend_optimizer_ctx
 							cache_size += sizeof(void *);
 							class_slot[opline->op2.constant] = opline->extended_value;
 						}
+					} else if (opline->opcode == ZEND_INSTANCEOF
+							&& opline->op2_type == IS_UNUSED) {
+						/* instanceof T / instanceof Box<T>: 3-slot PIC keyed on
+						 * (type_args generation, called scope, resolved ce). */
+						opline->extended_value = cache_size;
+						cache_size += 3 * sizeof(void *);
 					}
 					break;
 				case ZEND_NEW:
@@ -698,6 +704,12 @@ void zend_optimizer_compact_literals(zend_op_array *op_array, zend_optimizer_ctx
 							cache_size += sizeof(void *);
 							class_slot[opline->op1.constant] = opline->extended_value & ~ZEND_LAST_CATCH;
 						}
+					} else {
+						ZEND_ASSERT(opline->op1_type == IS_UNUSED);
+						/* T-ref / deferred-turbofish catch: 3-slot PIC keyed on
+						 * (type_args generation, called scope, resolved ce). */
+						opline->extended_value = cache_size | (opline->extended_value & ZEND_LAST_CATCH);
+						cache_size += 3 * sizeof(void *);
 					}
 					break;
 				case ZEND_BIND_GLOBAL:

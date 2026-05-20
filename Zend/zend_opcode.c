@@ -180,6 +180,22 @@ static void zend_generic_type_table_value_dtor(zval *zv) {
 	efree(type);
 }
 
+/* Dedicated dtor for turbofish_args entries: each one owns both an inline
+ * args_box (released like a normal boxed type) and a one-slot cached_table
+ * for the runtime call-cache, which must be torn down here since the cache
+ * survives across calls and isn't tied to any single frame. */
+static void zend_turbofish_args_entry_dtor(zval *zv) {
+	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
+	if (entry->cached_table) {
+		/* Drop the persisted flag so the destroy path actually releases names
+		 * and frees the table — the cache, not opcache SHM, owns this. */
+		entry->cached_table->persisted = false;
+		zend_type_arg_table_destroy(entry->cached_table);
+	}
+	zend_type_release(entry->args_box, /* persistent */ false);
+	efree(entry);
+}
+
 ZEND_API zend_generic_type_table *zend_generic_type_table_alloc(void) {
 	zend_generic_type_table *table = ecalloc(1, sizeof(zend_generic_type_table));
 	return table;
@@ -230,6 +246,16 @@ static HashTable *zend_generic_type_table_ensure_indexed(HashTable **slot) {
 		HashTable *ht;
 		ALLOC_HASHTABLE(ht);
 		zend_hash_init(ht, 4, NULL, zend_generic_type_table_value_dtor, /* persistent */ false);
+		*slot = ht;
+	}
+	return *slot;
+}
+
+static HashTable *zend_generic_type_table_ensure_turbofish(HashTable **slot) {
+	if (!*slot) {
+		HashTable *ht;
+		ALLOC_HASHTABLE(ht);
+		zend_hash_init(ht, 4, NULL, zend_turbofish_args_entry_dtor, /* persistent */ false);
 		*slot = ht;
 	}
 	return *slot;
@@ -288,25 +314,44 @@ ZEND_API void zend_generic_type_table_set_trait_use(zend_generic_type_table *t, 
 }
 
 ZEND_API void zend_generic_type_table_set_turbofish_args(zend_generic_type_table *t, uint32_t op_num, zend_type type) {
-	zend_hash_index_update_ptr(zend_generic_type_table_ensure_indexed(&t->turbofish_args), op_num, zend_type_box(type));
+	zend_turbofish_args_entry *entry = emalloc(sizeof(*entry));
+	entry->args_box = type;
+	entry->cached_table = NULL;
+	entry->cache_key = 0;
+	zend_hash_index_update_ptr(zend_generic_type_table_ensure_turbofish(&t->turbofish_args), op_num, entry);
 }
+
+/* Monotonic nonce stamped onto every allocated zend_type_arg_table so PIC
+ * slots can distinguish "same table" from "same address, reused table." 32
+ * bits gives ~4 billion allocations between potential rollovers, which is
+ * fine for in-request scope. */
+static uint32_t zend_type_arg_table_generation_counter = 1;
 
 ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count) {
 	zend_type_arg_table *table = emalloc(ZEND_TYPE_ARG_TABLE_SIZE(count));
 	table->count = count;
+	table->generation = zend_type_arg_table_generation_counter++;
+	table->persisted = false;
 	for (uint32_t i = 0; i < count; i++) {
-		table->names[i] = NULL;
+		table->entries[i].name = NULL;
+		table->entries[i].type_ref = NULL;
+		table->entries[i].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
 	}
 	return table;
 }
 
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table) {
-	if (!table) {
+	if (!table || table->persisted) {
 		return;
 	}
 	for (uint32_t i = 0; i < table->count; i++) {
-		if (table->names[i]) {
-			zend_string_release(table->names[i]);
+		if (table->entries[i].name) {
+			zend_string_release(table->entries[i].name);
+		}
+		/* type_ref is borrowed — never released here. owned_type is the
+		 * locally-synthesised fallback (inference) and is. */
+		if (ZEND_TYPE_IS_SET(table->entries[i].owned_type)) {
+			zend_type_release(table->entries[i].owned_type, /* persistent */ false);
 		}
 	}
 	efree(table);

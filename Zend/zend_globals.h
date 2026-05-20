@@ -225,6 +225,14 @@ struct _zend_executor_globals {
 	struct _zend_execute_data *current_execute_data;
 	const zend_class_entry *fake_scope; /* used to avoid checks accessing properties */
 
+	/* Set while a monomorph (e.g. Box<int>) is being linked against its base.
+	 * Bypasses the FINAL/READONLY checks the linker would otherwise raise
+	 * on a user `extends FinalClass`, since monomorph synthesis is engine-
+	 * internal and the resulting monomorph re-acquires the suppressed bits.
+	 * Replaces a previous design that mutated base->ce_flags in place, which
+	 * would SIGSEGV when base lived in read-only opcache SHM. */
+	bool monomorph_synthesis_active;
+
 	uint32_t jit_trace_num; /* Used by tracing JIT to reference the currently running trace */
 
 	zend_execute_data *current_observed_frame;
