@@ -332,7 +332,8 @@ END_EXTERN_C()
 #define ZEND_DECLARE_ATTRIBUTED_CONST       210
 #define ZEND_TYPE_ASSERT                    211
 #define ZEND_VERIFY_GENERIC_ARGUMENTS       212
+#define ZEND_INSTALL_GENERIC_ARGS           213
 
-#define ZEND_VM_LAST_OPCODE                 212
+#define ZEND_VM_LAST_OPCODE                 213
 
 #endif

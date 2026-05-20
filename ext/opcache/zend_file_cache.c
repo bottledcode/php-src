@@ -534,6 +534,21 @@ static void zend_file_cache_serialize_generic_type_entry(
 	zend_file_cache_serialize_type(boxed, script, info, buf);
 }
 
+/* Serialise a turbofish_args entry — same shape as a boxed type from the
+ * file's perspective but the buffer slot is the larger entry struct. Runtime
+ * cache fields (cached_table, cache_key) are not persisted; the unserialize
+ * side resets them to a cold state. */
+static void zend_file_cache_serialize_turbofish_args_entry(
+		zval *zv, zend_persistent_script *script, zend_file_cache_metainfo *info, void *buf)
+{
+	SERIALIZE_PTR(Z_PTR_P(zv));
+	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
+	UNSERIALIZE_PTR(entry);
+	zend_file_cache_serialize_type(&entry->args_box, script, info, buf);
+	entry->cached_table = NULL;
+	entry->cache_key = 0;
+}
+
 static void zend_file_cache_serialize_generic_type_table_ht(
 		HashTable **ht_ptr, zend_persistent_script *script, zend_file_cache_metainfo *info, void *buf)
 {
@@ -542,6 +557,16 @@ static void zend_file_cache_serialize_generic_type_table_ht(
 	ht = *ht_ptr;
 	UNSERIALIZE_PTR(ht);
 	zend_file_cache_serialize_hash(ht, script, info, buf, zend_file_cache_serialize_generic_type_entry);
+}
+
+static void zend_file_cache_serialize_turbofish_args_ht(
+		HashTable **ht_ptr, zend_persistent_script *script, zend_file_cache_metainfo *info, void *buf)
+{
+	HashTable *ht;
+	SERIALIZE_PTR(*ht_ptr);
+	ht = *ht_ptr;
+	UNSERIALIZE_PTR(ht);
+	zend_file_cache_serialize_hash(ht, script, info, buf, zend_file_cache_serialize_turbofish_args_entry);
 }
 
 static void zend_file_cache_serialize_generic_parameter_list(
@@ -597,7 +622,28 @@ static void zend_file_cache_serialize_generic_type_table(
 		zend_file_cache_serialize_generic_type_table_ht(&table->trait_uses, script, info, buf);
 	}
 	if (table->turbofish_args) {
-		zend_file_cache_serialize_generic_type_table_ht(&table->turbofish_args, script, info, buf);
+		zend_file_cache_serialize_turbofish_args_ht(&table->turbofish_args, script, info, buf);
+	}
+}
+
+/* Serialise a monomorph's generic_type_args. The owned strings (names) and
+ * owned_type payloads are inline within the table — type_ref is a borrowed
+ * pointer that we rebuild from ce->generic_types on the unserialise side, so
+ * we just NULL it out here. */
+static void zend_file_cache_serialize_type_arg_table(
+		zend_type_arg_table **table_ptr, zend_persistent_script *script,
+		zend_file_cache_metainfo *info, void *buf)
+{
+	zend_type_arg_table *table;
+	SERIALIZE_PTR(*table_ptr);
+	table = *table_ptr;
+	UNSERIALIZE_PTR(table);
+	for (uint32_t i = 0; i < table->count; i++) {
+		SERIALIZE_STR(table->entries[i].name);
+		table->entries[i].type_ref = NULL;
+		if (ZEND_TYPE_IS_SET(table->entries[i].owned_type)) {
+			zend_file_cache_serialize_type(&table->entries[i].owned_type, script, info, buf);
+		}
 	}
 }
 
@@ -956,6 +1002,10 @@ static void zend_file_cache_serialize_class(zval                     *zv,
 
 	if (ce->generic_types) {
 		zend_file_cache_serialize_generic_type_table(&ce->generic_types, script, info, buf);
+	}
+
+	if (ce->generic_type_args) {
+		zend_file_cache_serialize_type_arg_table(&ce->generic_type_args, script, info, buf);
 	}
 
 	zend_file_cache_serialize_hash(&ce->properties_info, script, info, buf, zend_file_cache_serialize_prop_info);
@@ -1572,6 +1622,17 @@ static void zend_file_cache_unserialize_generic_type_entry(
 		(zend_type *) Z_PTR_P(zv), zend_file_cache_generic_unserialize_scope, script, buf);
 }
 
+static void zend_file_cache_unserialize_turbofish_args_entry(
+		zval *zv, zend_persistent_script *script, void *buf)
+{
+	UNSERIALIZE_PTR(Z_PTR_P(zv));
+	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
+	zend_file_cache_unserialize_type(
+		&entry->args_box, zend_file_cache_generic_unserialize_scope, script, buf);
+	entry->cached_table = NULL;
+	entry->cache_key = 0;
+}
+
 static void zend_file_cache_unserialize_generic_type_table_ht(
 		HashTable **ht_ptr, zend_class_entry *scope, zend_persistent_script *script, void *buf)
 {
@@ -1580,6 +1641,17 @@ static void zend_file_cache_unserialize_generic_type_table_ht(
 	zend_class_entry *prev = zend_file_cache_generic_unserialize_scope;
 	zend_file_cache_generic_unserialize_scope = scope;
 	zend_file_cache_unserialize_hash(ht, script, buf, zend_file_cache_unserialize_generic_type_entry, NULL);
+	zend_file_cache_generic_unserialize_scope = prev;
+}
+
+static void zend_file_cache_unserialize_turbofish_args_ht(
+		HashTable **ht_ptr, zend_class_entry *scope, zend_persistent_script *script, void *buf)
+{
+	UNSERIALIZE_PTR(*ht_ptr);
+	HashTable *ht = *ht_ptr;
+	zend_class_entry *prev = zend_file_cache_generic_unserialize_scope;
+	zend_file_cache_generic_unserialize_scope = scope;
+	zend_file_cache_unserialize_hash(ht, script, buf, zend_file_cache_unserialize_turbofish_args_entry, NULL);
 	zend_file_cache_generic_unserialize_scope = prev;
 }
 
@@ -1635,7 +1707,48 @@ static void zend_file_cache_unserialize_generic_type_table(
 	}
 
 	if (table->turbofish_args) {
-		zend_file_cache_unserialize_generic_type_table_ht(&table->turbofish_args, scope, script, buf);
+		zend_file_cache_unserialize_turbofish_args_ht(&table->turbofish_args, scope, script, buf);
+	}
+}
+
+/* Mirror of zend_file_cache_serialize_type_arg_table. Rebuilds `type_ref`
+ * to point into the now-unserialized ce->generic_types side table — same
+ * logic as zend_persist_mono_binding_nwa in zend_persist.c. */
+static void zend_file_cache_unserialize_type_arg_table(
+		zend_type_arg_table **table_ptr, zend_class_entry *scope,
+		zend_persistent_script *script, void *buf)
+{
+	UNSERIALIZE_PTR(*table_ptr);
+	zend_type_arg_table *table = *table_ptr;
+	const zend_type_named_with_args *new_nwa = NULL;
+	if (scope && scope->generic_types) {
+		if (scope->generic_types->extends
+				&& ZEND_TYPE_HAS_NAMED_WITH_ARGS(*scope->generic_types->extends)) {
+			new_nwa = ZEND_TYPE_NAMED_WITH_ARGS(*scope->generic_types->extends);
+		} else {
+			HashTable *tables[] = { scope->generic_types->implements,
+				scope->generic_types->trait_uses };
+			for (size_t k = 0; k < sizeof(tables) / sizeof(tables[0]); k++) {
+				if (!tables[k] || zend_hash_num_elements(tables[k]) == 0) continue;
+				zval *zv;
+				ZEND_HASH_FOREACH_VAL(tables[k], zv) {
+					zend_type *boxed = (zend_type *) Z_PTR_P(zv);
+					if (boxed && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*boxed)) {
+						new_nwa = ZEND_TYPE_NAMED_WITH_ARGS(*boxed);
+					}
+					break;
+				} ZEND_HASH_FOREACH_END();
+				if (new_nwa) break;
+			}
+		}
+	}
+	for (uint32_t i = 0; i < table->count; i++) {
+		UNSERIALIZE_STR(table->entries[i].name);
+		table->entries[i].type_ref =
+			(new_nwa && i < new_nwa->count) ? &new_nwa->args[i] : NULL;
+		if (ZEND_TYPE_IS_SET(table->entries[i].owned_type)) {
+			zend_file_cache_unserialize_type(&table->entries[i].owned_type, scope, script, buf);
+		}
 	}
 }
 
@@ -1965,6 +2078,10 @@ static void zend_file_cache_unserialize_class(zval                    *zv,
 
 	if (ce->generic_types) {
 		zend_file_cache_unserialize_generic_type_table(&ce->generic_types, ce, script, buf);
+	}
+
+	if (ce->generic_type_args) {
+		zend_file_cache_unserialize_type_arg_table(&ce->generic_type_args, ce, script, buf);
 	}
 
 	zend_file_cache_unserialize_hash(&ce->properties_info,

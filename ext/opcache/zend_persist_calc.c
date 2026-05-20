@@ -290,6 +290,31 @@ static void zend_persist_generic_type_table_ht_calc(HashTable *ht)
 	ADD_SIZE(sizeof(HashTable));
 }
 
+/* The turbofish_args HT entries are zend_turbofish_args_entry — same as a
+ * boxed type for size accounting purposes, but the entry struct itself is
+ * what we shared-memdup, not a bare zend_type. */
+static void zend_persist_turbofish_args_ht_calc(HashTable *ht)
+{
+	zend_hash_persist_calc(ht);
+	if (HT_IS_PACKED(ht)) {
+		zval *v;
+		ZEND_HASH_PACKED_FOREACH_VAL(ht, v) {
+			ADD_SIZE(sizeof(zend_turbofish_args_entry));
+			zend_persist_type_calc(&((zend_turbofish_args_entry *) Z_PTR_P(v))->args_box);
+		} ZEND_HASH_FOREACH_END();
+	} else {
+		Bucket *p;
+		ZEND_HASH_MAP_FOREACH_BUCKET(ht, p) {
+			if (p->key) {
+				ADD_INTERNED_STRING(p->key);
+			}
+			ADD_SIZE(sizeof(zend_turbofish_args_entry));
+			zend_persist_type_calc(&((zend_turbofish_args_entry *) Z_PTR(p->val))->args_box);
+		} ZEND_HASH_FOREACH_END();
+	}
+	ADD_SIZE(sizeof(HashTable));
+}
+
 static void zend_persist_generic_type_table_calc(zend_generic_type_table *table)
 {
 	if (!table) {
@@ -328,7 +353,23 @@ static void zend_persist_generic_type_table_calc(zend_generic_type_table *table)
 	}
 
 	if (table->turbofish_args) {
-		zend_persist_generic_type_table_ht_calc(table->turbofish_args);
+		zend_persist_turbofish_args_ht_calc(table->turbofish_args);
+	}
+}
+
+static void zend_persist_type_arg_table_calc(zend_type_arg_table *table)
+{
+	if (!table) {
+		return;
+	}
+	ADD_SIZE(ZEND_TYPE_ARG_TABLE_SIZE(table->count));
+	for (uint32_t i = 0; i < table->count; i++) {
+		if (table->entries[i].name) {
+			ADD_INTERNED_STRING(table->entries[i].name);
+		}
+		if (ZEND_TYPE_IS_SET(table->entries[i].owned_type)) {
+			zend_persist_type_calc(&table->entries[i].owned_type);
+		}
 	}
 }
 
@@ -736,6 +777,7 @@ void zend_persist_class_entry_calc(zend_class_entry *ce)
 
 		zend_persist_generic_parameter_list_calc(ce->generic_parameters);
 		zend_persist_generic_type_table_calc(ce->generic_types);
+		zend_persist_type_arg_table_calc(ce->generic_type_args);
 
 		if (ce->num_interfaces) {
 			uint32_t i;

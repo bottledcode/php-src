@@ -2768,6 +2768,12 @@ ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *par
 		}
 	}
 
+	/* Monomorph synthesis (Box<int> extending Box) is engine-internal and
+	 * needs to bypass FINAL / READONLY-mismatch errors that would block a
+	 * user `extends FinalClass`. The synthesized child re-acquires those
+	 * bits after linking via the propagated/suppressed logic in
+	 * zend_synthesize_monomorph. */
+	bool mono_link = EG(monomorph_synthesis_active);
 	if (UNEXPECTED(ce->ce_flags & ZEND_ACC_INTERFACE)) {
 		/* Interface can only inherit other interfaces */
 		if (UNEXPECTED(!(parent_ce->ce_flags & ZEND_ACC_INTERFACE))) {
@@ -2780,7 +2786,7 @@ ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *par
 			zend_error_noreturn(E_COMPILE_ERROR, "Class %s cannot extend enum %s", ZSTR_VAL(ce->name), ZSTR_VAL(parent_ce->name));
 		}
 		/* Class must not extend a final class */
-		if (parent_ce->ce_flags & ZEND_ACC_FINAL) {
+		if (!mono_link && (parent_ce->ce_flags & ZEND_ACC_FINAL)) {
 			zend_error_noreturn(E_COMPILE_ERROR, "Class %s cannot extend final class %s", ZSTR_VAL(ce->name), ZSTR_VAL(parent_ce->name));
 		}
 
@@ -2792,7 +2798,7 @@ ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *par
 		}
 	}
 
-	if (UNEXPECTED((ce->ce_flags & ZEND_ACC_READONLY_CLASS) != (parent_ce->ce_flags & ZEND_ACC_READONLY_CLASS))) {
+	if (!mono_link && UNEXPECTED((ce->ce_flags & ZEND_ACC_READONLY_CLASS) != (parent_ce->ce_flags & ZEND_ACC_READONLY_CLASS))) {
 		zend_error_noreturn(E_COMPILE_ERROR, "%s class %s cannot extend %s class %s",
 			ce->ce_flags & ZEND_ACC_READONLY_CLASS ? "Readonly" : "Non-readonly", ZSTR_VAL(ce->name),
 			parent_ce->ce_flags & ZEND_ACC_READONLY_CLASS ? "readonly" : "non-readonly", ZSTR_VAL(parent_ce->name)
@@ -5596,10 +5602,53 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 	uint32_t i, j;
 	zval *zv;
 	zend_string *synthesized_lc_parent = NULL;
+	zend_class_entry *cache_key_proto = NULL;
 	ALLOCA_FLAG(use_heap)
 
 	SET_ALLOCA_FLAG(use_heap);
 	ZEND_ASSERT(!(ce->ce_flags & ZEND_ACC_LINKED));
+
+	/* When this link will rewrite ce->parent_name or ce->interface_names
+	 * during monomorph synthesis (extends/implements/use with concrete
+	 * generic args), the writes happen below — but ce may live in read-only
+	 * opcache SHM under opcache.protect_memory=1. Lazy-load the mutable copy
+	 * now and remember the immutable pointer so the inheritance cache lookup
+	 * further down still keys against the same proto opcache stored under.
+	 * Limited to classes that actually carry a generic side-table so we don't
+	 * pay the copy cost on every link. */
+	if ((ce->ce_flags & ZEND_ACC_IMMUTABLE)
+			&& ce->generic_types
+			&& (ce->generic_types->extends
+				|| ce->generic_types->implements
+				|| ce->generic_types->trait_uses)) {
+		cache_key_proto = ce;
+		ce = zend_lazy_class_load(ce);
+		zv = zend_hash_find_known_hash(CG(class_table), key);
+		Z_CE_P(zv) = ce;
+		/* zend_lazy_class_load deep-copies properties/methods/etc. but the
+		 * interface_names/trait_names arrays themselves still point into the
+		 * immutable SHM. Monomorph synthesis below rewrites entries in
+		 * those arrays, so detach them into emalloc'd copies first. The
+		 * name strings are interned, so addref/release stays a no-op. */
+		if (ce->num_interfaces) {
+			zend_class_name *src = ce->interface_names;
+			ce->interface_names = emalloc(sizeof(zend_class_name) * ce->num_interfaces);
+			memcpy(ce->interface_names, src, sizeof(zend_class_name) * ce->num_interfaces);
+			for (uint32_t k = 0; k < ce->num_interfaces; k++) {
+				zend_string_addref(ce->interface_names[k].name);
+				zend_string_addref(ce->interface_names[k].lc_name);
+			}
+		}
+		if (ce->num_traits) {
+			zend_class_name *src = ce->trait_names;
+			ce->trait_names = emalloc(sizeof(zend_class_name) * ce->num_traits);
+			memcpy(ce->trait_names, src, sizeof(zend_class_name) * ce->num_traits);
+			for (uint32_t k = 0; k < ce->num_traits; k++) {
+				zend_string_addref(ce->trait_names[k].name);
+				zend_string_addref(ce->trait_names[k].lc_name);
+			}
+		}
+	}
 
 	/* Bound-erased generics, extends-with-args: when this class declared
 	 * `extends Box<int>`, its compile-time side table holds the pre-erasure
@@ -5885,9 +5934,12 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 	}
 #endif
 
-	if (ce->ce_flags & ZEND_ACC_IMMUTABLE && is_cacheable) {
+	if ((ce->ce_flags & ZEND_ACC_IMMUTABLE || cache_key_proto) && is_cacheable) {
 		if (zend_inheritance_cache_get && zend_inheritance_cache_add) {
-			zend_class_entry *ret = zend_inheritance_cache_get(ce, parent, traits_and_interfaces);
+			/* When we lazy-loaded early (cache_key_proto != NULL), the
+			 * immutable original is the cache key opcache stored under. */
+			zend_class_entry *key_ce = cache_key_proto ? cache_key_proto : ce;
+			zend_class_entry *ret = zend_inheritance_cache_get(key_ce, parent, traits_and_interfaces);
 			if (ret) {
 				if (traits_and_interfaces) {
 					free_alloca(traits_and_interfaces, use_heap);
@@ -5899,7 +5951,7 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 		} else {
 			is_cacheable = 0;
 		}
-		proto = ce;
+		proto = cache_key_proto ? cache_key_proto : ce;
 	}
 
 	/* Delay and record warnings (such as deprecations) thrown during
@@ -6503,10 +6555,17 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph(
 	ce->name = canonical;
 
 	/* Stash the bindings the runtime needs when method bodies reference the
-	 * class-level T directly (e.g. `new T()` inside `class Box<T>`'s body). */
+	 * class-level T directly (e.g. `new T()` inside `class Box<T>`'s body).
+	 * The bound type is borrowed from extends_payload's NWA — that payload
+	 * gets installed into ce->generic_types below, so it has the same
+	 * lifetime as ce itself, and ce->generic_type_args has the same
+	 * lifetime as ce too. The canonical name is owned by the entry. */
+	const zend_type_named_with_args *binding_nwa =
+		ZEND_TYPE_NAMED_WITH_ARGS(extends_payload);
 	ce->generic_type_args = zend_type_arg_table_alloc(arity);
 	for (uint32_t i = 0; i < arity; i++) {
-		ce->generic_type_args->names[i] = zend_type_arg_canonical_name(args[i]);
+		ce->generic_type_args->entries[i].name = zend_type_arg_canonical_name(binding_nwa->args[i]);
+		ce->generic_type_args->entries[i].type_ref = &binding_nwa->args[i];
 	}
 
 	bool base_is_interface = (base->ce_flags & ZEND_ACC_INTERFACE) != 0;
@@ -6554,19 +6613,22 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph(
 
 	/* Monomorph synthesis is an engine-internal child of the base, not a
 	 * user-declared subclass. final/readonly restrictions that gate
-	 * user-level extension are temporarily suppressed for the link and then
-	 * re-applied to the monomorph so user code still can't `extends Box<int>`
-	 * if Box itself was final. Abstract is propagated so the monomorph of an
-	 * abstract class stays abstract (and a concrete subclass can implement
-	 * its methods). */
-	uint32_t suppressed = base->ce_flags & (ZEND_ACC_FINAL | ZEND_ACC_READONLY_CLASS);
+	 * user-level extension are bypassed via EG(monomorph_synthesis_active)
+	 * for the duration of the link, then propagated to the monomorph so user
+	 * code still can't `extends Box<int>` if Box itself was final. Abstract
+	 * is propagated so the monomorph of an abstract class stays abstract
+	 * (and a concrete subclass can implement its methods). Note: we don't
+	 * mutate base->ce_flags here because base may live in read-only opcache
+	 * SHM (opcache.protect_memory=1). */
+	uint32_t inherited = base->ce_flags & (ZEND_ACC_FINAL | ZEND_ACC_READONLY_CLASS);
 	uint32_t propagated = base->ce_flags & (ZEND_ACC_EXPLICIT_ABSTRACT_CLASS);
-	base->ce_flags &= ~suppressed;
 	ce->ce_flags |= propagated;
+	bool prev_mono_active = EG(monomorph_synthesis_active);
+	EG(monomorph_synthesis_active) = true;
 	zend_class_entry *linked = zend_do_link_class(ce, parent_lc, lc_canonical);
-	base->ce_flags |= suppressed;
+	EG(monomorph_synthesis_active) = prev_mono_active;
 	if (linked) {
-		linked->ce_flags |= suppressed;
+		linked->ce_flags |= inherited;
 	}
 	if (parent_lc) zend_string_release(parent_lc);
 

@@ -45,8 +45,8 @@ $_main:
 0004 SEND_VAL int(5) 1
 0005 T2 = DO_UCALL
 0006 INIT_METHOD_CALL 1 CV0($o) string("foo")
-0007 SEND_VAL_EX T2 1
-0008 T2 = DO_FCALL
+0007 SEND_VAL T2 1
+0008 T2 = DO_UCALL
 0009 INIT_STATIC_METHOD_CALL 1 string("Other") string("bar")
 0010 SEND_VAL T2 1
 0011 T2 = DO_UCALL
@@ -57,7 +57,6 @@ $_main:
 0016 RETURN int(1)
 LIVE RANGES:
      2: 0001 - 0002 (new)
-     2: 0009 - 0010 (tmp/var)
 
 _test1:
      ; (lines=4, args=1, vars=1, tmps=%d)

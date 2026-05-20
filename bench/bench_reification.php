@@ -237,6 +237,90 @@ function plain_arg_check(int $n): void {
 }
 
 // --------------------------------------------------------------------------
+// Scenario 9: forwarded T-refs — `id::<U>($x)` inside a generic wrapper.
+// Exercises (a) per-call zend_type_arg_table build via the borrowed-pointer
+// chain, (b) zend_check_user_type_slow on the substituted type, and (c) the
+// VERIFY path that INSTALL can't elide (T-refs in turbofish).
+// --------------------------------------------------------------------------
+function idGen<T>(T $x): T { return $x; }
+function nestedGen<U>(U $x): U { return idGen::<U>($x); }
+interface Fooable {}
+interface Barable {}
+class FooBar implements Fooable, Barable {}
+
+function forwarded_scalar(int $n): void {
+    for ($i = 0; $i < $n; $i++) {
+        nestedGen::<int>($i);
+    }
+}
+function direct_scalar(int $n): void {
+    for ($i = 0; $i < $n; $i++) {
+        idGen::<int>($i);
+    }
+}
+function forwarded_class(int $n): void {
+    $f = new Foo();
+    for ($i = 0; $i < $n; $i++) {
+        nestedGen::<Foo>($f);
+    }
+}
+function direct_class(int $n): void {
+    $f = new Foo();
+    for ($i = 0; $i < $n; $i++) {
+        idGen::<Foo>($f);
+    }
+}
+function forwarded_union(int $n): void {
+    for ($i = 0; $i < $n; $i++) {
+        nestedGen::<int|string>($i);
+    }
+}
+function forwarded_intersection(int $n): void {
+    $fb = new FooBar();
+    for ($i = 0; $i < $n; $i++) {
+        nestedGen::<Fooable&Barable>($fb);
+    }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 10: generic instanceof/catch in a hot inner loop — exercises the
+// polymorphic inline cache on the IS_UNUSED FETCH_CLASS path. The first
+// iteration misses; subsequent iterations within the same frame hit on a
+// pointer compare against (type_args generation, called_scope).
+// --------------------------------------------------------------------------
+class Container<T> {}
+
+function instanceof_t_hot_loop<T>(array $items): int {
+    $count = 0;
+    foreach ($items as $item) {
+        if ($item instanceof Container<T>) {
+            $count++;
+        }
+    }
+    return $count;
+}
+function instanceof_concrete_hot_loop(array $items): int {
+    $count = 0;
+    foreach ($items as $item) {
+        if ($item instanceof Container) {
+            $count++;
+        }
+    }
+    return $count;
+}
+
+function bench_instanceof_t(int $n): void {
+    $items = [new Container::<int>(), new Container::<string>(), new Foo()];
+    /* outer N drives the inner-loop count via a fixed batch — keeps the
+     * PIC slot warm across iterations of the body. */
+    instanceof_t_hot_loop::<int>(array_fill(0, $n, $items[0]));
+}
+function bench_instanceof_concrete(int $n): void {
+    $items = [new Container::<int>(), new Container::<string>(), new Foo()];
+    instanceof_concrete_hot_loop(array_fill(0, $n, $items[0]));
+}
+
+// --------------------------------------------------------------------------
 // Driver
 // --------------------------------------------------------------------------
 echo "PHP ", PHP_VERSION, " (", PHP_BINARY, ")\n";
@@ -296,5 +380,34 @@ $reified_arg_ns = bench("takesTBounded::<Foo>(\$f)", 'reified_arg_check');
 $plain_arg_ns   = bench("takesPlain(\$f)",            'plain_arg_check');
 compare("delta: reified arg check    vs plain typed arg", $reified_arg_ns, "reif", $plain_arg_ns, "plain");
 
-echo "\nNote: opcache is disabled (php -n). Same build, same interpreter\n";
+section("9. Forwarded T-refs (nested generic calls)");
+$fwd_scalar_ns  = bench("nestedGen::<int>(\$i) — forwarded scalar",     'forwarded_scalar');
+$dir_scalar_ns  = bench("idGen::<int>(\$i)     — direct scalar",         'direct_scalar');
+compare("delta: forwarded scalar     vs direct scalar", $fwd_scalar_ns, "fwd", $dir_scalar_ns, "dir");
+$fwd_class_ns   = bench("nestedGen::<Foo>(\$f) — forwarded class",       'forwarded_class');
+$dir_class_ns   = bench("idGen::<Foo>(\$f)     — direct class",          'direct_class');
+compare("delta: forwarded class      vs direct class", $fwd_class_ns, "fwd", $dir_class_ns, "dir");
+$fwd_union_ns   = bench("nestedGen::<int|string>     — forwarded union", 'forwarded_union', ITERS_LIGHT);
+$fwd_inter_ns   = bench("nestedGen::<Fooable&Barable> — forwarded ix",   'forwarded_intersection', ITERS_LIGHT);
+compare("delta: forwarded union      vs forwarded scalar", $fwd_union_ns, "uni", $fwd_scalar_ns, "scl");
+
+section("10. Generic instanceof in hot inner loop (PIC)");
+$inst_t_ns        = bench("instanceof Container<T> (PIC warm)", 'bench_instanceof_t');
+$inst_concrete_ns = bench("instanceof Container    (cache slot)", 'bench_instanceof_concrete');
+compare("delta: instanceof T         vs instanceof bare", $inst_t_ns, "T", $inst_concrete_ns, "bare");
+
+$opcache_loaded = extension_loaded('Zend OPcache');
+$opcache_on = $opcache_loaded
+    && function_exists('opcache_get_status')
+    && (bool) (opcache_get_status(false)['opcache_enabled'] ?? false);
+$jit_on = false;
+if ($opcache_on) {
+    $status = opcache_get_status(false);
+    /* 'enabled' = JIT is built into this opcache; 'on' = JIT is active at runtime */
+    $jit_on = (bool) ($status['jit']['on'] ?? false);
+}
+$opcache_label = $opcache_on
+    ? ('enabled' . ($jit_on ? ' + JIT' : ', JIT off'))
+    : ($opcache_loaded ? 'loaded but disabled (opcache.enable_cli=0)' : 'not loaded');
+echo "\nNote: opcache is $opcache_label. Same build, same interpreter\n";
 echo "      path across all scenarios — deltas between rows are the signal.\n";

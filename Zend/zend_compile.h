@@ -197,23 +197,77 @@ ZEND_API void zend_check_generic_arg_list_size(zend_ast *list_ast);
 ZEND_API void zend_check_generic_call_arguments(const zend_function *fbc, uint32_t arity, const zend_type *args_box);
 ZEND_API void zend_check_generic_new_arguments(const zend_class_entry *ce, uint32_t arity, const zend_type *args_box);
 ZEND_API const zend_type *zend_generic_get_turbofish_args(const zend_op_array *caller_op_array, uint32_t args_id);
+ZEND_API struct _zend_turbofish_args_entry *zend_generic_get_turbofish_call_entry(const zend_op_array *caller_op_array, uint32_t args_id);
 
-/* Per-call-frame mapping of generic type parameters to bound class names. NULL
- * entries mean "use the parameter's bound" (the erased default). Lifetime is
- * tied to the call frame: allocated by VERIFY_GENERIC_ARGUMENTS for a function
- * call (or inferred at RECV time), freed when the frame unwinds. */
+/* Per-call-frame mapping of generic type parameters to their bindings.
+ * `name` is the canonical class name (or scalar/composite canonical string)
+ * for the bound type, used for class lookups and equality. The bound type
+ * itself is reachable via:
+ *   - `type_ref`: a borrowed pointer to a zend_type in longer-lived
+ *     storage — typically a turbofish args_box (held by some op_array's
+ *     side table) or a parent frame's entry. Frames nest, so the source
+ *     is guaranteed to outlive the entry.
+ *   - `owned_type`: a zend_type owned by this entry. Used when no
+ *     pre-existing zend_type can be borrowed — currently only for
+ *     value-directed inference, where the inferred class-name zend_type
+ *     is synthesised fresh. Released by zend_type_arg_table_destroy.
+ * Reads prefer `type_ref` when non-NULL, otherwise `owned_type`. When both
+ * are unset the parameter is unbound — consumers fall back to the
+ * parameter's declared bound.
+ *
+ * Lifetime: allocated by VERIFY_GENERIC_ARGUMENTS for a function call (or
+ * inferred at RECV time), freed when the frame unwinds. `generation` is a
+ * monotonically-increasing nonce assigned at allocation time so cache
+ * slots that key off the table pointer can detect ABA reuse. */
+typedef struct _zend_type_arg_entry {
+	zend_string     *name;
+	const zend_type *type_ref;
+	zend_type        owned_type;
+} zend_type_arg_entry;
+
 typedef struct _zend_type_arg_table {
 	uint32_t count;
-	zend_string *names[1];
+	uint32_t generation;
+	/* True when the table has been relocated into opcache SHM / file cache
+	 * as part of a persisted class entry's `generic_type_args`. Tells the
+	 * destroy path to leave the table and its name/type contents alone. */
+	bool persisted;
+	zend_type_arg_entry entries[1];
 } zend_type_arg_table;
 
 #define ZEND_TYPE_ARG_TABLE_SIZE(count) \
-	(sizeof(zend_type_arg_table) + ((count) - 1) * sizeof(zend_string *))
+	(sizeof(zend_type_arg_table) + ((count) - 1) * sizeof(zend_type_arg_entry))
+
+/* Read the bound type for an entry — returns NULL if unbound. */
+static zend_always_inline const zend_type *zend_type_arg_entry_type(const zend_type_arg_entry *entry) {
+	if (entry->type_ref) return entry->type_ref;
+	if (ZEND_TYPE_IS_SET(entry->owned_type)) return &entry->owned_type;
+	return NULL;
+}
+
+/* Per-call-site side entry: stores both the compile-time args_box and a
+ * one-slot runtime cache of the most recently built type-arg table at this
+ * call site, keyed on the caller frame's binding identities. On a hit, the
+ * cached table is reused (marked persisted so the frame doesn't free it)
+ * instead of rebuilding via zend_build_generic_call_type_args. Inline
+ * args_box keeps zend_generic_get_turbofish_args returning a stable pointer
+ * at the same offset that callers expect. */
+typedef struct _zend_turbofish_args_entry {
+	zend_type             args_box;
+	zend_type_arg_table  *cached_table;
+	/* 0 = empty; ZEND_TURBOFISH_CACHE_KEY_CONCRETE = invariant (no T-refs);
+	 * otherwise a fingerprint built from the caller's referenced binding name
+	 * pointers (interned, so pointer-stable across calls with same value). */
+	uintptr_t             cache_key;
+} zend_turbofish_args_entry;
+
+#define ZEND_TURBOFISH_CACHE_KEY_CONCRETE ((uintptr_t)1)
 
 ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count);
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
 ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type);
 ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(zend_execute_data *call, const zend_type *args_box);
+ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(zend_execute_data *call, struct _zend_turbofish_args_entry *entry);
 ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type);
 ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id, uint32_t fetch_type);
 ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box);

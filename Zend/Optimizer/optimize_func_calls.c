@@ -74,6 +74,69 @@ static void zend_delete_call_instructions(const zend_op_array *op_array, zend_op
 	}
 }
 
+/* The compiler emits a speculative VERIFY_GENERIC_ARGUMENTS at call sites
+ * where the callee can't be resolved at compile time; the runtime handler
+ * short-circuits when the resolved callee turns out to be non-generic. Once
+ * the optimizer has resolved the callee here, that VERIFY (and any INSTALL,
+ * defensively) is provably dead — NOP it out so downstream passes (inline,
+ * DCE, JIT) don't have to model the extra opcode.
+ *
+ * For NEW the VERIFY also performs the class-level generic-arg arity/bound
+ * check against the *class*, not the constructor; in that case the
+ * constructor's func is irrelevant and we have to consult the class entry
+ * passed alongside it. */
+static void zend_nop_dead_generic_verify(
+		zend_op *do_opline, const zend_function *func, const zend_class_entry *new_ce)
+{
+	if (new_ce && new_ce->generic_parameters) {
+		return;  /* `new GenericClass::<...>` VERIFY does class-arity check */
+	}
+	if (func && ZEND_USER_CODE(func->common.type) && func->op_array.generic_parameters) {
+		return;  /* genuinely generic — leave the verify alone */
+	}
+	if (!func && !new_ce) return;
+	zend_op *opline = do_opline - 1;
+	int call = 0;
+	while (1) {
+		switch (opline->opcode) {
+			case ZEND_INIT_FCALL_BY_NAME:
+			case ZEND_INIT_NS_FCALL_BY_NAME:
+			case ZEND_INIT_STATIC_METHOD_CALL:
+			case ZEND_INIT_METHOD_CALL:
+			case ZEND_INIT_FCALL:
+			case ZEND_INIT_PARENT_PROPERTY_HOOK_CALL:
+			case ZEND_NEW:
+			case ZEND_INIT_DYNAMIC_CALL:
+			case ZEND_INIT_USER_CALL:
+				/* Hitting any call-setup at call==0 means we've reached the
+				 * matching INIT/NEW for this DO_FCALL — no further VERIFY
+				 * to scan; bail out before walking off the opcode array. */
+				if (call == 0) return;
+				call--;
+				break;
+			case ZEND_DO_FCALL:
+			case ZEND_DO_ICALL:
+			case ZEND_DO_UCALL:
+			case ZEND_DO_FCALL_BY_NAME:
+				call++;
+				break;
+			case ZEND_VERIFY_GENERIC_ARGUMENTS:
+			case ZEND_INSTALL_GENERIC_ARGS:
+				if (call == 0) {
+					/* Even when the callee is non-generic, VERIFY's arity
+					 * check needs to fire if turbofish args were supplied
+					 * (`f::<int>()` on a non-generic `f` must error). The
+					 * compiler stores the turbofish args_id in extended_value
+					 * — non-zero means "user passed turbofish here." */
+					if (opline->extended_value != 0) return;
+					MAKE_NOP(opline);
+				}
+				break;
+		}
+		opline--;
+	}
+}
+
 /* Returns true if a VERIFY_GENERIC_ARGUMENTS sits between this call's INIT and
  * DO opcodes; such a call cannot be inlined because the verify opcode reads
  * EX(call), which goes away once the frame is dropped. */
@@ -88,13 +151,15 @@ static bool zend_call_has_generic_arguments_check(zend_op *opline)
 			case ZEND_INIT_METHOD_CALL:
 			case ZEND_INIT_FCALL:
 			case ZEND_INIT_PARENT_PROPERTY_HOOK_CALL:
-				if (call == 0) {
-					return false;
-				}
-				ZEND_FALLTHROUGH;
 			case ZEND_NEW:
 			case ZEND_INIT_DYNAMIC_CALL:
 			case ZEND_INIT_USER_CALL:
+				/* Same termination guard as zend_nop_dead_generic_verify
+				 * — NEW also acts as the call setup for the constructor's
+				 * DO_FCALL in `new Foo()` (no separate INIT). */
+				if (call == 0) {
+					return false;
+				}
 				call--;
 				break;
 			case ZEND_DO_FCALL:
@@ -104,6 +169,7 @@ static bool zend_call_has_generic_arguments_check(zend_op *opline)
 				call++;
 				break;
 			case ZEND_VERIFY_GENERIC_ARGUMENTS:
+			case ZEND_INSTALL_GENERIC_ARGS:
 				if (call == 0) {
 					return true;
 				}
@@ -137,10 +203,12 @@ static void zend_try_inline_call(zend_op_array *op_array, const zend_op *fcall, 
 				return;
 			}
 
-			if (op_array->generic_types
-					&& op_array->generic_types->turbofish_args
-					&& zend_call_has_generic_arguments_check(opline - 1)) {
-				/* The verify opcode must run; inlining would orphan it. */
+			if (zend_call_has_generic_arguments_check(opline - 1)) {
+				/* The verify opcode must run; inlining would orphan it. The
+				 * scan is cheap and handles both the turbofish path (where
+				 * generic_types->turbofish_args is populated) and the
+				 * speculative emit for unknown-at-compile-time callees
+				 * (which has no turbofish args at all). */
 				return;
 			}
 
@@ -239,6 +307,24 @@ void zend_optimize_func_calls(zend_op_array *op_array, zend_optimizer_ctx *ctx)
 			case ZEND_DO_FCALL_BY_NAME:
 			case ZEND_CALLABLE_CONVERT:
 				call--;
+				/* INIT_DYNAMIC_CALL / INIT_USER_CALL don't get their callee
+				 * resolved in the upper switch (no specialized INIT rewrite is
+				 * possible), but we can still resolve for VERIFY-elision purposes
+				 * — get_called_func now infers a callee when the CV holds a
+				 * known constant or NEW result. Use the result for VERIFY
+				 * elision only; don't promote the INIT/DO opcodes or attempt
+				 * inlining, since the call site must stay dynamic-shaped. */
+				if (!call_stack[call].func && call_stack[call].opline
+						&& (call_stack[call].opline->opcode == ZEND_INIT_DYNAMIC_CALL
+							|| call_stack[call].opline->opcode == ZEND_INIT_USER_CALL)
+						&& opline->opcode != ZEND_CALLABLE_CONVERT) {
+					bool is_prototype = false;
+					const zend_function *func = zend_optimizer_get_called_func(
+						ctx->script, op_array, call_stack[call].opline, &is_prototype);
+					if (func) {
+						zend_nop_dead_generic_verify(opline, func, NULL);
+					}
+				}
 				if (call_stack[call].func && call_stack[call].opline) {
 					zend_op *fcall = call_stack[call].opline;
 
@@ -272,6 +358,22 @@ void zend_optimize_func_calls(zend_op_array *op_array, zend_optimizer_ctx *ctx)
 					 * ZEND_ACC_NODISCARD functions. */
 					if (opline->opcode != ZEND_CALLABLE_CONVERT) {
 						opline->opcode = zend_get_call_op(fcall, call_stack[call].func, !RESULT_UNUSED(opline));
+					}
+
+					/* Strip the speculative generic-arg verify now that we
+					 * know the callee — needs to happen before the inline
+					 * attempt below, which bails out when a verify still
+					 * sits between INIT and DO. For NEW, pass the class
+					 * entry separately so the helper can spot a generic
+					 * class with a non-generic constructor (the VERIFY's
+					 * arity check is against the class, not the ctor). */
+					if (opline->opcode != ZEND_CALLABLE_CONVERT) {
+						const zend_class_entry *new_ce = NULL;
+						if (fcall->opcode == ZEND_NEW) {
+							new_ce = zend_optimizer_get_class_entry_from_op1(
+								ctx->script, op_array, fcall);
+						}
+						zend_nop_dead_generic_verify(opline, call_stack[call].func, new_ce);
 					}
 
 					if ((ZEND_OPTIMIZER_PASS_16 & ctx->optimization_level)
