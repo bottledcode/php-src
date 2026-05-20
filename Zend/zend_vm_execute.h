@@ -22134,6 +22134,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 	uint32_t arity = opline->op2.num;
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
@@ -22150,7 +22151,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -22218,11 +22219,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 	zend_execute_data *call = EX(call);
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
 	if (IS_TMP_VAR == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 		if (t) {
 			if (call->type_args) {
 				zend_type_arg_table_destroy(call->type_args);
@@ -37739,6 +37741,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 	uint32_t arity = opline->op2.num;
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
@@ -37755,7 +37758,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -37823,11 +37826,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 	zend_execute_data *call = EX(call);
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
 	if (IS_UNUSED == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 		if (t) {
 			if (call->type_args) {
 				zend_type_arg_table_destroy(call->type_args);
@@ -75244,6 +75248,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 	uint32_t arity = opline->op2.num;
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
@@ -75260,7 +75265,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -75328,11 +75333,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 	zend_execute_data *call = EX(call);
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
 	if (IS_TMP_VAR == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 		if (t) {
 			if (call->type_args) {
 				zend_type_arg_table_destroy(call->type_args);
@@ -90849,6 +90855,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 	uint32_t arity = opline->op2.num;
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
@@ -90865,7 +90872,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -90933,11 +90940,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 	zend_execute_data *call = EX(call);
 	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
 	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
 
 	SAVE_OPLINE();
 
 	if (IS_UNUSED == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
 		if (t) {
 			if (call->type_args) {
 				zend_type_arg_table_destroy(call->type_args);

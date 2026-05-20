@@ -715,34 +715,28 @@ static bool zend_call_is_cacheable_against_args(
  * stable, the freshly built table is also stashed in the cache for future
  * iterations. The "store on first miss, never replace" policy avoids
  * dangling: a replaced cached_table could still be referenced by a live
- * frame's call->type_args. */
+ * frame's call->type_args.
+ *
+ * `cache_slot` points to a 2-pointer runtime cache slot owned by the
+ * executing op_array — slot[0] = cached zend_type_arg_table*, slot[1] =
+ * cache key. Runtime cache memory is allocated per-process and writable
+ * even when the op_array's persistent metadata lives in opcache SHM. */
 ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(
-		zend_execute_data *call, zend_turbofish_args_entry *entry)
+		zend_execute_data *call, const zend_type *args_box, void **cache_slot)
 {
-	if (!entry) {
+	if (!args_box) {
 		return zend_build_generic_call_type_args(call, NULL);
 	}
-	const zend_type *args_box = &entry->args_box;
 	zend_execute_data *caller = EG(current_execute_data);
-	/* The entry lives in the caller op_array's generic_types side table; when
-	 * that side table has been persisted to opcache SHM it's mapped read-only,
-	 * so any cache writes here would SIGSEGV. The `persisted` flag on the
-	 * generic_type_table is set by zend_persist_generic_type_table and is the
-	 * authoritative signal (op_array->fn_flags ZEND_ACC_IMMUTABLE is unset on
-	 * $_main even though its side table is still in SHM). */
-	bool entry_writable = !caller || !caller->func
-		|| !ZEND_USER_CODE(caller->func->common.type)
-		|| !caller->func->op_array.generic_types
-		|| !caller->func->op_array.generic_types->persisted;
 	uintptr_t key = zend_compute_call_cache_key(args_box, caller);
-	if (key && entry->cached_table && entry->cache_key == key) {
-		return entry->cached_table;
+	if (cache_slot && key && cache_slot[0] && (uintptr_t)cache_slot[1] == key) {
+		return (zend_type_arg_table *)cache_slot[0];
 	}
 	zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
-	if (t && key && entry_writable && !entry->cached_table
+	if (t && key && cache_slot && !cache_slot[0]
 			&& zend_call_is_cacheable_against_args(call->func, args_box)) {
-		entry->cached_table = t;
-		entry->cache_key = key;
+		cache_slot[0] = t;
+		cache_slot[1] = (void *)key;
 		t->persisted = true;
 	}
 	return t;
@@ -1207,7 +1201,13 @@ static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t 
 		opline->op1.num = 0;
 	}
 	opline->result_type = IS_UNUSED;
-	opline->result.num = 0;
+	/* When there's a turbofish, reserve a 2-slot inline cache in the caller
+	 * op_array's runtime cache: slot[0] = cached zend_type_arg_table*,
+	 * slot[1] = caller-binding fingerprint (cache key). The runtime cache is
+	 * per-process and writable even when the op_array's side tables are
+	 * persisted to opcache SHM, so this cache survives opcache without the
+	 * SHM-write gating that previously disabled it. */
+	opline->result.num = args_id ? zend_alloc_cache_slots(2) : 0;
 }
 
 static zend_generic_parameter_list *zend_compile_generic_type_parameter_list(
