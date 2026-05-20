@@ -245,29 +245,25 @@ static zend_always_inline const zend_type *zend_type_arg_entry_type(const zend_t
 	return NULL;
 }
 
-/* Per-call-site side entry: stores both the compile-time args_box and a
- * one-slot runtime cache of the most recently built type-arg table at this
- * call site, keyed on the caller frame's binding identities. On a hit, the
- * cached table is reused (marked persisted so the frame doesn't free it)
- * instead of rebuilding via zend_build_generic_call_type_args. Inline
- * args_box keeps zend_generic_get_turbofish_args returning a stable pointer
- * at the same offset that callers expect. */
+/* Per-call-site side entry: stores the compile-time args_box. The one-slot
+ * runtime cache that pairs with this (cached zend_type_arg_table* keyed on
+ * the caller's binding identities) lives in the caller op_array's runtime
+ * cache, addressed by opline->result.num — that storage is per-process and
+ * writable even when the entry itself is persisted to opcache SHM. */
 typedef struct _zend_turbofish_args_entry {
 	zend_type             args_box;
-	zend_type_arg_table  *cached_table;
-	/* 0 = empty; ZEND_TURBOFISH_CACHE_KEY_CONCRETE = invariant (no T-refs);
-	 * otherwise a fingerprint built from the caller's referenced binding name
-	 * pointers (interned, so pointer-stable across calls with same value). */
-	uintptr_t             cache_key;
 } zend_turbofish_args_entry;
 
+/* Cache key sentinel for concrete-arg call sites (no T-refs in the args).
+ * Cache key 0 means empty; CONCRETE means "args fully resolved at compile
+ * time, table is invariant across calls." */
 #define ZEND_TURBOFISH_CACHE_KEY_CONCRETE ((uintptr_t)1)
 
 ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count);
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
 ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type);
 ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(zend_execute_data *call, const zend_type *args_box);
-ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(zend_execute_data *call, struct _zend_turbofish_args_entry *entry);
+ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(zend_execute_data *call, const zend_type *args_box, void **cache_slot);
 ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type);
 ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id, uint32_t fetch_type);
 ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box);

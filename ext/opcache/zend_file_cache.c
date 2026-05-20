@@ -535,9 +535,9 @@ static void zend_file_cache_serialize_generic_type_entry(
 }
 
 /* Serialise a turbofish_args entry — same shape as a boxed type from the
- * file's perspective but the buffer slot is the larger entry struct. Runtime
- * cache fields (cached_table, cache_key) are not persisted; the unserialize
- * side resets them to a cold state. */
+ * file's perspective but the buffer slot is the entry struct (currently a
+ * single args_box; the per-call-site runtime cache that pairs with it lives
+ * in the caller op_array's runtime cache slot, not here). */
 static void zend_file_cache_serialize_turbofish_args_entry(
 		zval *zv, zend_persistent_script *script, zend_file_cache_metainfo *info, void *buf)
 {
@@ -545,8 +545,6 @@ static void zend_file_cache_serialize_turbofish_args_entry(
 	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
 	UNSERIALIZE_PTR(entry);
 	zend_file_cache_serialize_type(&entry->args_box, script, info, buf);
-	entry->cached_table = NULL;
-	entry->cache_key = 0;
 }
 
 static void zend_file_cache_serialize_generic_type_table_ht(
@@ -1629,8 +1627,6 @@ static void zend_file_cache_unserialize_turbofish_args_entry(
 	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
 	zend_file_cache_unserialize_type(
 		&entry->args_box, zend_file_cache_generic_unserialize_scope, script, buf);
-	entry->cached_table = NULL;
-	entry->cache_key = 0;
 }
 
 static void zend_file_cache_unserialize_generic_type_table_ht(
