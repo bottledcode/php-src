@@ -3981,8 +3981,10 @@ static void zend_compile_class_ref(znode *result, zend_ast *name_ast, uint32_t f
 	/* Generic named type Box<Animal>: when the args are concrete (no T-refs)
 	 * we resolve to the monomorph's canonical name "Box<Animal>" so callers
 	 * like `instanceof Box<Animal>` and `catch (Box<Animal> $e)` distinguish
-	 * monos. With T-refs we still need a runtime path (not yet implemented),
-	 * so fall through to the bare-name behavior. */
+	 * monos. When the args contain T-refs (e.g. `instanceof Box<T>`) we stash
+	 * the pre-erasure type in the op_array's side table and emit a deferred
+	 * fetch; the runtime substitutes T against the current frame's bindings
+	 * and looks up (or synthesises) the resulting monomorph. */
 	if (name_ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
 		zend_type ty = zend_compile_pre_erasure_typename(name_ast);
 		if (!zend_type_contains_type_parameter(ty)) {
@@ -3991,8 +3993,14 @@ static void zend_compile_class_ref(znode *result, zend_ast *name_ast, uint32_t f
 			zend_type_release(ty, /* persistent */ false);
 			return;
 		}
-		zend_type_release(ty, /* persistent */ false);
-		name_ast = name_ast->child[0];
+		zend_generic_type_table *table =
+			zend_generic_get_or_create_op_array_table(CG(active_op_array));
+		uint32_t args_id = (table->turbofish_args
+			? zend_hash_num_elements(table->turbofish_args) : 0) + 1;
+		zend_generic_type_table_set_turbofish_args(table, args_id, ty);
+		result->op_type = IS_UNUSED;
+		result->u.op.num = zend_pack_generic_deferred_fetch(args_id, fetch_flags);
+		return;
 	}
 
 	if (name_ast->kind != ZEND_AST_ZVAL) {
@@ -8374,20 +8382,35 @@ static void zend_compile_try(const zend_ast *ast) /* {{{ */
 			if (!emitted_type_param) {
 				zend_string *resolved_name = NULL;
 				/* catch (Box<Animal>): canonical monomorph name when args are
-				 * concrete, matching the semantics of `instanceof Box<Animal>`. */
+				 * concrete, matching the semantics of `instanceof Box<Animal>`.
+				 * catch (Box<T> $e) with T-refs: stash the pre-erasure type and
+				 * emit a deferred fetch; the runtime substitutes T against the
+				 * current frame's bindings and resolves the monomorph. */
 				if (class_ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
 					zend_type ty = zend_compile_pre_erasure_typename(class_ast);
 					if (!zend_type_contains_type_parameter(ty)) {
 						resolved_name = zend_type_to_canonical_string(ty);
+						zend_type_release(ty, /* persistent */ false);
+					} else {
+						zend_generic_type_table *table =
+							zend_generic_get_or_create_op_array_table(CG(active_op_array));
+						uint32_t args_id = (table->turbofish_args
+							? zend_hash_num_elements(table->turbofish_args) : 0) + 1;
+						zend_generic_type_table_set_turbofish_args(table, args_id, ty);
+						opline->op1_type = IS_UNUSED;
+						opline->op1.num = zend_pack_generic_deferred_fetch(args_id, 0);
+						opline->extended_value = 0;
+						emitted_type_param = true;
 					}
-					zend_type_release(ty, /* persistent */ false);
 				}
-				if (!resolved_name) {
-					resolved_name = zend_resolve_class_name_ast(class_ast);
+				if (!emitted_type_param) {
+					if (!resolved_name) {
+						resolved_name = zend_resolve_class_name_ast(class_ast);
+					}
+					opline->op1_type = IS_CONST;
+					opline->op1.constant = zend_add_class_name_literal(resolved_name);
+					opline->extended_value = zend_alloc_cache_slot();
 				}
-				opline->op1_type = IS_CONST;
-				opline->op1.constant = zend_add_class_name_literal(resolved_name);
-				opline->extended_value = zend_alloc_cache_slot();
 			}
 
 			if (var_name && zend_string_equals(var_name, ZSTR_KNOWN(ZEND_STR_THIS))) {

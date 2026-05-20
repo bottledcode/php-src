@@ -215,6 +215,7 @@ ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
 ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type);
 ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(zend_execute_data *call, const zend_type *args_box);
 ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type);
+ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id, uint32_t fetch_type);
 ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box);
 
 typedef union _zend_parser_stack_elem {
@@ -1166,6 +1167,7 @@ ZEND_API bool zend_type_contains_type_parameter(zend_type type);
 #define ZEND_FETCH_CLASS_TRAIT		6
 #define ZEND_FETCH_CLASS_TYPE_PARAM        7  /* function/method-level T */
 #define ZEND_FETCH_CLASS_TYPE_PARAM_CLASS  8  /* class-level T (read from called scope's mono args) */
+#define ZEND_FETCH_CLASS_GENERIC_DEFERRED  9  /* generic application with T-refs (e.g. Box<T>); resolves to a monomorph at runtime */
 #define ZEND_FETCH_CLASS_MASK        0x0f
 #define ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT 16
 
@@ -1178,6 +1180,11 @@ static zend_always_inline uint32_t zend_pack_type_param_fetch(uint32_t param_ind
 	ZEND_ASSERT(param_index < (1u << (32 - ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT)));
 	uint32_t code = class_level ? ZEND_FETCH_CLASS_TYPE_PARAM_CLASS : ZEND_FETCH_CLASS_TYPE_PARAM;
 	return code | (param_index << ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT) | flags;
+}
+
+static zend_always_inline uint32_t zend_pack_generic_deferred_fetch(uint32_t args_id, uint32_t flags) {
+	ZEND_ASSERT(args_id < (1u << (32 - ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT)));
+	return ZEND_FETCH_CLASS_GENERIC_DEFERRED | (args_id << ZEND_FETCH_CLASS_TYPE_PARAM_SHIFT) | flags;
 }
 
 static zend_always_inline uint32_t zend_unpack_type_param_index(uint32_t fetch_type) {
