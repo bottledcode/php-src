@@ -38,6 +38,7 @@
 #include "zend_observer.h"
 #include "zend_call_stack.h"
 #include "zend_frameless_function.h"
+#include "zend_smart_str.h"
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
@@ -1764,7 +1765,21 @@ ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index,
 	}
 
 	if (table && param_index < table->count && table->names[param_index]) {
-		return zend_fetch_class_by_name(table->names[param_index], NULL, fetch_type);
+		/* Try the bound binding as a class name. If it isn't a class (e.g.
+		 * scalar T-arg like `int`) the lookup returns NULL silently and we
+		 * fall through to the parameter's declared bound — which is the only
+		 * remaining thing a bare T-ref can resolve to. */
+		uint32_t silent_fetch = (fetch_type & ~ZEND_FETCH_CLASS_EXCEPTION)
+			| ZEND_FETCH_CLASS_SILENT | ZEND_FETCH_CLASS_NO_AUTOLOAD;
+		zend_class_entry *ce = zend_fetch_class_by_name(table->names[param_index], NULL, silent_fetch);
+		if (ce) return ce;
+		/* Not in the class table yet — retry with autoload before giving up,
+		 * but only if the original fetch allowed it. */
+		if (!(fetch_type & ZEND_FETCH_CLASS_NO_AUTOLOAD)) {
+			ce = zend_fetch_class_by_name(table->names[param_index], NULL,
+				(fetch_type & ~ZEND_FETCH_CLASS_EXCEPTION) | ZEND_FETCH_CLASS_SILENT);
+			if (ce) return ce;
+		}
 	}
 
 	/* Resolution failed. Suppress the diagnostic when SILENT and no thrown
@@ -1795,6 +1810,135 @@ ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index,
 	return NULL;
 }
 
+/* Look up the function-level T-ref binding (current frame's T-table); returns
+ * NULL when the table is missing the slot, in which case the caller should
+ * fall back to the parameter's declared bound. */
+static zend_string *zend_resolve_fn_type_param_name(uint32_t index)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	if (!ex || !ZEND_USER_CODE(ex->func->type)) return NULL;
+	zend_type_arg_table *table = ex->type_args;
+	if (table && index < table->count && table->names[index]) {
+		return table->names[index];
+	}
+	return NULL;
+}
+
+/* Look up the class-level T-ref binding. The binding lives on the monomorph
+ * of the lexical scope — see the matching walk in zend_resolve_generic_type_param. */
+static zend_string *zend_resolve_class_type_param_name(uint32_t index)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	zend_class_entry *lexical = ex ? ex->func->common.scope : NULL;
+	zend_class_entry *cur = ex ? zend_get_called_scope(ex) : NULL;
+	while (cur && cur->parent != lexical) {
+		cur = cur->parent;
+	}
+	if (cur && cur->generic_type_args && index < cur->generic_type_args->count) {
+		return cur->generic_type_args->names[index];
+	}
+	return NULL;
+}
+
+/* Resolve a function/method-level generic type parameter's name to its bound's
+ * class name; for class-level params the bound is consulted on the lexical
+ * scope's parameter list. Used by deferred-generic substitution to fall back
+ * when no concrete binding was supplied at the call site. */
+static zend_string *zend_resolve_type_param_bound_name(const zend_type_parameter_ref *ref)
+{
+	zend_generic_parameter_list *params = NULL;
+	zend_execute_data *ex = EG(current_execute_data);
+	if (ref->origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE) {
+		zend_class_entry *lexical = ex ? ex->func->common.scope : NULL;
+		if (lexical) params = lexical->generic_parameters;
+	} else if (ex && ZEND_USER_CODE(ex->func->type)) {
+		params = ex->func->op_array.generic_parameters;
+	}
+	if (!params || ref->index >= params->count) return NULL;
+	zend_type bound = params->parameters[ref->index].bound;
+	if (ZEND_TYPE_HAS_NAME(bound)) return ZEND_TYPE_NAME(bound);
+	return NULL;
+}
+
+/* Recursively append the canonical text for a substituted type fragment. The
+ * walk mirrors zend_generic_canonical_class_name, but substitutes T-refs
+ * against the current frame's bindings as it goes. Sets *failed when a
+ * binding is missing and no class bound is available. */
+static void zend_append_substituted_canonical(smart_str *buf, const zend_type *t, bool *failed)
+{
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(*t)) {
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*t);
+		zend_string *name = (ref->origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE)
+			? zend_resolve_class_type_param_name(ref->index)
+			: zend_resolve_fn_type_param_name(ref->index);
+		if (!name) name = zend_resolve_type_param_bound_name(ref);
+		if (!name) {
+			*failed = true;
+			return;
+		}
+		smart_str_append(buf, name);
+		return;
+	}
+	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(*t)) {
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*t);
+		if (nwa->name) smart_str_append(buf, nwa->name);
+		smart_str_appendc(buf, '<');
+		for (uint32_t i = 0; i < nwa->count; i++) {
+			if (i > 0) smart_str_appendc(buf, ',');
+			zend_append_substituted_canonical(buf, &nwa->args[i], failed);
+			if (*failed) return;
+		}
+		smart_str_appendc(buf, '>');
+		return;
+	}
+	/* Plain leaf (class name or pure scalar): defer to the canonical formatter. */
+	zend_string *piece = zend_type_to_canonical_string(*t);
+	smart_str_append(buf, piece);
+	zend_string_release(piece);
+}
+
+/* Resolve `instanceof Box<T>` / `catch (Box<T> $e)` and friends at runtime.
+ * Reads the compile-time pre-erasure type from the executing op_array's
+ * side table, substitutes T-refs against the current frame's bindings, and
+ * looks up the resulting monomorph (synthesizing it if needed via the
+ * standard class-lookup path). */
+ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id, uint32_t fetch_type)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	bool suppress = (fetch_type & ZEND_FETCH_CLASS_SILENT)
+		&& !(fetch_type & ZEND_FETCH_CLASS_EXCEPTION);
+	if (!ex || !ZEND_USER_CODE(ex->func->type)) {
+		if (suppress) return NULL;
+		zend_throw_or_error(fetch_type, NULL,
+			"Cannot resolve deferred generic type at runtime: not in a user function");
+		return NULL;
+	}
+
+	const zend_type *boxed = zend_generic_get_turbofish_args(&ex->func->op_array, args_id);
+	if (!boxed || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*boxed)) {
+		if (suppress) return NULL;
+		zend_throw_or_error(fetch_type, NULL,
+			"Cannot resolve deferred generic type at runtime: missing side-table entry");
+		return NULL;
+	}
+
+	smart_str buf = {0};
+	bool failed = false;
+	zend_append_substituted_canonical(&buf, boxed, &failed);
+	if (failed) {
+		smart_str_free(&buf);
+		if (suppress) return NULL;
+		zend_throw_or_error(fetch_type, NULL,
+			"Cannot resolve deferred generic type at runtime: no binding supplied for one of its type parameters and the parameter has no class bound");
+		return NULL;
+	}
+	smart_str_0(&buf);
+	zend_string *canonical = buf.s;
+	zend_class_entry *ce = zend_fetch_class_by_name(canonical, NULL, fetch_type);
+	zend_string_release(canonical);
+	return ce;
+}
+
 zend_class_entry *zend_fetch_class(zend_string *class_name, uint32_t fetch_type) /* {{{ */
 {
 	zend_class_entry *ce, *scope;
@@ -1805,6 +1949,9 @@ check_fetch_type:
 		case ZEND_FETCH_CLASS_TYPE_PARAM:
 		case ZEND_FETCH_CLASS_TYPE_PARAM_CLASS:
 			return zend_resolve_generic_type_param(
+				zend_unpack_type_param_index(fetch_type), fetch_type);
+		case ZEND_FETCH_CLASS_GENERIC_DEFERRED:
+			return zend_resolve_deferred_generic_class(
 				zend_unpack_type_param_index(fetch_type), fetch_type);
 		case ZEND_FETCH_CLASS_SELF:
 			scope = zend_get_executed_scope();
