@@ -117,8 +117,8 @@ PHP 8.6 INTERNALS UPGRADE NOTES
   . Added ZEND_CONTAINER_OF().
   . The OPENBASEDIR_CHECKPATH() compatibility macro has been removed, instead
     use php_check_open_basedir() directly.
-  . Added support for runtime-bound-checked generic type parameters. The
-    main additions:
+  . Added support for reified generic type parameters. The main
+    additions:
     . New types in zend_compile.h: zend_generic_parameter,
       zend_generic_parameter_list, zend_generic_type_table, and
       zend_generic_scope_entry. Allocate / destroy via
@@ -128,11 +128,14 @@ PHP 8.6 INTERNALS UPGRADE NOTES
       zend_generic_type_table_destroy().
     . zend_op_array and zend_class_entry both gained an optional
       `generic_parameters` (declared parameter list) and an optional
-      `generic_types` side table holding the pre-erasure forms of
-      return types, parameter types, property types, class-constant
-      types, the extends type, implements list, and trait-use list.
-      The runtime arg_info / property / class-constant slots continue
-      to hold only the erased form.
+      `generic_types` side table holding the reified forms of return
+      types, parameter types, property types, class-constant types,
+      the extends type, implements list, and trait-use list. The
+      runtime arg_info / property / class-constant slots continue to
+      hold the bound view (the parameter's declared bound, with T-refs
+      resolved); the reified side table is consulted at monomorph
+      synthesis, ZEND_VERIFY_GENERIC_ARGUMENTS, the new deferred
+      class-fetch path, inheritance linking, and Reflection.
     . New AST kinds: ZEND_AST_GENERIC_TYPE_PARAMETER_LIST,
       ZEND_AST_GENERIC_TYPE_PARAMETER, ZEND_AST_GENERIC_NAMED_TYPE,
       ZEND_AST_GENERIC_TYPE_ARGUMENT_LIST, ZEND_AST_TURBOFISH.
@@ -150,11 +153,91 @@ PHP 8.6 INTERNALS UPGRADE NOTES
       zend_type_parameter_ref { zend_string *name; uint32_t index;
       uint8_t origin; } and zend_type_named_with_args { zend_string
       *name; uint32_t name_attr; uint32_t count; zend_type args[]; }.
-      These bits only ever appear in pre-erasure forms held by the
-      side table; runtime arg_info / property / class-constant types
-      never carry them. Helpers: ZEND_TYPE_HAS_TYPE_PARAMETER(),
+      These bits only ever appear in reified forms held by the side
+      table; runtime arg_info / property / class-constant types never
+      carry them. Helpers: ZEND_TYPE_HAS_TYPE_PARAMETER(),
       ZEND_TYPE_TYPE_PARAMETER(), ZEND_TYPE_HAS_NAMED_WITH_ARGS(),
       ZEND_TYPE_NAMED_WITH_ARGS().
+    . Class-level reification (monomorphs). Each distinct argument
+      tuple at a generic class, interface, or trait synthesises a
+      separate zend_class_entry registered in EG(class_table) under a
+      canonical name ("Box<int>", "Map<string,Foo<int>>"). The
+      canonical encoding uses `<...>` in the class name, which is
+      otherwise invalid in user-declared classes; the bit is detected
+      with zend_class_name_is_monomorph() / zend_class_is_monomorph().
+      New API:
+        - zend_synthesize_monomorph(base, args, arity): synthesise (or
+          return the cached) class entry; idempotent on canonical
+          tuples.
+        - zend_get_defaults_monomorph(base): the monomorph built from
+          the parameters' declared defaults; NULL when any parameter
+          has no default. Used by ZEND_NEW for `new static()` and
+          dynamic `new $name()`.
+        - zend_try_synthesize_monomorph_by_name(name, flags): parses a
+          canonical-shaped name and synthesises on demand. Hooked into
+          zend_lookup_class_ex so unserialize, dynamic new, and
+          class_exists() all materialise monomorphs transparently.
+        - zend_type_to_canonical_string(type),
+          zend_generic_canonical_class_name(base_name, args, arity),
+          zend_type_contains_type_parameter(type) — the canonical-name
+          builder is permutation-stable on union/intersection order so
+          equivalent type-arg lists hash to the same entry.
+        - zend_generic_get_or_create_class_table(ce) — exposed so
+          extensions can populate the side table during synthesis.
+        - ZEND_ACC_GENERIC_ALL_DEFAULTS (1u << 31) on ce_flags — hot
+          path bit for ZEND_NEW to skip the per-parameter default
+          scan.
+    . Function- and method-level reification (per call frame). Each
+      generic call installs a fresh table mapping parameter index to
+      bound class name:
+        typedef struct _zend_type_arg_table {
+            uint32_t count;
+            zend_string *names[1];
+        } zend_type_arg_table;
+      Allocate / destroy via zend_type_arg_table_alloc(count) and
+      zend_type_arg_table_destroy(t). zend_execute_data gained a
+      `type_args` field initialised to NULL by
+      zend_vm_init_call_frame() and released by
+      zend_vm_stack_free_call_frame_ex(). The table survives closure
+      and generator suspension. There is no persistent function-level
+      monomorph — the binding lives on the frame.
+      Population API:
+        - zend_type_arg_canonical_name(type): canonical-name for a
+          single type-arg slot, including scalars (`"int"`,
+          `"?string"`). Returns NULL only for unset types.
+        - zend_build_generic_call_type_args(call, args_box): builds
+          the table from a turbofish NAMED_WITH_ARGS carrier (or from
+          declared defaults for unsupplied slots).
+        - zend_verify_generic_arg_types(call, args_box): validates
+          each arg against the corresponding parameter's bound.
+        - zend_resolve_generic_type_param(index, fetch_type): runtime
+          T-ref resolver. Walks EX(type_args) for function-level T
+          and the called scope -> lexical scope chain for class-level
+          T (the binding lives on the monomorph that is the direct
+          child of the lexical scope on cur->generic_type_args).
+      zend_generic_parameter_list gained an `inferable_mask` (bit i
+      set when some value-parameter's reified type is exactly param i
+      at a top-level position) so inference can short-circuit.
+    . Three new class-fetch sub-types on the class-fetch enum,
+      packed into op.num via zend_pack_*_fetch helpers:
+        - ZEND_FETCH_CLASS_TYPE_PARAM        (7) — function/method-
+          level bare T-ref (`instanceof T`, `catch (T $e)`,
+          `new T()`, `T::method()`).
+        - ZEND_FETCH_CLASS_TYPE_PARAM_CLASS  (8) — class-level bare
+          T-ref; resolves via the called-scope walk.
+        - ZEND_FETCH_CLASS_GENERIC_DEFERRED  (9) — generic named type
+          whose args contain T-refs (`instanceof Box<T>`,
+          `catch (Box<T> $e)`). The args_id sits in the high bits of
+          op.num and points into the op_array's
+          generic_types->turbofish_args side table.
+      All three are detected with zend_fetch_is_type_param() (the
+      first two) or by the sub-type directly; packed with
+      zend_pack_type_param_fetch(idx, flags, class_level) and
+      zend_pack_generic_deferred_fetch(args_id, flags); unpacked with
+      zend_unpack_type_param_index(fetch_type). Routed through
+      zend_fetch_class, which dispatches to
+      zend_resolve_generic_type_param() or
+      zend_resolve_deferred_generic_class().
     . New compiler-globals fields: CG(type_arg_depth) (right-angle
       split state used by the zendlex wrapper), CG(token_residual)
       (single-token pushback slot), and CG(generic_scope) (linked

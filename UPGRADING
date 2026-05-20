@@ -195,13 +195,27 @@ PHP 8.6 UPGRADE NOTES
     `static<T>`, `parent<T>`). Recursive bounds (`T : Comparable<T>`)
     are supported. Anonymous classes cannot declare type parameters.
 
-    At runtime each type parameter is replaced by its declared bound
-    (or `mixed` when unbounded, or when the bound is invalid in the
-    target position, e.g. `callable` on a property), and type
-    arguments are discarded. Pre-erasure metadata is preserved on
-    functions, methods, and class entries and is exposed through
-    Reflection so that PHP-based static-analysis tools can consume
-    generics without re-parsing source.
+    Generics are reified along two axes. Class-like generics are
+    monomorphised: each distinct argument tuple (`Box<int>`,
+    `Box<string>`) synthesises a separate class entry whose canonical
+    name is spelled out (`"Box<int>"`), registered in the class table,
+    and visible through `get_class()`, `var_dump`, and
+    `instanceof Box<int>`. Function- and method-level generics are
+    reified per call frame: each call carries its own type-argument
+    table, with no persistent `id<int>` function entry (avoiding
+    unbounded growth). Closures and generators preserve the table so
+    it survives suspension.
+
+    Ordinary parameter, return, and property type-checks run against
+    each parameter's declared *bound* (or `mixed` when unbounded, or
+    when the bound is invalid in the target position - e.g. `callable`
+    on a property). The bound is the answer to "what can a caller
+    actually pass at this slot." Reified type arguments are kept on a
+    side table and consulted at well-defined runtime points: monomorph
+    synthesis, turbofish argument validation, deferred lookups for
+    `instanceof Box<T>` / `catch (Box<T> $e)`, bare `T`-ref resolution
+    (`instanceof T`, `catch (T $e)`, `new T()`, `T::method()`),
+    inheritance linking, and Reflection.
   . It is now possible to use reference assign on WeakMap without the key
     needing to be present beforehand.
   . It is now possible to define the `__debugInfo()` magic method on enums.
@@ -355,8 +369,12 @@ PHP 8.6 UPGRADE NOTES
     / getTraits() APIs).
   . Added ReflectionNamedType::hasGenericArguments() and
     ReflectionNamedType::getGenericArguments(). The arguments are returned
-    as ReflectionType instances in source order (pre-erasure form);
-    ReflectionNamedType::getName() continues to return the erased name.
+    as ReflectionType instances in source order (reified form);
+    ReflectionNamedType::getName() returns the bound's name - i.e. the
+    type a caller can actually pass at the slot - so it stays useful for
+    runtime checks. Use getGenericArguments() to recover the reified
+    shape, and look for ReflectionTypeParameterReference inside the
+    returned list when a slot is itself a type-parameter reference.
 
 - Intl:
   . `grapheme_strrev()` returns strrev for grapheme cluster unit.
@@ -393,8 +411,8 @@ PHP 8.6 UPGRADE NOTES
     ReflectionClass::getGenericParameters() and
     ReflectionFunctionAbstract::getGenericParameters()).
   . ReflectionTypeParameterReference (extends ReflectionType, appears only
-    inside pre-erasure type expressions: bounds, defaults, and the elements
-    of ReflectionNamedType::getGenericArguments()).
+    inside reified type expressions: bounds, defaults, and the elements of
+    ReflectionNamedType::getGenericArguments()).
   . enum ReflectionGenericVariance { Invariant; Covariant; Contravariant }.
 
 - Standard:
