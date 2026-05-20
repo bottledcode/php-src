@@ -5191,12 +5191,26 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CATCH_SPEC_CO
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_CONST == IS_UNUSED) {
-		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
-		 * against the runtime T-table — not cached, since the same opline
-		 * runs in monos with different bindings. zend_fetch_class dispatches
-		 * to the right resolver based on the packed sub-type. */
-		catch_ce = zend_fetch_class(NULL,
-			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		/* catch (T $e) / catch (Box<T> $e): polymorphic inline cache keyed on
+		 * (type_args generation, called_scope). The generation is a monotonic
+		 * nonce per zend_type_arg_table allocation, so it's ABA-safe across
+		 * calls that reuse the same heap address. NULL type_args maps to
+		 * generation 0 (the counter starts at 1). zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type on miss. */
+		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
+		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			catch_ce = (zend_class_entry*)slot[2];
+		} else {
+			catch_ce = zend_fetch_class(NULL,
+				opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+			if (EXPECTED(catch_ce)) {
+				slot[0] = (void*)cur_gen;
+				slot[1] = (void*)cur_scope;
+				slot[2] = (void*)catch_ce;
+			}
+		}
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
 		if (UNEXPECTED(catch_ce == NULL)) {
@@ -19736,7 +19750,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_CONST == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -21390,7 +21421,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_VAR == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -21917,7 +21965,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_UNUSED == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -22067,7 +22132,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
-	const zend_type *args_box = zend_generic_get_turbofish_args(&EX(func)->op_array, opline->extended_value);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 
 	SAVE_OPLINE();
 
@@ -22084,7 +22150,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -22120,6 +22186,68 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
 		 * don't leak. */
+		zend_vm_stack_free_args(call);
+
+		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+			zend_string_release_ex(call->func->common.function_name, 0);
+			zend_free_trampoline(call->func);
+		}
+
+		if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+			OBJ_RELEASE(Z_OBJ(call->This));
+		}
+
+		EX(call) = call->prev_execute_data;
+		zend_vm_stack_free_call_frame(call);
+		HANDLE_EXCEPTION();
+	}
+
+	ZEND_VM_NEXT_OPCODE();
+}
+
+/* Installs the type-arg table (and, for `new`, swaps the object's class to
+ * its monomorph) without running the runtime arity + bound checks that
+ * VERIFY does. Emitted by the compiler when the callee/ce is statically
+ * known, the turbofish args are concrete, and bounds were validated at
+ * compile time — so the runtime checks are pure overhead. The value-arg
+ * type-check (zend_verify_generic_arg_types) still runs since value
+ * arguments are runtime values. */
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	USE_OPLINE
+	zend_execute_data *call = EX(call);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+
+	SAVE_OPLINE();
+
+	if (IS_TMP_VAR == IS_UNUSED) {
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		if (t) {
+			if (call->type_args) {
+				zend_type_arg_table_destroy(call->type_args);
+			}
+			call->type_args = t;
+		}
+		zend_verify_generic_arg_types(call, args_box);
+	} else {
+		zval *new_obj = EX_VAR(opline->op1.var);
+		zend_class_entry *ce = Z_OBJCE_P(new_obj);
+		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+			if (ce->generic_parameters) {
+				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				if (mono && mono != ce) {
+					Z_OBJ_P(new_obj)->ce = mono;
+					if (mono->constructor && call->func == ce->constructor) {
+						call->func = mono->constructor;
+					}
+				}
+			}
+		}
+	}
+
+	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -32953,12 +33081,26 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CATCH_SPEC_UN
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_UNUSED == IS_UNUSED) {
-		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
-		 * against the runtime T-table — not cached, since the same opline
-		 * runs in monos with different bindings. zend_fetch_class dispatches
-		 * to the right resolver based on the packed sub-type. */
-		catch_ce = zend_fetch_class(NULL,
-			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		/* catch (T $e) / catch (Box<T> $e): polymorphic inline cache keyed on
+		 * (type_args generation, called_scope). The generation is a monotonic
+		 * nonce per zend_type_arg_table allocation, so it's ABA-safe across
+		 * calls that reuse the same heap address. NULL type_args maps to
+		 * generation 0 (the counter starts at 1). zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type on miss. */
+		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
+		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			catch_ce = (zend_class_entry*)slot[2];
+		} else {
+			catch_ce = zend_fetch_class(NULL,
+				opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+			if (EXPECTED(catch_ce)) {
+				slot[0] = (void*)cur_gen;
+				slot[1] = (void*)cur_scope;
+				slot[2] = (void*)catch_ce;
+			}
+		}
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
 		if (UNEXPECTED(catch_ce == NULL)) {
@@ -37595,7 +37737,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
-	const zend_type *args_box = zend_generic_get_turbofish_args(&EX(func)->op_array, opline->extended_value);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 
 	SAVE_OPLINE();
 
@@ -37612,7 +37755,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -37648,6 +37791,68 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
 		 * don't leak. */
+		zend_vm_stack_free_args(call);
+
+		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+			zend_string_release_ex(call->func->common.function_name, 0);
+			zend_free_trampoline(call->func);
+		}
+
+		if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+			OBJ_RELEASE(Z_OBJ(call->This));
+		}
+
+		EX(call) = call->prev_execute_data;
+		zend_vm_stack_free_call_frame(call);
+		HANDLE_EXCEPTION();
+	}
+
+	ZEND_VM_NEXT_OPCODE();
+}
+
+/* Installs the type-arg table (and, for `new`, swaps the object's class to
+ * its monomorph) without running the runtime arity + bound checks that
+ * VERIFY does. Emitted by the compiler when the callee/ce is statically
+ * known, the turbofish args are concrete, and bounds were validated at
+ * compile time — so the runtime checks are pure overhead. The value-arg
+ * type-check (zend_verify_generic_arg_types) still runs since value
+ * arguments are runtime values. */
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	USE_OPLINE
+	zend_execute_data *call = EX(call);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+
+	SAVE_OPLINE();
+
+	if (IS_UNUSED == IS_UNUSED) {
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		if (t) {
+			if (call->type_args) {
+				zend_type_arg_table_destroy(call->type_args);
+			}
+			call->type_args = t;
+		}
+		zend_verify_generic_arg_types(call, args_box);
+	} else {
+		zval *new_obj = EX_VAR(opline->op1.var);
+		zend_class_entry *ce = Z_OBJCE_P(new_obj);
+		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+			if (ce->generic_parameters) {
+				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				if (mono && mono != ce) {
+					Z_OBJ_P(new_obj)->ce = mono;
+					if (mono->constructor && call->func == ce->constructor) {
+						call->func = mono->constructor;
+					}
+				}
+			}
+		}
+	}
+
+	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -44907,7 +45112,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_CONST == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 
 
@@ -48728,7 +48950,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_VAR == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 
 
@@ -50108,7 +50347,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_UNUSED == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 
 
@@ -58247,12 +58503,26 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CATCH_SPEC_CONST_T
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_CONST == IS_UNUSED) {
-		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
-		 * against the runtime T-table — not cached, since the same opline
-		 * runs in monos with different bindings. zend_fetch_class dispatches
-		 * to the right resolver based on the packed sub-type. */
-		catch_ce = zend_fetch_class(NULL,
-			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		/* catch (T $e) / catch (Box<T> $e): polymorphic inline cache keyed on
+		 * (type_args generation, called_scope). The generation is a monotonic
+		 * nonce per zend_type_arg_table allocation, so it's ABA-safe across
+		 * calls that reuse the same heap address. NULL type_args maps to
+		 * generation 0 (the counter starts at 1). zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type on miss. */
+		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
+		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			catch_ce = (zend_class_entry*)slot[2];
+		} else {
+			catch_ce = zend_fetch_class(NULL,
+				opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+			if (EXPECTED(catch_ce)) {
+				slot[0] = (void*)cur_gen;
+				slot[1] = (void*)cur_scope;
+				slot[2] = (void*)catch_ce;
+			}
+		}
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
 		if (UNEXPECTED(catch_ce == NULL)) {
@@ -72690,7 +72960,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_CONST == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -74344,7 +74631,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_VAR == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -74771,7 +75075,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_UNUSED == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -74921,7 +75242,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
-	const zend_type *args_box = zend_generic_get_turbofish_args(&EX(func)->op_array, opline->extended_value);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 
 	SAVE_OPLINE();
 
@@ -74938,7 +75260,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -74974,6 +75296,68 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
 		 * don't leak. */
+		zend_vm_stack_free_args(call);
+
+		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+			zend_string_release_ex(call->func->common.function_name, 0);
+			zend_free_trampoline(call->func);
+		}
+
+		if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+			OBJ_RELEASE(Z_OBJ(call->This));
+		}
+
+		EX(call) = call->prev_execute_data;
+		zend_vm_stack_free_call_frame(call);
+		HANDLE_EXCEPTION();
+	}
+
+	ZEND_VM_NEXT_OPCODE();
+}
+
+/* Installs the type-arg table (and, for `new`, swaps the object's class to
+ * its monomorph) without running the runtime arity + bound checks that
+ * VERIFY does. Emitted by the compiler when the callee/ce is statically
+ * known, the turbofish args are concrete, and bounds were validated at
+ * compile time — so the runtime checks are pure overhead. The value-arg
+ * type-check (zend_verify_generic_arg_types) still runs since value
+ * arguments are runtime values. */
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	USE_OPLINE
+	zend_execute_data *call = EX(call);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+
+	SAVE_OPLINE();
+
+	if (IS_TMP_VAR == IS_UNUSED) {
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		if (t) {
+			if (call->type_args) {
+				zend_type_arg_table_destroy(call->type_args);
+			}
+			call->type_args = t;
+		}
+		zend_verify_generic_arg_types(call, args_box);
+	} else {
+		zval *new_obj = EX_VAR(opline->op1.var);
+		zend_class_entry *ce = Z_OBJCE_P(new_obj);
+		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+			if (ce->generic_parameters) {
+				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				if (mono && mono != ce) {
+					Z_OBJ_P(new_obj)->ce = mono;
+					if (mono->constructor && call->func == ce->constructor) {
+						call->func = mono->constructor;
+					}
+				}
+			}
+		}
+	}
+
+	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -85807,12 +86191,26 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CATCH_SPEC_UNUSED_
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (IS_UNUSED == IS_UNUSED) {
-		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
-		 * against the runtime T-table — not cached, since the same opline
-		 * runs in monos with different bindings. zend_fetch_class dispatches
-		 * to the right resolver based on the packed sub-type. */
-		catch_ce = zend_fetch_class(NULL,
-			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		/* catch (T $e) / catch (Box<T> $e): polymorphic inline cache keyed on
+		 * (type_args generation, called_scope). The generation is a monotonic
+		 * nonce per zend_type_arg_table allocation, so it's ABA-safe across
+		 * calls that reuse the same heap address. NULL type_args maps to
+		 * generation 0 (the counter starts at 1). zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type on miss. */
+		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
+		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			catch_ce = (zend_class_entry*)slot[2];
+		} else {
+			catch_ce = zend_fetch_class(NULL,
+				opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+			if (EXPECTED(catch_ce)) {
+				slot[0] = (void*)cur_gen;
+				slot[1] = (void*)cur_scope;
+				slot[2] = (void*)catch_ce;
+			}
+		}
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
 		if (UNEXPECTED(catch_ce == NULL)) {
@@ -90449,7 +90847,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
-	const zend_type *args_box = zend_generic_get_turbofish_args(&EX(func)->op_array, opline->extended_value);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 
 	SAVE_OPLINE();
 
@@ -90466,7 +90865,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -90502,6 +90901,68 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
 		 * don't leak. */
+		zend_vm_stack_free_args(call);
+
+		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+			zend_string_release_ex(call->func->common.function_name, 0);
+			zend_free_trampoline(call->func);
+		}
+
+		if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+			OBJ_RELEASE(Z_OBJ(call->This));
+		}
+
+		EX(call) = call->prev_execute_data;
+		zend_vm_stack_free_call_frame(call);
+		HANDLE_EXCEPTION();
+	}
+
+	ZEND_VM_NEXT_OPCODE();
+}
+
+/* Installs the type-arg table (and, for `new`, swaps the object's class to
+ * its monomorph) without running the runtime arity + bound checks that
+ * VERIFY does. Emitted by the compiler when the callee/ce is statically
+ * known, the turbofish args are concrete, and bounds were validated at
+ * compile time — so the runtime checks are pure overhead. The value-arg
+ * type-check (zend_verify_generic_arg_types) still runs since value
+ * arguments are runtime values. */
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	USE_OPLINE
+	zend_execute_data *call = EX(call);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+
+	SAVE_OPLINE();
+
+	if (IS_UNUSED == IS_UNUSED) {
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		if (t) {
+			if (call->type_args) {
+				zend_type_arg_table_destroy(call->type_args);
+			}
+			call->type_args = t;
+		}
+		zend_verify_generic_arg_types(call, args_box);
+	} else {
+		zval *new_obj = EX_VAR(opline->op1.var);
+		zend_class_entry *ce = Z_OBJCE_P(new_obj);
+		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+			if (ce->generic_parameters) {
+				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				if (mono && mono != ce) {
+					Z_OBJ_P(new_obj)->ce = mono;
+					if (mono->constructor && call->func == ce->constructor) {
+						call->func = mono->constructor;
+					}
+				}
+			}
+		}
+	}
+
+	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -97761,7 +98222,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_CONST == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 
 
@@ -101582,7 +102060,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_VAR == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 
 
@@ -102860,7 +103355,24 @@ try_instanceof:
 				}
 			}
 		} else if (IS_UNUSED == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 
 
@@ -110016,6 +110528,11 @@ ZEND_API void execute_ex(zend_execute_data *ex)
 			(void*)&&ZEND_NULL_LABEL,
 			(void*)&&ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_UNUSED_UNUSED_LABEL,
 			(void*)&&ZEND_NULL_LABEL,
+			(void*)&&ZEND_NULL_LABEL,
+			(void*)&&ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED_LABEL,
+			(void*)&&ZEND_NULL_LABEL,
+			(void*)&&ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED_LABEL,
+			(void*)&&ZEND_NULL_LABEL,
 			(void*)&&ZEND_INIT_FCALL_OFFSET_SPEC_CONST_LABEL,
 			(void*)&&ZEND_RECV_NOTYPE_SPEC_LABEL,
 			(void*)&&ZEND_NULL_LABEL,
@@ -113753,6 +114270,11 @@ zend_leave_helper_SPEC_LABEL:
 				ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_TMP_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
 				VM_TRACE_OP_END(ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_TMP_UNUSED)
 				HYBRID_BREAK();
+			HYBRID_CASE(ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED):
+				VM_TRACE(ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED)
+				ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
+				VM_TRACE_OP_END(ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED)
+				HYBRID_BREAK();
 			HYBRID_CASE(ZEND_COUNT_SPEC_TMP_UNUSED):
 				VM_TRACE(ZEND_COUNT_SPEC_TMP_UNUSED)
 				ZEND_COUNT_SPEC_TMP_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
@@ -114867,6 +115389,11 @@ zend_leave_helper_SPEC_LABEL:
 				VM_TRACE(ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_UNUSED_UNUSED)
 				ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_UNUSED_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
 				VM_TRACE_OP_END(ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_UNUSED_UNUSED)
+				HYBRID_BREAK();
+			HYBRID_CASE(ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED):
+				VM_TRACE(ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED)
+				ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
+				VM_TRACE_OP_END(ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED)
 				HYBRID_BREAK();
 			HYBRID_CASE(ZEND_FETCH_THIS_SPEC_UNUSED_UNUSED):
 				VM_TRACE(ZEND_FETCH_THIS_SPEC_UNUSED_UNUSED)
@@ -118978,6 +119505,11 @@ void zend_vm_init(void)
 		ZEND_NULL_HANDLER,
 		ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_UNUSED_UNUSED_HANDLER,
 		ZEND_NULL_HANDLER,
+		ZEND_NULL_HANDLER,
+		ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED_HANDLER,
+		ZEND_NULL_HANDLER,
+		ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED_HANDLER,
+		ZEND_NULL_HANDLER,
 		ZEND_INIT_FCALL_OFFSET_SPEC_CONST_HANDLER,
 		ZEND_RECV_NOTYPE_SPEC_HANDLER,
 		ZEND_NULL_HANDLER,
@@ -122465,6 +122997,11 @@ void zend_vm_init(void)
 		ZEND_NULL_TAILCALL_HANDLER,
 		ZEND_VERIFY_GENERIC_ARGUMENTS_SPEC_UNUSED_UNUSED_TAILCALL_HANDLER,
 		ZEND_NULL_TAILCALL_HANDLER,
+		ZEND_NULL_TAILCALL_HANDLER,
+		ZEND_INSTALL_GENERIC_ARGS_SPEC_TMP_UNUSED_TAILCALL_HANDLER,
+		ZEND_NULL_TAILCALL_HANDLER,
+		ZEND_INSTALL_GENERIC_ARGS_SPEC_UNUSED_UNUSED_TAILCALL_HANDLER,
+		ZEND_NULL_TAILCALL_HANDLER,
 		ZEND_INIT_FCALL_OFFSET_SPEC_CONST_TAILCALL_HANDLER,
 		ZEND_RECV_NOTYPE_SPEC_TAILCALL_HANDLER,
 		ZEND_NULL_TAILCALL_HANDLER,
@@ -123433,7 +123970,7 @@ void zend_vm_init(void)
 		1255,
 		1256 | SPEC_RULE_OP1,
 		1261 | SPEC_RULE_OP1,
-		3483,
+		3488,
 		1266 | SPEC_RULE_OP1,
 		1271 | SPEC_RULE_OP1,
 		1276 | SPEC_RULE_OP2,
@@ -123467,7 +124004,7 @@ void zend_vm_init(void)
 		1559 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
 		1584 | SPEC_RULE_OP1,
 		1589,
-		3483,
+		3488,
 		1590 | SPEC_RULE_OP1,
 		1595 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
 		1620 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
@@ -123601,49 +124138,49 @@ void zend_vm_init(void)
 		2561,
 		2562,
 		2563 | SPEC_RULE_OP1,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
-		3483,
+		2568 | SPEC_RULE_OP1,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
 	};
 #if 0
 #elif (ZEND_VM_KIND == ZEND_VM_KIND_HYBRID)
@@ -123836,7 +124373,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2576 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2581 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -123844,7 +124381,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2601 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2606 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -123852,7 +124389,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2626 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2631 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -123863,17 +124400,17 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2651 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2656 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			} else if (op1_info == MAY_BE_LONG && op2_info == MAY_BE_LONG) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2676 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2681 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2701 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2706 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			}
 			break;
 		case ZEND_MUL:
@@ -123884,17 +124421,17 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2726 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2731 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_LONG && op2_info == MAY_BE_LONG) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2751 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2756 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2776 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2781 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_IDENTICAL:
@@ -123905,16 +124442,16 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2801 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2806 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2876 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2881 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op2_type == IS_CONST && (Z_TYPE_P(RT_CONSTANT(op, op->op2)) == IS_ARRAY && zend_hash_num_elements(Z_ARR_P(RT_CONSTANT(op, op->op2))) == 0)) {
-				spec = 3101 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3106 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op1_type == IS_CV && (op->op2_type & (IS_CONST|IS_CV)) && !(op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !(op2_info & (MAY_BE_UNDEF|MAY_BE_REF))) {
-				spec = 3107 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 3112 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_NOT_IDENTICAL:
@@ -123925,16 +124462,16 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2951 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2956 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3026 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3031 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op2_type == IS_CONST && (Z_TYPE_P(RT_CONSTANT(op, op->op2)) == IS_ARRAY && zend_hash_num_elements(Z_ARR_P(RT_CONSTANT(op, op->op2))) == 0)) {
-				spec = 3104 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3109 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op1_type == IS_CV && (op->op2_type & (IS_CONST|IS_CV)) && !(op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !(op2_info & (MAY_BE_UNDEF|MAY_BE_REF))) {
-				spec = 3112 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 3117 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_EQUAL:
@@ -123945,12 +124482,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2801 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2806 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2876 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2881 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_NOT_EQUAL:
@@ -123961,12 +124498,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2951 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2956 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3026 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3031 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_SMALLER:
@@ -123974,12 +124511,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3117 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3122 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3192 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3197 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			}
 			break;
 		case ZEND_IS_SMALLER_OR_EQUAL:
@@ -123987,79 +124524,79 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3267 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3272 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3342 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3347 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			}
 			break;
 		case ZEND_QM_ASSIGN:
 			if (op1_info == MAY_BE_LONG) {
-				spec = 3429 | SPEC_RULE_OP1;
-			} else if (op1_info == MAY_BE_DOUBLE) {
 				spec = 3434 | SPEC_RULE_OP1;
-			} else if ((op->op1_type == IS_CONST) ? !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1)) : (!(op1_info & ((MAY_BE_ANY|MAY_BE_UNDEF)-(MAY_BE_NULL|MAY_BE_FALSE|MAY_BE_TRUE|MAY_BE_LONG|MAY_BE_DOUBLE))))) {
+			} else if (op1_info == MAY_BE_DOUBLE) {
 				spec = 3439 | SPEC_RULE_OP1;
+			} else if ((op->op1_type == IS_CONST) ? !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1)) : (!(op1_info & ((MAY_BE_ANY|MAY_BE_UNDEF)-(MAY_BE_NULL|MAY_BE_FALSE|MAY_BE_TRUE|MAY_BE_LONG|MAY_BE_DOUBLE))))) {
+				spec = 3444 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_PRE_INC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3417 | SPEC_RULE_RETVAL;
+				spec = 3422 | SPEC_RULE_RETVAL;
 			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3419 | SPEC_RULE_RETVAL;
+				spec = 3424 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_PRE_DEC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3421 | SPEC_RULE_RETVAL;
+				spec = 3426 | SPEC_RULE_RETVAL;
 			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3423 | SPEC_RULE_RETVAL;
+				spec = 3428 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_POST_INC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3425;
+				spec = 3430;
 			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3426;
+				spec = 3431;
 			}
 			break;
 		case ZEND_POST_DEC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3427;
+				spec = 3432;
 			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3428;
+				spec = 3433;
 			}
 			break;
 		case ZEND_JMP:
 			if (OP_JMP_ADDR(op, op->op1) > op) {
-				spec = 2575;
+				spec = 2580;
 			}
 			break;
 		case ZEND_INIT_FCALL:
 			if (Z_EXTRA_P(RT_CONSTANT(op, op->op2)) != 0) {
-				spec = 2568;
+				spec = 2573;
 			}
 			break;
 		case ZEND_RECV:
 			if (op->op2.num == MAY_BE_ANY) {
-				spec = 2569;
+				spec = 2574;
 			}
 			break;
 		case ZEND_SEND_VAL:
 			if (op->op1_type == IS_CONST && op->op2_type == IS_UNUSED && !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1))) {
-				spec = 3479;
+				spec = 3484;
 			}
 			break;
 		case ZEND_SEND_VAR_EX:
 			if (op->op2_type == IS_UNUSED && op->op2.num <= MAX_ARG_FLAG_NUM && (op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) == 0) {
-				spec = 3474 | SPEC_RULE_OP1;
+				spec = 3479 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_FE_FETCH_R:
 			if (op->op2_type == IS_CV && (op1_info & (MAY_BE_ANY|MAY_BE_REF)) == MAY_BE_ARRAY) {
-				spec = 3481 | SPEC_RULE_RETVAL;
+				spec = 3486 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_FETCH_DIM_R:
@@ -124067,22 +124604,22 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3444 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 3449 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			}
 			break;
 		case ZEND_SEND_VAL_EX:
 			if (op->op2_type == IS_UNUSED && op->op2.num <= MAX_ARG_FLAG_NUM && op->op1_type == IS_CONST && !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1))) {
-				spec = 3480;
+				spec = 3485;
 			}
 			break;
 		case ZEND_SEND_VAR:
 			if (op->op2_type == IS_UNUSED && (op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) == 0) {
-				spec = 3469 | SPEC_RULE_OP1;
+				spec = 3474 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_COUNT:
 			if ((op1_info & (MAY_BE_ANY|MAY_BE_UNDEF|MAY_BE_REF)) == MAY_BE_ARRAY) {
-				spec = 2570 | SPEC_RULE_OP1;
+				spec = 2575 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_BW_OR:

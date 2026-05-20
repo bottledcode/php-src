@@ -4860,12 +4860,26 @@ ZEND_VM_HANDLER(107, ZEND_CATCH, CONST|UNUSED, JMP_ADDR, LAST_CATCH|CACHE_SLOT)
 		ZEND_VM_JMP_EX(OP_JMP_ADDR(opline, opline->op2), 0);
 	}
 	if (OP1_TYPE == IS_UNUSED) {
-		/* catch (T $e) / catch (Box<T> $e): the class resolves per execution
-		 * against the runtime T-table — not cached, since the same opline
-		 * runs in monos with different bindings. zend_fetch_class dispatches
-		 * to the right resolver based on the packed sub-type. */
-		catch_ce = zend_fetch_class(NULL,
-			opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+		/* catch (T $e) / catch (Box<T> $e): polymorphic inline cache keyed on
+		 * (type_args generation, called_scope). The generation is a monotonic
+		 * nonce per zend_type_arg_table allocation, so it's ABA-safe across
+		 * calls that reuse the same heap address. NULL type_args maps to
+		 * generation 0 (the counter starts at 1). zend_fetch_class dispatches
+		 * to the right resolver based on the packed sub-type on miss. */
+		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
+		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			catch_ce = (zend_class_entry*)slot[2];
+		} else {
+			catch_ce = zend_fetch_class(NULL,
+				opline->op1.num | ZEND_FETCH_CLASS_NO_AUTOLOAD | ZEND_FETCH_CLASS_SILENT);
+			if (EXPECTED(catch_ce)) {
+				slot[0] = (void*)cur_gen;
+				slot[1] = (void*)cur_scope;
+				slot[2] = (void*)catch_ce;
+			}
+		}
 	} else {
 		catch_ce = CACHED_PTR(opline->extended_value & ~ZEND_LAST_CATCH);
 		if (UNEXPECTED(catch_ce == NULL)) {
@@ -8162,7 +8176,24 @@ ZEND_VM_C_LABEL(try_instanceof):
 				}
 			}
 		} else if (OP2_TYPE == IS_UNUSED) {
-			ce = zend_fetch_class(NULL, opline->op2.num);
+			/* Polymorphic inline cache for T-ref / deferred-generic fetches:
+			 * key on (type_args generation, called_scope). The generation is
+			 * a monotonic nonce per zend_type_arg_table allocation, so it's
+			 * ABA-safe across calls that reuse the same heap address. NULL
+			 * type_args maps to generation 0 (the counter starts at 1). */
+			void **slot = CACHE_ADDR(opline->extended_value);
+			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
+			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
+			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+				ce = (zend_class_entry*)slot[2];
+			} else {
+				ce = zend_fetch_class(NULL, opline->op2.num);
+				if (EXPECTED(ce)) {
+					slot[0] = (void*)cur_gen;
+					slot[1] = (void*)cur_scope;
+					slot[2] = (void*)ce;
+				}
+			}
 			if (UNEXPECTED(ce == NULL)) {
 				FREE_OP1();
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -8993,7 +9024,8 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
-	const zend_type *args_box = zend_generic_get_turbofish_args(&EX(func)->op_array, opline->extended_value);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 
 	SAVE_OPLINE();
 
@@ -9010,7 +9042,7 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 		}
 		zend_check_generic_call_arguments(call->func, arity, args_box);
 		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
 			if (t) {
 				if (call->type_args) {
 					zend_type_arg_table_destroy(call->type_args);
@@ -9046,6 +9078,68 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
 		 * don't leak. */
+		zend_vm_stack_free_args(call);
+
+		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+			zend_string_release_ex(call->func->common.function_name, 0);
+			zend_free_trampoline(call->func);
+		}
+
+		if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+			OBJ_RELEASE(Z_OBJ(call->This));
+		}
+
+		EX(call) = call->prev_execute_data;
+		zend_vm_stack_free_call_frame(call);
+		HANDLE_EXCEPTION();
+	}
+
+	ZEND_VM_NEXT_OPCODE();
+}
+
+/* Installs the type-arg table (and, for `new`, swaps the object's class to
+ * its monomorph) without running the runtime arity + bound checks that
+ * VERIFY does. Emitted by the compiler when the callee/ce is statically
+ * known, the turbofish args are concrete, and bounds were validated at
+ * compile time — so the runtime checks are pure overhead. The value-arg
+ * type-check (zend_verify_generic_arg_types) still runs since value
+ * arguments are runtime values. */
+ZEND_VM_HANDLER(213, ZEND_INSTALL_GENERIC_ARGS, TMP|UNUSED, UNUSED)
+{
+	USE_OPLINE
+	zend_execute_data *call = EX(call);
+	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
+	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
+
+	SAVE_OPLINE();
+
+	if (OP1_TYPE == IS_UNUSED) {
+		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, call_entry);
+		if (t) {
+			if (call->type_args) {
+				zend_type_arg_table_destroy(call->type_args);
+			}
+			call->type_args = t;
+		}
+		zend_verify_generic_arg_types(call, args_box);
+	} else {
+		zval *new_obj = EX_VAR(opline->op1.var);
+		zend_class_entry *ce = Z_OBJCE_P(new_obj);
+		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+			if (ce->generic_parameters) {
+				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				if (mono && mono != ce) {
+					Z_OBJ_P(new_obj)->ce = mono;
+					if (mono->constructor && call->func == ce->constructor) {
+						call->func = mono->constructor;
+					}
+				}
+			}
+		}
+	}
+
+	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {

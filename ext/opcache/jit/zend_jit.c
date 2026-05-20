@@ -2933,6 +2933,18 @@ done:
 				}
 			}
 		}
+		/* Same teardown gap as in the tracing path: the inline CV loop
+		 * skips zend_free_compiled_variables, so a generic-call frame's
+		 * EX(type_args) needs an explicit destroy here. */
+		if (!left_frame) {
+			if (!zend_jit_leave_frame(&ctx)) {
+				goto jit_failure;
+			}
+			left_frame = true;
+		}
+		if (!zend_jit_free_type_args(&ctx)) {
+			goto jit_failure;
+		}
 		if (!zend_jit_leave_func(&ctx, op_array, NULL, MAY_BE_ANY, left_frame,
 				NULL, NULL, (ssa->cfg.flags & ZEND_FUNC_INDIRECT_VAR_ACCESS) != 0, 1)) {
 			goto jit_failure;

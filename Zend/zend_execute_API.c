@@ -1764,19 +1764,19 @@ ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index,
 		params = ex->func->op_array.generic_parameters;
 	}
 
-	if (table && param_index < table->count && table->names[param_index]) {
+	if (table && param_index < table->count && table->entries[param_index].name) {
 		/* Try the bound binding as a class name. If it isn't a class (e.g.
 		 * scalar T-arg like `int`) the lookup returns NULL silently and we
 		 * fall through to the parameter's declared bound — which is the only
 		 * remaining thing a bare T-ref can resolve to. */
 		uint32_t silent_fetch = (fetch_type & ~ZEND_FETCH_CLASS_EXCEPTION)
 			| ZEND_FETCH_CLASS_SILENT | ZEND_FETCH_CLASS_NO_AUTOLOAD;
-		zend_class_entry *ce = zend_fetch_class_by_name(table->names[param_index], NULL, silent_fetch);
+		zend_class_entry *ce = zend_fetch_class_by_name(table->entries[param_index].name, NULL, silent_fetch);
 		if (ce) return ce;
 		/* Not in the class table yet — retry with autoload before giving up,
 		 * but only if the original fetch allowed it. */
 		if (!(fetch_type & ZEND_FETCH_CLASS_NO_AUTOLOAD)) {
-			ce = zend_fetch_class_by_name(table->names[param_index], NULL,
+			ce = zend_fetch_class_by_name(table->entries[param_index].name, NULL,
 				(fetch_type & ~ZEND_FETCH_CLASS_EXCEPTION) | ZEND_FETCH_CLASS_SILENT);
 			if (ce) return ce;
 		}
@@ -1818,8 +1818,8 @@ static zend_string *zend_resolve_fn_type_param_name(uint32_t index)
 	zend_execute_data *ex = EG(current_execute_data);
 	if (!ex || !ZEND_USER_CODE(ex->func->type)) return NULL;
 	zend_type_arg_table *table = ex->type_args;
-	if (table && index < table->count && table->names[index]) {
-		return table->names[index];
+	if (table && index < table->count && table->entries[index].name) {
+		return table->entries[index].name;
 	}
 	return NULL;
 }
@@ -1835,7 +1835,7 @@ static zend_string *zend_resolve_class_type_param_name(uint32_t index)
 		cur = cur->parent;
 	}
 	if (cur && cur->generic_type_args && index < cur->generic_type_args->count) {
-		return cur->generic_type_args->names[index];
+		return cur->generic_type_args->entries[index].name;
 	}
 	return NULL;
 }
@@ -1933,7 +1933,10 @@ ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id,
 		return NULL;
 	}
 	smart_str_0(&buf);
-	zend_string *canonical = buf.s;
+	/* Intern the canonical name so EG(class_table) lookups can dispatch on
+	 * pointer identity and repeat executions of the same opline with the
+	 * same bindings hit a stable, shared string. */
+	zend_string *canonical = zend_new_interned_string(buf.s);
 	zend_class_entry *ce = zend_fetch_class_by_name(canonical, NULL, fetch_type);
 	zend_string_release(canonical);
 	return ce;

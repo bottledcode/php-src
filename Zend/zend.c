@@ -820,6 +820,7 @@ static void executor_globals_ctor(zend_executor_globals *executor_globals) /* {{
 #endif
 	executor_globals->saved_fpu_cw_ptr = NULL;
 	executor_globals->active = false;
+	executor_globals->monomorph_synthesis_active = false;
 	executor_globals->bailout = NULL;
 	executor_globals->error_handling  = EH_NORMAL;
 	executor_globals->exception_class = NULL;

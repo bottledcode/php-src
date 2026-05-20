@@ -5646,6 +5646,20 @@ static zend_vm_opcode_handler_t zend_jit_trace(zend_jit_trace_rec *trace_buffer,
 									}
 								}
 							}
+							/* The inline CV-free loop above bypasses the
+							 * zend_free_compiled_variables path that destroys
+							 * EX(type_args), so a generic-call frame with a
+							 * non-cached (frame-owned) type-arg table would
+							 * leak it on every return. Mirror the slow path. */
+							if (!left_frame) {
+								if (!zend_jit_leave_frame(&ctx)) {
+									goto jit_failure;
+								}
+								left_frame = 1;
+							}
+							if (!zend_jit_free_type_args(&ctx)) {
+								goto jit_failure;
+							}
 							if (!zend_jit_leave_func(&ctx, op_array, opline, op1_info, left_frame,
 									p + 1, &zend_jit_traces[ZEND_JIT_TRACE_NUM],
 									(op_array_ssa->cfg.flags & ZEND_FUNC_INDIRECT_VAR_ACCESS) != 0, may_throw)) {
