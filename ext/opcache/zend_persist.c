@@ -488,10 +488,10 @@ static HashTable *zend_persist_generic_type_table_ht(HashTable *ht)
 	return ptr;
 }
 
-/* Persist the turbofish_args HT. Each entry is a zend_turbofish_args_entry —
- * args_box is serialized to SHM, but cached_table/cache_key are runtime-only
- * (per-process call cache) and must be reset to NULL/0 on the persisted copy
- * so a fresh worker starts cold. */
+/* Persist the turbofish_args HT. Each entry is a zend_turbofish_args_entry
+ * which now stores only args_box — the per-call-site runtime cache that
+ * pairs with it lives in the caller op_array's runtime cache slot, not
+ * here, so the persisted SHM copy carries no per-process state. */
 static HashTable *zend_persist_turbofish_args_ht(HashTable *ht)
 {
 	zend_hash_persist(ht);
@@ -501,8 +501,6 @@ static HashTable *zend_persist_turbofish_args_ht(HashTable *ht)
 			zend_turbofish_args_entry *entry = Z_PTR_P(v);
 			zend_turbofish_args_entry *copy = zend_shared_memdup_put_free(entry, sizeof(*entry));
 			zend_persist_type(&copy->args_box);
-			copy->cached_table = NULL;
-			copy->cache_key = 0;
 			Z_PTR_P(v) = copy;
 		} ZEND_HASH_FOREACH_END();
 	} else {
@@ -514,8 +512,6 @@ static HashTable *zend_persist_turbofish_args_ht(HashTable *ht)
 			zend_turbofish_args_entry *entry = Z_PTR(p->val);
 			zend_turbofish_args_entry *copy = zend_shared_memdup_put_free(entry, sizeof(*entry));
 			zend_persist_type(&copy->args_box);
-			copy->cached_table = NULL;
-			copy->cache_key = 0;
 			Z_PTR(p->val) = copy;
 		} ZEND_HASH_FOREACH_END();
 	}

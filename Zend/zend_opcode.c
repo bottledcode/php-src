@@ -180,18 +180,13 @@ static void zend_generic_type_table_value_dtor(zval *zv) {
 	efree(type);
 }
 
-/* Dedicated dtor for turbofish_args entries: each one owns both an inline
- * args_box (released like a normal boxed type) and a one-slot cached_table
- * for the runtime call-cache, which must be torn down here since the cache
- * survives across calls and isn't tied to any single frame. */
+/* Dtor for turbofish_args entries: each one owns an inline args_box.
+ * The per-call-site runtime cache that stashes the most recently built
+ * zend_type_arg_table for this entry lives in the caller op_array's
+ * runtime cache slot, so it's released by the op_array runtime-cache
+ * teardown — not here. */
 static void zend_turbofish_args_entry_dtor(zval *zv) {
 	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
-	if (entry->cached_table) {
-		/* Drop the persisted flag so the destroy path actually releases names
-		 * and frees the table — the cache, not opcache SHM, owns this. */
-		entry->cached_table->persisted = false;
-		zend_type_arg_table_destroy(entry->cached_table);
-	}
 	zend_type_release(entry->args_box, /* persistent */ false);
 	efree(entry);
 }
@@ -316,8 +311,6 @@ ZEND_API void zend_generic_type_table_set_trait_use(zend_generic_type_table *t, 
 ZEND_API void zend_generic_type_table_set_turbofish_args(zend_generic_type_table *t, uint32_t op_num, zend_type type) {
 	zend_turbofish_args_entry *entry = emalloc(sizeof(*entry));
 	entry->args_box = type;
-	entry->cached_table = NULL;
-	entry->cache_key = 0;
 	zend_hash_index_update_ptr(zend_generic_type_table_ensure_turbofish(&t->turbofish_args), op_num, entry);
 }
 

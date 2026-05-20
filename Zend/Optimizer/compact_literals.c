@@ -694,6 +694,18 @@ void zend_optimizer_compact_literals(zend_op_array *op_array, zend_optimizer_ctx
 						}
 					}
 					break;
+				case ZEND_VERIFY_GENERIC_ARGUMENTS:
+				case ZEND_INSTALL_GENERIC_ARGS:
+					/* When this site has a turbofish (args_id in extended_value),
+					 * the compiler allocated a 2-slot inline cache for the
+					 * (zend_type_arg_table*, cache key) pair — re-allocate it
+					 * here so the offset stays in sync with compact_literals'
+					 * fresh cache_size. */
+					if (opline->extended_value != 0) {
+						opline->result.num = cache_size;
+						cache_size += 2 * sizeof(void *);
+					}
+					break;
 				case ZEND_CATCH:
 					if (opline->op1_type == IS_CONST) {
 						// op1 class
