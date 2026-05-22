@@ -8442,14 +8442,7 @@ static int zend_jit_isset_isempty_cv(zend_jit_ctx *jit, const zend_op *opline, u
 	return 1;
 }
 
-/* copy of hidden zend_closure */
-typedef struct _zend_closure {
-	zend_object       std;
-	zend_function     func;
-	zval              this_ptr;
-	zend_class_entry *called_scope;
-	zif_handler       orig_internal_handler;
-} zend_closure;
+/* zend_closure struct now exposed in zend_closures.h */
 
 static int zend_jit_stack_check(zend_jit_ctx *jit, const zend_op *opline, uint32_t used_stack)
 {

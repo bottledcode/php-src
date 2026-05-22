@@ -42,6 +42,7 @@ static void zend_check_generic_link_bounds(
 		const char *clause, zend_class_entry *ce);
 static void zend_substitute_trait_method_arg_info(
 		zend_function *new_fn, const zend_function *orig_fn,
+		const zend_class_entry *using_ce,
 		const zend_type *bind_args, uint32_t bind_arity);
 static zend_arg_info *zend_clone_arg_info_block(
 		const zend_arg_info *orig_block, uint32_t total);
@@ -77,7 +78,7 @@ static void ZEND_COLD emit_incompatible_method_error(
 		const zend_function *parent, const zend_class_entry *parent_scope,
 		inheritance_status status);
 
-static void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent);
+ZEND_API void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent);
 
 static void zend_type_list_copy_ctor(
 	zend_type *const parent_type,
@@ -101,9 +102,48 @@ static void zend_type_list_copy_ctor(
 	} ZEND_TYPE_LIST_FOREACH_END();
 }
 
-static void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent) {
+static void zend_type_named_with_args_copy_ctor(
+	zend_type *const parent_type, bool use_arena, bool persistent)
+{
+	const zend_type_named_with_args *src = ZEND_TYPE_NAMED_WITH_ARGS(*parent_type);
+	size_t size = ZEND_TYPE_NAMED_WITH_ARGS_SIZE(src->count);
+	zend_type_named_with_args *dst = use_arena
+		? zend_arena_alloc(&CG(arena), size) : pemalloc(size, persistent);
+	memcpy(dst, src, size);
+	if (dst->name) {
+		zend_string_addref(dst->name);
+	}
+	ZEND_TYPE_SET_PTR(*parent_type, dst);
+	for (uint32_t i = 0; i < dst->count; i++) {
+		zend_type_copy_ctor(&dst->args[i], use_arena, persistent);
+	}
+}
+
+static void zend_type_parameter_ref_copy_ctor(
+	zend_type *const parent_type, bool persistent)
+{
+	const zend_type_parameter_ref *src = ZEND_TYPE_TYPE_PARAMETER(*parent_type);
+	zend_type_parameter_ref *dst = pemalloc(sizeof(*dst), persistent);
+	*dst = *src;
+	if (dst->name) {
+		zend_string_addref(dst->name);
+	}
+	ZEND_TYPE_SET_PTR(*parent_type, dst);
+}
+
+ZEND_API void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent) {
 	if (ZEND_TYPE_HAS_LIST(*type)) {
 		zend_type_list_copy_ctor(type, use_arena, persistent);
+	} else if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(*type)) {
+		/* Deep-clone the NWA payload + recurse into args. Without this,
+		 * a copied type shares the source's heap-allocated NWA and either
+		 * dangles (when the source frees it) or double-frees (when both
+		 * release paths run). */
+		zend_type_named_with_args_copy_ctor(type, use_arena, persistent);
+	} else if (ZEND_TYPE_HAS_TYPE_PARAMETER(*type)) {
+		/* Same story for type-parameter refs: each clone needs its own
+		 * heap-allocated ref so release paths don't collide. */
+		zend_type_parameter_ref_copy_ctor(type, persistent);
 	} else if (ZEND_TYPE_HAS_NAME(*type)) {
 		zend_string_addref(ZEND_TYPE_NAME(*type));
 	}
@@ -841,23 +881,117 @@ static bool zend_get_inheritance_binding(
 	return false;
 }
 
-/* Substitutes a bare class-scope T-ref with its bound argument. */
+/* Substitutes class-scope T-refs with their bound arguments.
+ *
+ * Handles three shapes:
+ *   - a bare T-ref ("T" or "?T") — return the substituted leaf;
+ *   - a union/intersection list — walk the list and substitute any class-scope
+ *     T-refs found inside, folding scalar bindings into the outer scalar mask
+ *     and keeping named/intersection bindings in the list;
+ *   - anything else — return unchanged.
+ *
+ * This is what makes property types like `T|null` reify correctly. Without the
+ * recursive walk, a T living inside a union stays literal at runtime and the
+ * property type check rejects valid assignments with "of type T". */
 static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *args, uint32_t arity)
 {
-	if (!ZEND_TYPE_HAS_TYPE_PARAMETER(t)) {
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(t)) {
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(t);
+		if (ref->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE || ref->index >= arity) {
+			return t;
+		}
+
+		zend_type result = args[ref->index];
+		if (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_NULLABLE_BIT) {
+			ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
+		}
+
+		return result;
+	}
+
+	if (!ZEND_TYPE_HAS_LIST(t)) {
 		return t;
 	}
 
-	const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(t);
-	if (ref->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE || ref->index >= arity) {
+	const zend_type_list *src_list = ZEND_TYPE_LIST(t);
+	bool needs_rebuild = false;
+	for (uint32_t i = 0; i < src_list->num_types; i++) {
+		const zend_type *elem = &src_list->types[i];
+		if (ZEND_TYPE_HAS_TYPE_PARAMETER(*elem)) {
+			const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*elem);
+			if (ref->origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE && ref->index < arity) {
+				needs_rebuild = true;
+				break;
+			}
+		} else if (ZEND_TYPE_HAS_LIST(*elem)) {
+			/* Nested list (DNF: intersection inside union, etc.) — recurse to
+			 * see if there's a T-ref buried in there. */
+			zend_type probe = zend_substitute_leaf_type_param(*elem, args, arity);
+			if (memcmp(&probe, elem, sizeof(zend_type)) != 0) {
+				needs_rebuild = true;
+				break;
+			}
+		}
+	}
+	if (!needs_rebuild) {
 		return t;
 	}
 
-	zend_type result = args[ref->index];
-	if (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_NULLABLE_BIT) {
-		ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
+	bool is_intersection = (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_INTERSECTION_BIT) != 0;
+	uint32_t carried_flags = ZEND_TYPE_FULL_MASK(t) & ~_ZEND_TYPE_KIND_MASK
+		& ~_ZEND_TYPE_LIST_BIT & ~_ZEND_TYPE_ARENA_BIT
+		& ~_ZEND_TYPE_UNION_BIT & ~_ZEND_TYPE_INTERSECTION_BIT;
+	uint32_t merged_mask = carried_flags;
+
+	ALLOCA_FLAG(use_heap)
+	zend_type *out = (zend_type *) do_alloca(sizeof(zend_type) * src_list->num_types, use_heap);
+	uint32_t out_count = 0;
+
+	for (uint32_t i = 0; i < src_list->num_types; i++) {
+		zend_type substituted = zend_substitute_leaf_type_param(src_list->types[i], args, arity);
+
+		/* Keep complex elements (named types, intersection sublists, unresolved
+		 * T-refs) in the list; their scalar contribution is also OR'd into the
+		 * outer mask in case the substituted type carries a NULLABLE bit. */
+		bool keeps_complex = ZEND_TYPE_HAS_LIST(substituted)
+			|| ZEND_TYPE_HAS_NAME(substituted)
+			|| ZEND_TYPE_HAS_LITERAL_NAME(substituted)
+			|| ZEND_TYPE_HAS_TYPE_PARAMETER(substituted)
+			|| ZEND_TYPE_HAS_NAMED_WITH_ARGS(substituted);
+
+		if (keeps_complex) {
+			out[out_count++] = substituted;
+		}
+		merged_mask |= ZEND_TYPE_PURE_MASK(substituted);
 	}
 
+	zend_type result;
+	if (out_count == 0) {
+		result = (zend_type) ZEND_TYPE_INIT_NONE(0);
+		ZEND_TYPE_FULL_MASK(result) |= merged_mask;
+	} else if (out_count == 1 && !is_intersection
+			&& (merged_mask & _ZEND_TYPE_MAY_BE_MASK & ~_ZEND_TYPE_NULLABLE_BIT) == 0) {
+		/* Degenerate union "Foo" or "?Foo" — represent as a single name with
+		 * the nullable bit, matching how the parser builds the same shape. */
+		result = out[0];
+		zend_type_copy_ctor(&result, /* use_arena */ true, /* persistent */ false);
+		if (merged_mask & _ZEND_TYPE_NULLABLE_BIT) {
+			ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
+		}
+	} else {
+		zend_type_list *new_list = zend_arena_alloc(&CG(arena), ZEND_TYPE_LIST_SIZE(out_count));
+		new_list->num_types = out_count;
+		for (uint32_t i = 0; i < out_count; i++) {
+			new_list->types[i] = out[i];
+			zend_type_copy_ctor(&new_list->types[i], /* use_arena */ true, /* persistent */ false);
+		}
+		result = (zend_type) ZEND_TYPE_INIT_NONE(0);
+		ZEND_TYPE_SET_PTR(result, new_list);
+		uint32_t kind_bit = is_intersection ? _ZEND_TYPE_INTERSECTION_BIT : _ZEND_TYPE_UNION_BIT;
+		ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_LIST_BIT | _ZEND_TYPE_ARENA_BIT | kind_bit | merged_mask;
+	}
+
+	free_alloca(out, use_heap);
 	return result;
 }
 
@@ -1679,7 +1813,7 @@ static zend_function *zend_maybe_substitute_inherited_method(
 	memcpy(clone, parent_fn, sizeof(zend_op_array));
 	clone->op_array.fn_flags &= ~ZEND_ACC_IMMUTABLE;
 
-	zend_substitute_trait_method_arg_info(clone, parent_fn, bound_args, bound_arity);
+	zend_substitute_trait_method_arg_info(clone, parent_fn, ce, bound_args, bound_arity);
 	free_alloca(bound_args, use_heap);
 	if (clone->op_array.arg_info == parent_fn->op_array.arg_info) {
 		return NULL;
@@ -2437,6 +2571,15 @@ static void do_inherit_property(zend_property_info *parent_info, zend_string *ke
 						clone->flags |= ZEND_ACC_GENERIC_CLONE;
 						clone->type = sub;
 						zend_type_copy_ctor(&clone->type, /* use_arena */ true, /* persistent */ false);
+						/* The shallow copy borrows the name pointer from
+						 * parent_info but doesn't addref it. zend_strings are
+						 * refcounted and downstream paths (e.g. when this
+						 * clone is destroyed) release the name, which would
+						 * underflow the parent's count and corrupt the
+						 * string. Take our own reference. */
+						if (clone->name) {
+							zend_string_addref(clone->name);
+						}
 
 						if (hooks && (hooks[ZEND_PROPERTY_HOOK_GET] || hooks[ZEND_PROPERTY_HOOK_SET])) {
 							zend_function **clone_hooks = zend_arena_alloc(
@@ -3407,8 +3550,39 @@ static zend_arg_info *zend_clone_arg_info_block(const zend_arg_info *orig_block,
 	return new_block;
 }
 
+/* After substitution lands on a CLASS_LIKE T-ref into the using class itself
+ * (e.g., `use Holder<T>` in `class Box<T : object>` rewrites Holder's X to
+ * Box's T), the substituted T-ref must be erased to the using class's
+ * declared bound. Without this, the trait's original "unbound X → mixed"
+ * erasure leaks into the using class's signature and the runtime
+ * type-check accepts values that violate the bound. Returns the original
+ * type when the ref isn't a using-class T-ref we can erase. */
+static zend_type zend_erase_using_class_t_ref(
+		zend_type t, const zend_class_entry *using_ce)
+{
+	if (!ZEND_TYPE_HAS_TYPE_PARAMETER(t)) {
+		return t;
+	}
+	const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(t);
+	if (ref->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE
+			|| !using_ce->generic_parameters
+			|| ref->index >= using_ce->generic_parameters->count) {
+		return t;
+	}
+	const zend_generic_parameter *gp =
+		&using_ce->generic_parameters->parameters[ref->index];
+	zend_type erased = ZEND_TYPE_IS_SET(gp->bound)
+		? gp->bound
+		: (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_ANY);
+	if (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_NULLABLE_BIT) {
+		ZEND_TYPE_FULL_MASK(erased) |= _ZEND_TYPE_NULLABLE_BIT;
+	}
+	return erased;
+}
+
 static void zend_substitute_trait_method_arg_info(
 		zend_function *new_fn, const zend_function *orig_fn,
+		const zend_class_entry *using_ce,
 		const zend_type *bind_args, uint32_t bind_arity)
 {
 	if (orig_fn->type != ZEND_USER_FUNCTION) return;
@@ -3448,6 +3622,7 @@ static void zend_substitute_trait_method_arg_info(
 		const zend_type *pre = orig_op->generic_types->return_type;
 		if (ZEND_TYPE_HAS_TYPE_PARAMETER(*pre)) {
 			zend_type sub = zend_substitute_leaf_type_param(*pre, bind_args, bind_arity);
+			sub = zend_erase_using_class_t_ref(sub, using_ce);
 			if (!ZEND_TYPE_HAS_TYPE_PARAMETER(sub)) {
 				if (!new_block) {
 					new_block = zend_clone_arg_info_block(orig_block, total);
@@ -3474,6 +3649,7 @@ static void zend_substitute_trait_method_arg_info(
 			}
 
 			zend_type sub = zend_substitute_leaf_type_param(*pre_erasure, bind_args, bind_arity);
+			sub = zend_erase_using_class_t_ref(sub, using_ce);
 			if (ZEND_TYPE_HAS_TYPE_PARAMETER(sub)) {
 				continue;
 			}
@@ -3721,7 +3897,7 @@ static void zend_add_trait_method(zend_class_entry *ce, zend_string *name, zend_
 		}
 
 		if (bind_args) {
-			zend_substitute_trait_method_arg_info(new_fn, fn, bind_args, bind_arity);
+			zend_substitute_trait_method_arg_info(new_fn, fn, ce, bind_args, bind_arity);
 		}
 
 		free_alloca(default_args, use_heap);
@@ -6994,7 +7170,13 @@ ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 		base = zend_lookup_class_ex(base_name, NULL, flags & ~ZEND_FETCH_CLASS_NO_AUTOLOAD);
 	}
 	zend_string_release(base_name);
-	if (!base || !base->generic_parameters) return NULL;
+	if (!base) return NULL;
+	if (!base->generic_parameters) {
+		zend_throw_error(NULL,
+			"Type arguments are not allowed on non-generic class %s",
+			ZSTR_VAL(base->name));
+		return NULL;
+	}
 
 	zend_monomorph_parser parser = {
 		.p = ZSTR_VAL(name) + lt_pos + 1,

@@ -42,6 +42,7 @@ typedef struct _zend_inheritance_binding_cache {
 
 ZEND_API void zend_do_implement_interface(zend_class_entry *ce, zend_class_entry *iface);
 ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *parent_ce, bool checked);
+ZEND_API void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent);
 ZEND_API zend_inheritance_status zend_check_generic_arg_satisfies_bound(
 		zend_class_entry *arg_scope, zend_type arg,
 		zend_class_entry *bound_scope, zend_type bound);

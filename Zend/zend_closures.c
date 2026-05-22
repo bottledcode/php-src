@@ -27,13 +27,8 @@
 #include "zend_globals.h"
 #include "zend_closures_arginfo.h"
 
-typedef struct _zend_closure {
-	zend_object       std;
-	zend_function     func;
-	zval              this_ptr;
-	zend_class_entry *called_scope;
-	zif_handler       orig_internal_handler;
-} zend_closure;
+/* zend_closure struct is defined in zend_closures.h so VM hot paths can
+ * inline the captured_type_args propagation in zend_vm_init_call_frame. */
 
 /* non-static since it needs to be referenced */
 ZEND_API zend_class_entry *zend_ce_closure;
@@ -174,11 +169,17 @@ ZEND_METHOD(Closure, call)
 		zend_function *my_function;
 
 		fake_closure = emalloc(sizeof(zend_closure));
-		memset(&fake_closure->std, 0, sizeof(fake_closure->std));
+		memset(fake_closure, 0, sizeof(zend_closure));
 		fake_closure->std.gc.refcount = 1;
 		fake_closure->std.gc.u.type_info = GC_NULL;
 		ZVAL_UNDEF(&fake_closure->this_ptr);
 		fake_closure->called_scope = NULL;
+		/* The fake closure runs the source closure's body; that body still
+		 * resolves outer T-refs against the source's captured T-table. Borrow
+		 * the pointer (no clone) — the source closure outlives the fake,
+		 * which is efree'd at the end of this method without running
+		 * free_storage, so no double-destroy. */
+		fake_closure->captured_type_args = closure->captured_type_args;
 		my_function = &fake_closure->func;
 		if (ZEND_USER_CODE(closure->func.type)) {
 			memcpy(my_function, &closure->func, sizeof(zend_op_array));
@@ -252,6 +253,14 @@ static void do_closure_bind(zval *return_value, zval *zclosure, zval *newthis, z
 	}
 
 	zend_create_closure(return_value, &closure->func, ce, called_scope, newthis);
+
+	/* Re-binding produces a new closure that runs the same body; the body
+	 * still references the outer T-bindings captured at lambda declaration
+	 * time, so carry the T-table over. Without this Closure::bind and
+	 * Closure::bindTo silently erase the reified bindings. */
+	if (closure->captured_type_args) {
+		zend_closure_capture_type_args(return_value, closure->captured_type_args);
+	}
 }
 
 /* {{{ Create a closure from another one and bind to another object and scope */
@@ -567,6 +576,12 @@ static void zend_closure_free_storage(zend_object *object) /* {{{ */
 	if (Z_TYPE(closure->this_ptr) != IS_UNDEF) {
 		zval_ptr_dtor(&closure->this_ptr);
 	}
+
+	if (closure->captured_type_args) {
+		closure->captured_type_args->persisted = false;
+		zend_type_arg_table_destroy(closure->captured_type_args);
+		closure->captured_type_args = NULL;
+	}
 }
 /* }}} */
 
@@ -590,6 +605,13 @@ static zend_object *zend_closure_clone(zend_object *zobject) /* {{{ */
 
 	zend_create_closure(&result, &closure->func,
 		closure->func.common.scope, closure->called_scope, &closure->this_ptr);
+
+	/* Carry over the source closure's captured T-table; the clone has the
+	 * same body and resolves the same outer T-refs. */
+	if (closure->captured_type_args) {
+		zend_closure_capture_type_args(&result, closure->captured_type_args);
+	}
+
 	return Z_OBJ(result);
 }
 /* }}} */
@@ -855,6 +877,19 @@ static void zend_create_closure_ex(zval *res, zend_function *func, zend_class_en
 		if (this_ptr && Z_TYPE_P(this_ptr) == IS_OBJECT && (closure->func.common.fn_flags & ZEND_ACC_STATIC) == 0) {
 			ZVAL_OBJ_COPY(&closure->this_ptr, Z_OBJ_P(this_ptr));
 		}
+	}
+}
+
+ZEND_API void zend_closure_capture_type_args(zval *closure_zv, zend_type_arg_table *src)
+{
+	zend_closure *closure = (zend_closure *) Z_OBJ_P(closure_zv);
+	if (closure->captured_type_args) {
+		closure->captured_type_args->persisted = false;
+		zend_type_arg_table_destroy(closure->captured_type_args);
+		closure->captured_type_args = NULL;
+	}
+	if (src) {
+		closure->captured_type_args = zend_type_arg_table_capture_clone(src);
 	}
 }
 /* }}} */

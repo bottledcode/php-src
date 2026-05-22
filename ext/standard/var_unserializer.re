@@ -17,6 +17,7 @@
 #include "php_incomplete_class.h"
 #include "zend_portability.h"
 #include "zend_exceptions.h"
+#include "zend_inheritance.h"
 
 /* {{{ reference-handling for unserializer: var_* */
 #define VAR_ENTRIES_MAX 1018     /* 1024 - offsetof(php_unserialize_data, entries) / sizeof(void*) */
@@ -1207,7 +1208,8 @@ object ":" uiv ":" ["]	{
 		lc_name = zend_string_tolower(class_name);
 		if(!unserialize_allowed_class(lc_name, var_hash)) {
 			zend_string_release_ex(lc_name, 0);
-			if (!zend_is_valid_class_name(class_name)) {
+			if (!zend_is_valid_class_name(class_name)
+					&& !zend_class_name_is_monomorph(class_name)) {
 				zend_string_release_ex(class_name, 0);
 				return 0;
 			}
@@ -1232,7 +1234,13 @@ object ":" uiv ":" ["]	{
 			break;
 		}
 
-		if (!ZSTR_HAS_CE_CACHE(class_name) && !zend_is_valid_class_name(class_name)) {
+		/* Canonical monomorph names ("Box<int>") contain characters that
+		 * zend_is_valid_class_name() rejects. zend_lookup_class_ex() has a
+		 * dedicated monomorphization hook for these names, so accept them
+		 * here and let the lookup either synthesize the monomorph or fail. */
+		if (!ZSTR_HAS_CE_CACHE(class_name)
+				&& !zend_is_valid_class_name(class_name)
+				&& !zend_class_name_is_monomorph(class_name)) {
 			zend_string_release_ex(lc_name, 0);
 			zend_string_release_ex(class_name, 0);
 			return 0;
