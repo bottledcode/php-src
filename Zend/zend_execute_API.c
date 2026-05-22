@@ -1012,6 +1012,26 @@ cleanup_args:
 	if (func->type == ZEND_USER_FUNCTION) {
 		uint32_t orig_jit_trace_num = EG(jit_trace_num);
 
+		/* C-dispatched calls (usort, array_map, Closure::call, etc.) don't go
+		 * through DO_FCALL, so the closure-side reified arg check that lives
+		 * there is bypassed. Run it here for closures whose captured T-table
+		 * was propagated by zend_vm_init_call_frame. Must fire before
+		 * zend_init_func_execute_data, because that relocates variadic args
+		 * past the CV slots and the helper would then read UNDEF positions. */
+		if (UNEXPECTED(call->type_args
+				&& (func->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			if (!zend_verify_generic_arg_types(call, NULL)) {
+				zend_vm_stack_free_args(call);
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				zend_vm_stack_free_call_frame(call);
+				EG(fake_scope) = orig_fake_scope;
+				zend_release_fcall_info_cache(fci_cache);
+				return SUCCESS;
+			}
+		}
+
 		zend_init_func_execute_data(call, &func->op_array, fci->retval);
 		ZEND_OBSERVER_FCALL_BEGIN(call);
 		zend_execute_ex(call);

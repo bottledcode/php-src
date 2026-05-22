@@ -396,6 +396,421 @@ $inst_t_ns        = bench("instanceof Container<T> (PIC warm)", 'bench_instanceo
 $inst_concrete_ns = bench("instanceof Container    (cache slot)", 'bench_instanceof_concrete');
 compare("delta: instanceof T         vs instanceof bare", $inst_t_ns, "T", $inst_concrete_ns, "bare");
 
+// --------------------------------------------------------------------------
+// Scenario 11: depth scaling for nested monomorph instantiation.
+// All monomorphs are synthesized + cached on first use; the hot loop is
+// supposed to hit the class-table lookup at pointer-compare speed regardless
+// of nesting depth. If the cost grows with depth in the hot path, something
+// is being recomputed per call (canonical-name string build, arg-table
+// rebuild, etc.).
+// --------------------------------------------------------------------------
+class L1<T> {}
+class L2<T> {}
+class L3<T> {}
+class L4<T> {}
+
+function deep_new_d1(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new L1::<int>(); }
+}
+function deep_new_d2(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new L1::<L2<int>>(); }
+}
+function deep_new_d3(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new L1::<L2<L3<int>>>(); }
+}
+function deep_new_d4(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new L1::<L2<L3<L4<int>>>>(); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 12: composite type arguments (union, intersection, DNF).
+// Canonicalization sorts the alternatives, so equivalent shapes converge on
+// the same monomorph name.
+// --------------------------------------------------------------------------
+interface Ifc1 {}
+interface Ifc2 {}
+class Holder1<T> {}
+
+function comp_concrete(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new Holder1::<int>(); }
+}
+function comp_union(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new Holder1::<int|string>(); }
+}
+function comp_intersection(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new Holder1::<Ifc1&Ifc2>(); }
+}
+function comp_dnf(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new Holder1::<(Ifc1&Ifc2)|int>(); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 13: bounded inner parameter — the `A<B & C<F>>` pattern where
+// the inner C declares its own bound, so synthesizing the outer monomorph
+// triggers a bound-conformance check on the inner application.
+// --------------------------------------------------------------------------
+class FBound {}
+class FSub extends FBound {}
+class WithBound<D : FBound> {}
+class WithoutBound<X> {}
+
+function nested_bounded_only(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new WithBound::<FSub>(); }
+}
+function nested_outer_around_bounded(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new WithoutBound::<WithBound<FSub>>(); }
+}
+function nested_intersection_with_bounded(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new WithoutBound::<Ifc1&WithBound<FSub>>(); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 14: instanceof on deeply-nested monomorphs. The polymorphic
+// inline cache should make depth irrelevant after warmup — the slot just
+// caches the resolved ce.
+// --------------------------------------------------------------------------
+function deep_instanceof_d1(int $n): void {
+    $box = new L1::<int>();
+    for ($i = 0; $i < $n; $i++) { $_ = $box instanceof L1<int>; }
+}
+function deep_instanceof_d3(int $n): void {
+    $box = new L1::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { $_ = $box instanceof L1<L2<L3<int>>>; }
+}
+function deep_instanceof_d3_mismatch(int $n): void {
+    $box = new L1::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { $_ = $box instanceof L1<L2<L3<string>>>; }
+}
+function deep_instanceof_d3_bare(int $n): void {
+    $box = new L1::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { $_ = $box instanceof L1; }
+}
+
+section("11. Depth scaling — nested monomorph `new`");
+$d1_ns = bench("new L1<int>            (depth 1)", 'deep_new_d1');
+$d2_ns = bench("new L1<L2<int>>        (depth 2)", 'deep_new_d2');
+$d3_ns = bench("new L1<L2<L3<int>>>    (depth 3)", 'deep_new_d3');
+$d4_ns = bench("new L1<L2<L3<L4<int>>>> (depth 4)", 'deep_new_d4');
+compare("delta: depth 2              vs depth 1", $d2_ns, "d2", $d1_ns, "d1");
+compare("delta: depth 3              vs depth 1", $d3_ns, "d3", $d1_ns, "d1");
+compare("delta: depth 4              vs depth 1", $d4_ns, "d4", $d1_ns, "d1");
+
+section("12. Composite type-argument shapes");
+$cc_ns = bench("new Holder1<int>",                 'comp_concrete');
+$cu_ns = bench("new Holder1<int|string>",          'comp_union');
+$ci_ns = bench("new Holder1<Ifc1&Ifc2>",           'comp_intersection');
+$cd_ns = bench("new Holder1<(Ifc1&Ifc2)|int>",     'comp_dnf');
+compare("delta: union                vs concrete",       $cu_ns, "uni", $cc_ns, "cnc");
+compare("delta: intersection         vs concrete",       $ci_ns, "ix",  $cc_ns, "cnc");
+compare("delta: DNF                  vs concrete",       $cd_ns, "dnf", $cc_ns, "cnc");
+
+section("13. Bounded inner parameter (`A<B & C<F>>` pattern)");
+$nb_ns  = bench("new WithBound<FSub>           (just the inner)",       'nested_bounded_only');
+$nob_ns = bench("new WithoutBound<WithBound<FSub>>",                    'nested_outer_around_bounded');
+$nix_ns = bench("new WithoutBound<Ifc1 & WithBound<FSub>>",             'nested_intersection_with_bounded');
+compare("delta: outer wraps bounded  vs inner alone",   $nob_ns, "out", $nb_ns,  "inner");
+compare("delta: intersection w/bound vs outer alone",   $nix_ns, "ix",  $nob_ns, "out");
+
+section("14. Deep `instanceof` (PIC vs depth)");
+$di1_ns = bench("instanceof L1<int>             (depth 1)",              'deep_instanceof_d1');
+$di3_ns = bench("instanceof L1<L2<L3<int>>>     (depth 3, match)",       'deep_instanceof_d3');
+$dim_ns = bench("instanceof L1<L2<L3<string>>>  (depth 3, mismatch)",    'deep_instanceof_d3_mismatch');
+$dib_ns = bench("instanceof L1                  (bare, hits ancestor)",  'deep_instanceof_d3_bare');
+compare("delta: depth 3 match        vs depth 1 match", $di3_ns, "d3", $di1_ns, "d1");
+compare("delta: depth 3 mismatch     vs depth 3 match", $dim_ns, "mis", $di3_ns, "mat");
+compare("delta: bare ancestor        vs depth 3 match", $dib_ns, "bare", $di3_ns, "d3");
+
+// --------------------------------------------------------------------------
+// Scenario 15: deep parameter type check at RECV. The arg_info type is now
+// the canonical monomorph (`Box<L2<L3<int>>>`), so RECV's instanceof_function
+// resolves and enforces the full identity — passing the wrong monomorph
+// rejects, not silently accepts. After warmup the class-lookup cache makes
+// the check the same speed as a non-generic typed param.
+// --------------------------------------------------------------------------
+class DPlain {}
+class DBox<T> {}
+
+function takes_plain(DPlain $x): void {}
+function takes_d1(DBox<int> $x): void {}
+function takes_d2(DBox<L2<int>> $x): void {}
+function takes_d3(DBox<L2<L3<int>>> $x): void {}
+function takes_d4(DBox<L2<L3<L4<int>>>> $x): void {}
+
+function bench_param_plain(int $n): void {
+    $v = new DPlain();
+    for ($i = 0; $i < $n; $i++) { takes_plain($v); }
+}
+function bench_param_d1(int $n): void {
+    $v = new DBox::<int>();
+    for ($i = 0; $i < $n; $i++) { takes_d1($v); }
+}
+function bench_param_d2(int $n): void {
+    $v = new DBox::<L2<int>>();
+    for ($i = 0; $i < $n; $i++) { takes_d2($v); }
+}
+function bench_param_d3(int $n): void {
+    $v = new DBox::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { takes_d3($v); }
+}
+function bench_param_d4(int $n): void {
+    $v = new DBox::<L2<L3<L4<int>>>>();
+    for ($i = 0; $i < $n; $i++) { takes_d4($v); }
+}
+
+section("15. Deep parameter type check (RECV reifies the full monomorph)");
+$p_pl_ns = bench("f(DPlain \$x)                  (non-generic baseline)", 'bench_param_plain');
+$p_d1_ns = bench("f(DBox<int> \$x)               (depth 1)",              'bench_param_d1');
+$p_d2_ns = bench("f(DBox<L2<int>> \$x)           (depth 2)",              'bench_param_d2');
+$p_d3_ns = bench("f(DBox<L2<L3<int>>> \$x)       (depth 3)",              'bench_param_d3');
+$p_d4_ns = bench("f(DBox<L2<L3<L4<int>>>> \$x)   (depth 4)",              'bench_param_d4');
+compare("delta: deep d1              vs plain", $p_d1_ns, "d1", $p_pl_ns, "plain");
+compare("delta: deep d4              vs plain", $p_d4_ns, "d4", $p_pl_ns, "plain");
+compare("delta: deep d4              vs deep d1", $p_d4_ns, "d4", $p_d1_ns, "d1");
+
+// --------------------------------------------------------------------------
+// Scenario 16: inference from a deep-typed value. The compiler can't
+// destructure `Box<T>` into a T-binding at the call site (only bare T
+// params are inferable), but `id<T>(T $x)` does pick up the value's full
+// runtime monomorph as T. Compare to explicit turbofish with the same deep
+// type, and to the equivalent non-generic call.
+// --------------------------------------------------------------------------
+function id_gen<T>(T $x): T { return $x; }
+
+function bench_infer_d1(int $n): void {
+    $v = new DBox::<int>();
+    for ($i = 0; $i < $n; $i++) { id_gen($v); }
+}
+function bench_infer_d3(int $n): void {
+    $v = new DBox::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { id_gen($v); }
+}
+function bench_turbofish_d3(int $n): void {
+    $v = new DBox::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { id_gen::<DBox<L2<L3<int>>>>($v); }
+}
+function bench_plain_pass(int $n): void {
+    $v = new DPlain();
+    for ($i = 0; $i < $n; $i++) { takes_plain($v); }
+}
+
+section("16. Inference / turbofish with deep value");
+$inf1_ns = bench("id(DBox<int>)                  — inferred",             'bench_infer_d1');
+$inf3_ns = bench("id(DBox<L2<L3<int>>>)          — inferred",             'bench_infer_d3');
+$tf3_ns  = bench("id::<DBox<L2<L3<int>>>>(\$v)    — turbofish",           'bench_turbofish_d3');
+$plp_ns  = bench("takes_plain(\$plain)            — non-generic ref",     'bench_plain_pass');
+compare("delta: inferred d1          vs plain", $inf1_ns, "infD1", $plp_ns, "plain");
+compare("delta: inferred d3          vs plain", $inf3_ns, "infD3", $plp_ns, "plain");
+compare("delta: turbofish d3         vs inferred d3", $tf3_ns,  "tf",   $inf3_ns, "inf");
+
+// --------------------------------------------------------------------------
+// Scenario 17: method dispatch on a deep generic receiver. The receiver's
+// class is the monomorph (e.g., DReceiver<L2<L3<int>>>); the method lookup
+// goes through the monomorph's function table. Hot loops with the same
+// receiver class should pay zero depth penalty after warmup.
+// --------------------------------------------------------------------------
+class DReceiver<T> {
+    public function tick(int $x): int { return $x + 1; }
+}
+class DReceiverPlain {
+    public function tick(int $x): int { return $x + 1; }
+}
+
+function bench_recv_plain(int $n): void {
+    $r = new DReceiverPlain();
+    $acc = 0;
+    for ($i = 0; $i < $n; $i++) { $acc = $r->tick($acc); }
+}
+function bench_recv_d1(int $n): void {
+    $r = new DReceiver::<int>();
+    $acc = 0;
+    for ($i = 0; $i < $n; $i++) { $acc = $r->tick($acc); }
+}
+function bench_recv_d3(int $n): void {
+    $r = new DReceiver::<L2<L3<int>>>();
+    $acc = 0;
+    for ($i = 0; $i < $n; $i++) { $acc = $r->tick($acc); }
+}
+
+section("17. Method dispatch on a deep generic receiver");
+$mr_pl_ns = bench("DReceiverPlain->tick()           (non-generic)",        'bench_recv_plain');
+$mr_d1_ns = bench("DReceiver<int>->tick()           (depth 1)",            'bench_recv_d1');
+$mr_d3_ns = bench("DReceiver<L2<L3<int>>>->tick()   (depth 3)",            'bench_recv_d3');
+compare("delta: receiver d1          vs plain", $mr_d1_ns, "d1", $mr_pl_ns, "plain");
+compare("delta: receiver d3          vs d1",    $mr_d3_ns, "d3", $mr_d1_ns, "d1");
+
+// --------------------------------------------------------------------------
+// Scenario 18: pass-through with deep param + deep return. Two RECV checks
+// per call (param + return), each resolving a deep monomorph class.
+// --------------------------------------------------------------------------
+function passthrough_plain(DPlain $x): DPlain { return $x; }
+function passthrough_d3(DBox<L2<L3<int>>> $x): DBox<L2<L3<int>>> { return $x; }
+
+function bench_passthrough_plain(int $n): void {
+    $v = new DPlain();
+    for ($i = 0; $i < $n; $i++) { passthrough_plain($v); }
+}
+function bench_passthrough_d3(int $n): void {
+    $v = new DBox::<L2<L3<int>>>();
+    for ($i = 0; $i < $n; $i++) { passthrough_d3($v); }
+}
+
+section("18. Pass-through (param + return both deep)");
+$pt_pl_ns = bench("DPlain f(DPlain \$x): DPlain",                          'bench_passthrough_plain');
+$pt_d3_ns = bench("DBox<L2<L3<int>>> f(DBox<L2<L3<int>>> \$x): same",      'bench_passthrough_d3');
+compare("delta: deep passthrough     vs plain passthrough", $pt_d3_ns, "d3", $pt_pl_ns, "plain");
+
+// ============================================================================
+// PATHOLOGICAL — looking for super-linear blowup.
+// Each scenario varies one structural dimension while holding the others
+// constant. If the cost grows worse than linearly in that dimension, the
+// implementation has a problem worth flagging.
+// ============================================================================
+
+// --------------------------------------------------------------------------
+// Scenario 19: canonical-name traversal depth. Building "Box<Box<Box<...>>>"
+// touches every layer of the tree. Linear depth → linear cost is the goal.
+// --------------------------------------------------------------------------
+class CB<T> {}
+function cn_d1(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CB::<int>(); }
+}
+function cn_d3(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CB::<CB<CB<int>>>(); }
+}
+function cn_d5(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CB::<CB<CB<CB<CB<int>>>>>(); }
+}
+function cn_d8(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CB::<CB<CB<CB<CB<CB<CB<CB<int>>>>>>>>(); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 20: wide DNF — many alternatives in a union of intersections.
+// Pre-erasure value check loops over alternatives; worst case is O(width).
+// --------------------------------------------------------------------------
+interface DA {} interface DB {} interface DC {} interface DD {}
+interface DE {} interface DF {} interface DG {} interface DH {}
+class Hits implements DA, DB, DC, DD, DE, DF, DG, DH {}
+function dnf_w2<T : (DA&DB)|(DC&DD)>(T $x): T { return $x; }
+function dnf_w4<T : (DA&DB)|(DC&DD)|(DE&DF)|(DG&DH)>(T $x): T { return $x; }
+function dnf_w2_call(int $n): void {
+    $v = new Hits();
+    for ($i = 0; $i < $n; $i++) { dnf_w2($v); }
+}
+function dnf_w4_call(int $n): void {
+    $v = new Hits();
+    for ($i = 0; $i < $n; $i++) { dnf_w4($v); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 21: diamond inheritance binding chain. D extends C<E<F<int>>>
+// resolution. Bench the act of constructing instances through the chain.
+// --------------------------------------------------------------------------
+class CL1<T> {}
+class CL2<T> extends CL1<T> {}
+class CL3<T> extends CL2<T> {}
+class CL4<T> extends CL3<T> {}
+class CL5<T> extends CL4<T> {}
+function chain_d2(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CL2::<int>(); }
+}
+function chain_d3(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CL3::<int>(); }
+}
+function chain_d4(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CL4::<int>(); }
+}
+function chain_d5(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new CL5::<int>(); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 22: polymorphic inline cache thrashing. The PIC at instanceof/
+// catch keys on (type_args generation, called_scope). A hot loop that
+// switches the binding per iteration should miss the cache every time,
+// turning O(1) into an O(class-table-lookup) cost per iteration.
+// --------------------------------------------------------------------------
+class PicBox<T> {}
+function pic_stable<T>(array $items): int {
+    $count = 0;
+    foreach ($items as $item) {
+        if ($item instanceof PicBox<T>) { $count++; }
+    }
+    return $count;
+}
+/* Outer loop alternates the T binding per call — every entry into the inner
+ * loop sees a different type_args generation, so the PIC slot mismatches
+ * and re-resolves on the first item. The inner loop then runs warm. */
+function bench_pic_stable_int(int $n): void {
+    $items = array_fill(0, 16, new PicBox::<int>());
+    for ($i = 0; $i < $n; $i++) {
+        pic_stable::<int>($items);
+    }
+}
+function bench_pic_alternating(int $n): void {
+    $items = array_fill(0, 16, new PicBox::<int>());
+    /* call alternates T between int and string — each call's args_box has
+     * a different cache key, so the per-call type_arg_table differs and
+     * the inner-loop PIC must re-resolve at least once per call. */
+    for ($i = 0; $i < $n; $i++) {
+        if ($i & 1) {
+            pic_stable::<int>($items);
+        } else {
+            pic_stable::<string>($items);
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 23: bound-conformance check on deeply-nested args. Each level of
+// nesting may trigger an additional recursive call into the variance/bound
+// machinery.
+// --------------------------------------------------------------------------
+class BX<T : object> {}
+function bnd_d1(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new BX::<DPlain>(); }
+}
+function bnd_d3(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new BX::<BX<BX<DPlain>>>(); }
+}
+function bnd_d5(int $n): void {
+    for ($i = 0; $i < $n; $i++) { new BX::<BX<BX<BX<BX<DPlain>>>>>(); }
+}
+
+section("19. Canonical-name traversal depth");
+$cn1_ns = bench("new CB<int>                          (depth 1)",   'cn_d1');
+$cn3_ns = bench("new CB<CB<CB<int>>>                  (depth 3)",   'cn_d3');
+$cn5_ns = bench("new CB<CB<CB<CB<CB<int>>>>>          (depth 5)",   'cn_d5');
+$cn8_ns = bench("new CB<...x8 levels...<int>>         (depth 8)",   'cn_d8');
+compare("delta: d3 vs d1               (3x deeper)", $cn3_ns, "d3", $cn1_ns, "d1");
+compare("delta: d5 vs d1               (5x deeper)", $cn5_ns, "d5", $cn1_ns, "d1");
+compare("delta: d8 vs d1               (8x deeper)", $cn8_ns, "d8", $cn1_ns, "d1");
+
+section("20. Wide DNF bound — value check across union of intersections");
+$dnf2_ns = bench("dnf<(DA&DB)|(DC&DD)>(Hits) — 2 alts",      'dnf_w2_call');
+$dnf4_ns = bench("dnf<(DA&DB)|(DC&DD)|(DE&DF)|(DG&DH)> — 4", 'dnf_w4_call');
+compare("delta: 4 alts vs 2 alts        (2x wider)", $dnf4_ns, "w4", $dnf2_ns, "w2");
+
+section("21. Inheritance binding chain depth");
+$ch2_ns = bench("new CL2<int>             (chain depth 2)",  'chain_d2');
+$ch3_ns = bench("new CL3<int>             (chain depth 3)",  'chain_d3');
+$ch4_ns = bench("new CL4<int>             (chain depth 4)",  'chain_d4');
+$ch5_ns = bench("new CL5<int>             (chain depth 5)",  'chain_d5');
+compare("delta: chain 3 vs chain 2",     $ch3_ns, "c3", $ch2_ns, "c2");
+compare("delta: chain 5 vs chain 2",     $ch5_ns, "c5", $ch2_ns, "c2");
+
+section("22. PIC thrashing (alternating T)");
+$pic_st_ns = bench("instanceof PicBox<T> — stable T (PIC warm)",  'bench_pic_stable_int',  ITERS_LIGHT);
+$pic_alt_ns = bench("instanceof PicBox<T> — alternating T",       'bench_pic_alternating', ITERS_LIGHT);
+compare("delta: alternating vs stable", $pic_alt_ns, "alt", $pic_st_ns, "stable");
+
+section("23. Bound-conformance depth");
+$bd1_ns = bench("new BX<DPlain>           (depth 1, bound: object)",       'bnd_d1');
+$bd3_ns = bench("new BX<BX<BX<DPlain>>>   (depth 3)",                      'bnd_d3');
+$bd5_ns = bench("new BX<...x5 nested...>  (depth 5)",                      'bnd_d5');
+compare("delta: d3 vs d1               (3x deeper)", $bd3_ns, "d3", $bd1_ns, "d1");
+compare("delta: d5 vs d1               (5x deeper)", $bd5_ns, "d5", $bd1_ns, "d1");
+
 $opcache_loaded = extension_loaded('Zend OPcache');
 $opcache_on = $opcache_loaded
     && function_exists('opcache_get_status')

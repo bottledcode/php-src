@@ -610,7 +610,8 @@ static void zend_check_generic_argument_bounds(
 		const zend_type *args_box,
 		uint32_t arity,
 		const char *callee_kind,
-		const char *callee_qualified_name)
+		const zend_function *callee_fbc,
+		const zend_class_entry *callee_ce)
 {
 	if (!params || !args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
 		return;
@@ -630,12 +631,24 @@ static void zend_check_generic_argument_bounds(
 				? params->parameters[i].bound_pre_erasure
 				: bound;
 			zend_string *bound_str = zend_type_to_string(display);
+			/* Build the callee's qualified display name only on the error
+			 * path — the success path runs on every generic call. */
+			zend_string *qname;
+			if (callee_fbc) {
+				qname = zend_strpprintf(0, "%s%s%s()",
+					callee_fbc->common.scope ? ZSTR_VAL(callee_fbc->common.scope->name) : "",
+					callee_fbc->common.scope ? "::" : "",
+					callee_fbc->common.function_name ? ZSTR_VAL(callee_fbc->common.function_name) : "{closure}");
+			} else {
+				qname = zend_string_copy(callee_ce->name);
+			}
 			zend_throw_error(zend_ce_type_error,
 				"Type argument %u to %s %s does not satisfy the bound %s on parameter %s, %s given",
-				i + 1, callee_kind, callee_qualified_name,
+				i + 1, callee_kind, ZSTR_VAL(qname),
 				ZSTR_VAL(bound_str),
 				params->parameters[i].name ? ZSTR_VAL(params->parameters[i].name) : "?",
 				ZSTR_VAL(arg_str));
+			zend_string_release(qname);
 			zend_string_release(arg_str);
 			zend_string_release(bound_str);
 			return;
@@ -924,7 +937,13 @@ static bool zend_check_pre_erasure_type_value(
  * to the erased bound check at RECV. */
 ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box)
 {
-	if (!args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+	const zend_type_named_with_args *nwa = NULL;
+	if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+		nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+	}
+	/* When neither args_box nor a captured frame T-table is available there
+	 * is nothing to verify against. */
+	if (!nwa && !call->type_args) {
 		return true;
 	}
 	const zend_function *fbc = call->func;
@@ -933,7 +952,6 @@ ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_
 			|| !fbc->op_array.generic_types->parameters) {
 		return true;
 	}
-	const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
 	const HashTable *pre = fbc->op_array.generic_types->parameters;
 	uint32_t num_args = ZEND_CALL_NUM_ARGS(call);
 	zend_ulong arg_idx;
@@ -943,16 +961,21 @@ ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_
 		if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe_type_ptr)) continue;
 		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pe_type_ptr);
 		if (ref->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) continue;
-		if (ref->index >= nwa->count) continue;
-		zend_type substituted = nwa->args[ref->index];
-		if (!ZEND_TYPE_IS_SET(substituted)) continue;
-		zval *arg = ZEND_CALL_ARG(call, (uint32_t) arg_idx + 1);
-		zval *target = arg;
-		const zend_reference *zref = NULL;
-		if (Z_ISREF_P(target)) {
-			zref = Z_REF_P(target);
-			target = Z_REFVAL_P(target);
+		zend_type substituted;
+		if (nwa) {
+			if (ref->index >= nwa->count) continue;
+			substituted = nwa->args[ref->index];
+		} else {
+			/* No turbofish args_box for this call — resolve directly from the
+			 * captured T-table (e.g., a closure with no turbofish at its own
+			 * call site, whose body references the outer frame's T). */
+			if (ref->index >= call->type_args->count) continue;
+			const zend_type *resolved = zend_type_arg_entry_type(
+				&call->type_args->entries[ref->index]);
+			if (!resolved) continue;
+			substituted = *resolved;
 		}
+		if (!ZEND_TYPE_IS_SET(substituted)) continue;
 
 		/* If the turbofish arg is itself a forwarded TYPE_PARAMETER (e.g.
 		 * `id::<U>($x)` inside `nested<U>`), the caller's binding has
@@ -974,31 +997,122 @@ ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_
 			substituted = *resolved;
 		}
 
-		/* Pre-erasure shapes don't match the canonical PHP type layout
-		 * (scalars sit as CODE-only list members instead of bits on the
-		 * outer mask), so walk them directly. */
 		bool strict = EG(current_execute_data)
 			&& EG(current_execute_data)->func
 			&& (EG(current_execute_data)->func->common.fn_flags & ZEND_ACC_STRICT_TYPES);
-		bool ok = zend_check_pre_erasure_type_value(&substituted, target, zref, strict);
-		if (!ok) {
-			zend_string *expected = zend_type_to_string(substituted);
-			const zend_arg_info *ai = (arg_idx < fbc->common.num_args)
-				? &fbc->common.arg_info[arg_idx] : NULL;
-			zend_throw_error(zend_ce_type_error,
-				"%s%s%s(): Argument #%u%s%s%s must be of type %s, %s given",
-				fbc->common.scope ? ZSTR_VAL(fbc->common.scope->name) : "",
-				fbc->common.scope ? "::" : "",
-				fbc->common.function_name ? ZSTR_VAL(fbc->common.function_name) : "{closure}",
-				(uint32_t) arg_idx + 1,
-				(ai && ai->name) ? " ($" : "",
-				(ai && ai->name) ? ZSTR_VAL(ai->name) : "",
-				(ai && ai->name) ? ")" : "",
-				ZSTR_VAL(expected), zend_zval_value_name(target));
-			zend_string_release(expected);
-			return false;
+
+		/* When the pre-erasure parameter slot is variadic (T ...$xs), the
+		 * single key in `pre` covers every value supplied at runtime. Sweep
+		 * from arg_idx through num_args-1 so each variadic element gets the
+		 * same reified T-check, not just the first. */
+		bool is_variadic_slot = (fbc->common.fn_flags & ZEND_ACC_VARIADIC)
+			&& arg_idx == fbc->common.num_args;
+		uint32_t sweep_end = is_variadic_slot ? num_args : (uint32_t) arg_idx + 1;
+
+		for (uint32_t aidx = (uint32_t) arg_idx; aidx < sweep_end; aidx++) {
+			zval *arg = ZEND_CALL_ARG(call, aidx + 1);
+			zval *target = arg;
+			const zend_reference *zref = NULL;
+			if (Z_ISREF_P(target)) {
+				zref = Z_REF_P(target);
+				target = Z_REFVAL_P(target);
+			}
+
+			/* Pre-erasure shapes don't match the canonical PHP type layout
+			 * (scalars sit as CODE-only list members instead of bits on the
+			 * outer mask), so walk them directly. */
+			bool ok = zend_check_pre_erasure_type_value(&substituted, target, zref, strict);
+			if (!ok) {
+				zend_string *expected = zend_type_to_string(substituted);
+				const zend_arg_info *ai;
+				if (is_variadic_slot) {
+					ai = &fbc->common.arg_info[fbc->common.num_args];
+				} else {
+					ai = (aidx < fbc->common.num_args)
+						? &fbc->common.arg_info[aidx] : NULL;
+				}
+				zend_throw_error(zend_ce_type_error,
+					"%s%s%s(): Argument #%u%s%s%s must be of type %s, %s given",
+					fbc->common.scope ? ZSTR_VAL(fbc->common.scope->name) : "",
+					fbc->common.scope ? "::" : "",
+					fbc->common.function_name ? ZSTR_VAL(fbc->common.function_name) : "{closure}",
+					aidx + 1,
+					(ai && ai->name) ? " ($" : "",
+					(ai && ai->name) ? ZSTR_VAL(ai->name) : "",
+					(ai && ai->name) ? ")" : "",
+					ZSTR_VAL(expected), zend_zval_value_name(target));
+				zend_string_release(expected);
+				return false;
+			}
 		}
 	} ZEND_HASH_FOREACH_END();
+	return true;
+}
+
+/* Reified counterpart to zend_verify_return_error's erased check. Consults
+ * op_array->generic_types->return_type (pre-erasure) and, if it's a direct
+ * T-ref, substitutes via call->type_args and verifies the value. Only bare
+ * T at the top level is handled; composite shapes (array<T>, Box<T>) still
+ * fall through to the existing erased-bound check. Returns true when no
+ * reified check applies *or* the check passes; false (with EG(exception)
+ * set) when the value violates the reified type. */
+ZEND_API bool zend_verify_generic_return_type(zend_execute_data *call, zval *retval_ptr)
+{
+	if (!call->type_args) {
+		return true;
+	}
+	const zend_function *fbc = call->func;
+	if (!ZEND_USER_CODE(fbc->common.type)
+			|| !fbc->op_array.generic_types
+			|| !fbc->op_array.generic_types->return_type) {
+		return true;
+	}
+	const zend_type *pe_type = fbc->op_array.generic_types->return_type;
+	if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe_type)) {
+		return true;
+	}
+	const zend_type_parameter_ref *param_ref = ZEND_TYPE_TYPE_PARAMETER(*pe_type);
+	if (param_ref->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
+		return true;
+	}
+	if (param_ref->index >= call->type_args->count) {
+		return true;
+	}
+	const zend_type *resolved = zend_type_arg_entry_type(
+		&call->type_args->entries[param_ref->index]);
+	if (!resolved || !ZEND_TYPE_IS_SET(*resolved)) {
+		return true;
+	}
+	zend_type substituted = *resolved;
+
+	zval *target = retval_ptr;
+	const zend_reference *zref = NULL;
+	if (Z_ISREF_P(target)) {
+		zref = Z_REF_P(target);
+		target = Z_REFVAL_P(target);
+	}
+
+	/* `?T` carries the nullable bit on the outer T-ref; preserve it on the
+	 * substituted type so a returned NULL still passes when declared `?T`. */
+	if (ZEND_TYPE_FULL_MASK(*pe_type) & _ZEND_TYPE_NULLABLE_BIT) {
+		ZEND_TYPE_FULL_MASK(substituted) |= _ZEND_TYPE_NULLABLE_BIT;
+	}
+
+	bool strict = EG(current_execute_data)
+		&& EG(current_execute_data)->func
+		&& (EG(current_execute_data)->func->common.fn_flags & ZEND_ACC_STRICT_TYPES);
+	bool ok = zend_check_pre_erasure_type_value(&substituted, target, zref, strict);
+	if (!ok) {
+		zend_string *expected = zend_type_to_string(substituted);
+		zend_throw_error(zend_ce_type_error,
+			"%s%s%s(): Return value must be of type %s, %s returned",
+			fbc->common.scope ? ZSTR_VAL(fbc->common.scope->name) : "",
+			fbc->common.scope ? "::" : "",
+			fbc->common.function_name ? ZSTR_VAL(fbc->common.function_name) : "{closure}",
+			ZSTR_VAL(expected), zend_zval_value_name(target));
+		zend_string_release(expected);
+		return false;
+	}
 	return true;
 }
 
@@ -1048,12 +1162,7 @@ ZEND_API void zend_check_generic_call_arguments(const zend_function *fbc, uint32
 	}
 
 	if (args_box) {
-		zend_string *qname = zend_strpprintf(0, "%s%s%s()",
-			fbc->common.scope ? ZSTR_VAL(fbc->common.scope->name) : "",
-			fbc->common.scope ? "::" : "",
-			fbc->common.function_name ? ZSTR_VAL(fbc->common.function_name) : "{closure}");
-		zend_check_generic_argument_bounds(params, args_box, arity, "call", ZSTR_VAL(qname));
-		zend_string_release(qname);
+		zend_check_generic_argument_bounds(params, args_box, arity, "call", fbc, NULL);
 	}
 }
 
@@ -1078,7 +1187,7 @@ ZEND_API void zend_check_generic_new_arguments(const zend_class_entry *ce, uint3
 	}
 
 	if (args_box) {
-		zend_check_generic_argument_bounds(ce->generic_parameters, args_box, arity, "new", ZSTR_VAL(ce->name));
+		zend_check_generic_argument_bounds(ce->generic_parameters, args_box, arity, "new", NULL, ce);
 	}
 }
 
@@ -1116,11 +1225,17 @@ static bool zend_static_check_generic_call_bounds(
 	uint32_t check_count = arity < args->count ? arity : args->count;
 	if (check_count > params->count) check_count = params->count;
 	for (uint32_t i = 0; i < check_count; i++) {
+		zend_type bound = params->parameters[i].bound;
+		bool has_bound = ZEND_TYPE_IS_SET(bound);
 		if (zend_type_contains_type_parameter(args->args[i])) {
+			/* Unbounded parameter accepts any T-ref trivially; we can elide
+			 * the runtime arity+bound check (INSTALL instead of VERIFY).
+			 * A T-ref against a bounded parameter still needs runtime
+			 * resolution to compare against the bound. */
+			if (!has_bound) continue;
 			return false;
 		}
-		zend_type bound = params->parameters[i].bound;
-		if (!ZEND_TYPE_IS_SET(bound)) continue;
+		if (!has_bound) continue;
 		zend_inheritance_status status =
 			zend_check_generic_arg_satisfies_bound(NULL, args->args[i], NULL, bound);
 		if (status != INHERITANCE_SUCCESS) {
@@ -1383,6 +1498,23 @@ static void zend_reject_typearg_on_iterable(zend_ast *ast)
 	}
 }
 
+/* When a named class type carries type arguments (Foo<int>), the named class
+ * must actually be generic. If the class is already in CG(class_table) and
+ * has no generic_parameters, raise a hard compile-time error. Classes not yet
+ * seen by the compiler fall through; the runtime monomorph lookup raises the
+ * same error in that case. */
+static void zend_validate_class_accepts_type_args(zend_string *resolved_name)
+{
+	zend_string *lc = zend_string_tolower(resolved_name);
+	zend_class_entry *ce = zend_hash_find_ptr(CG(class_table), lc);
+	zend_string_release(lc);
+	if (ce && !ce->generic_parameters) {
+		zend_error_noreturn(E_COMPILE_ERROR,
+			"Type arguments are not allowed on non-generic class %s",
+			ZSTR_VAL(ce->name));
+	}
+}
+
 /* Build a pre-erasure zend_type from a type-expression AST. The returned type
  * may carry type-parameter references (TYPE_PARAMETER bit) or named-with-args
  * payloads (NAMED_WITH_ARGS bit). Used only for the side table; the runtime
@@ -1421,7 +1553,12 @@ static zend_type zend_compile_pre_erasure_typename(zend_ast *ast)
 			if (zend_get_class_fetch_type(raw) != ZEND_FETCH_CLASS_DEFAULT) {
 				payload->name = zend_string_copy(raw);
 			} else {
+				bool is_type_param = ((name_ast->attr & ZEND_NAME_NOT_FQ) == ZEND_NAME_NOT_FQ)
+					&& zend_generic_lookup(raw) != NULL;
 				payload->name = zend_resolve_class_name(raw, name_ast->attr);
+				if (!is_type_param) {
+					zend_validate_class_accepts_type_args(payload->name);
+				}
 			}
 
 			payload->name_attr = name_ast->attr;
@@ -4080,20 +4217,28 @@ static void zend_emit_return_type_check(
 			}
 		}
 
+		/* Generic functions: if the return is a T-ref, the runtime opcode
+		 * is the only place the reified binding gets checked. Detect that
+		 * here so the two elision paths below don't drop the opcode. */
+		zend_op_array *active = CG(active_op_array);
+		const zend_type *pre_return =
+			active->generic_types ? active->generic_types->return_type : NULL;
+		bool return_is_generic = pre_return
+			&& ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_return);
+
 		if (expr && ZEND_TYPE_PURE_MASK(type) == MAY_BE_ANY) {
 			/* Mixed normally needs no run-time check, but if the return is a
 			 * generic parameter that erased to mixed, a child substituting T to
 			 * a concrete type relies on this opcode being present in the shared
 			 * body so its substituted arg_info gets checked. */
-			zend_op_array *active = CG(active_op_array);
-			const zend_type *pre_return =
-				active->generic_types ? active->generic_types->return_type : NULL;
-			if (!pre_return || !ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_return)) {
+			if (!return_is_generic) {
 				return;
 			}
 		}
 
-		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
+		if (!return_is_generic
+				&& expr && expr->op_type == IS_CONST
+				&& ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
 			/* we don't need run-time check */
 			return;
 		}
@@ -7215,78 +7360,141 @@ static void zend_compile_new(znode *result, zend_ast *ast) /* {{{ */
 		}
 	}
 
-	/* Naked `new GenericClass()` (no turbofish): build the canonical monomorph
-	 * name and rewrite op1 to it so the lookup hook synthesizes the monomorph.
+	/* Reject turbofish on a known non-generic class at compile time so the
+	 * error matches the type-position behavior (rather than waiting for
+	 * VERIFY_GENERIC_ARGUMENTS to throw ArgumentCountError at runtime). */
+	if (ce && !ce->generic_parameters && turbofish_ast) {
+		zend_ast_list *tf_list = zend_ast_get_list(turbofish_ast);
+		if (tf_list->children > 0) {
+			zend_error_noreturn(E_COMPILE_ERROR,
+				"Type arguments are not allowed on non-generic class %s",
+				ZSTR_VAL(ce->name));
+		}
+	}
+
+	/* Compile-time monomorph synthesis for `new GenericClass(...)`. Builds the
+	 * canonical name, synthesizes the monomorph, and rewrites op1 to the
+	 * canonical so ZEND_NEW creates the monomorph directly. When this fires
+	 * we also drop the runtime ZEND_VERIFY_GENERIC_ARGUMENTS opcode (the
+	 * arity + bound check is now redundant) and swap fbc to the monomorph's
+	 * constructor so RECV checks against the substituted arg_info.
 	 *
-	 * Handles three resolved-at-compile-time forms:
-	 *   - literal class name → use its declared defaults; error if any param
-	 *     has no default (the user has no way to bind T here)
-	 *   - `self` → use the active class's declared defaults; if any param has
-	 *     no default, leave the opcode alone and the runtime creates a bare
-	 *     instance (preserving the existing lexical-self semantic and letting
-	 *     code inside a generic class refer to itself without forcing a
-	 *     defaults declaration)
-	 *   - `parent` → use the args from the `extends Foo<...>` clause if any,
-	 *     otherwise the parent's defaults; same lenient fallback as `self`
+	 * Three sources for the type args, in priority order:
+	 *   - concrete turbofish `new C::<int>(...)` — synthesize when every arg
+	 *     is concrete (no T-refs) and bound-checks pass at compile time.
+	 *   - `new parent()` inside `class X extends Foo<int>` — borrow the args
+	 *     from the extends clause.
+	 *   - declared parameter defaults (naked `new GenericClass()`).
 	 *
 	 * `static` and dynamic names are handled at runtime in ZEND_NEW. */
-	if (ce && ce->generic_parameters && !turbofish_ast) {
+	bool ct_synthesized = false;
+	zend_class_entry *mono_ce = NULL;
+	if (ce && ce->generic_parameters) {
 		uint32_t count = ce->generic_parameters->count;
 		const zend_type *src_args = NULL;
 		uint32_t src_arity = 0;
-		if (parent_extends_args) {
+		zend_type tf_args_buf[ZEND_GENERIC_MAX_PARAMS];
+		uint32_t tf_args_built_arity = 0;
+		bool tf_concrete = false;
+
+		if (turbofish_ast) {
+			zend_ast_list *tf_list = zend_ast_get_list(turbofish_ast);
+			if (tf_list->children > 0 && tf_list->children <= count) {
+				tf_concrete = true;
+				for (uint32_t i = 0; i < tf_list->children; i++) {
+					tf_args_buf[i] = zend_compile_pre_erasure_typename(tf_list->child[i]);
+					tf_args_built_arity = i + 1;
+					if (zend_type_contains_type_parameter(tf_args_buf[i])) {
+						tf_concrete = false;
+					}
+				}
+				if (tf_concrete) {
+					src_args = tf_args_buf;
+					src_arity = tf_list->children;
+				}
+			}
+		} else if (parent_extends_args) {
 			const zend_type_named_with_args *nwa =
 				ZEND_TYPE_NAMED_WITH_ARGS(*parent_extends_args);
 			src_args = nwa->args;
 			src_arity = nwa->count;
 		}
-		zend_type chosen[ZEND_GENERIC_MAX_PARAMS];
-		bool ok = true;
-		/* Strict (compile-error on missing defaults) when the call site refers
-		 * to a generic class from outside that class. Lenient (fall through to
-		 * the bare class) when it's a lexical self-reference — including both
-		 * `new self()` and `new ThisClass()` inside the class's own body —
-		 * since the lexical scope semantically has access to T even though we
-		 * can't bind it at compile time. */
-		bool is_lexical_self = ce == CG(active_class_entry);
-		for (uint32_t i = 0; i < count; i++) {
-			if (i < src_arity) {
-				chosen[i] = src_args[i];
-				continue;
-			}
-			const zend_generic_parameter *p = &ce->generic_parameters->parameters[i];
-			if (!ZEND_TYPE_IS_SET(p->default_type)) {
-				if (!is_lexical_self) {
-					zend_error_noreturn(E_COMPILE_ERROR,
-						"Cannot instantiate generic class %s without type arguments; "
-						"type parameter %s has no default",
-						ZSTR_VAL(ce->name), ZSTR_VAL(p->name));
+
+		bool attempt_synth = (src_args != NULL) || !turbofish_ast;
+		if (attempt_synth) {
+			zend_type chosen[ZEND_GENERIC_MAX_PARAMS];
+			bool ok = true;
+			/* Strict (compile-error on missing defaults) when the naked call
+			 * site refers to a generic class from outside that class. Lenient
+			 * (fall through to the bare class / runtime VERIFY) when it's a
+			 * lexical self-reference or when turbofish is present — the
+			 * runtime can still throw a catchable ArgumentCountError. */
+			bool is_lexical_self = ce == CG(active_class_entry);
+			for (uint32_t i = 0; i < count; i++) {
+				if (i < src_arity) {
+					chosen[i] = src_args[i];
+					continue;
 				}
-				ok = false;
-				break;
+				const zend_generic_parameter *p = &ce->generic_parameters->parameters[i];
+				if (!ZEND_TYPE_IS_SET(p->default_type)) {
+					if (!is_lexical_self && !turbofish_ast) {
+						zend_error_noreturn(E_COMPILE_ERROR,
+							"Cannot instantiate generic class %s without type arguments; "
+							"type parameter %s has no default",
+							ZSTR_VAL(ce->name), ZSTR_VAL(p->name));
+					}
+					ok = false;
+					break;
+				}
+				chosen[i] = ZEND_TYPE_IS_SET(p->default_pre_erasure)
+					? p->default_pre_erasure : p->default_type;
 			}
-			chosen[i] = ZEND_TYPE_IS_SET(p->default_pre_erasure)
-				? p->default_pre_erasure : p->default_type;
+			/* Concrete turbofish args must satisfy each parameter's bound at
+			 * compile time before we elide the runtime check. UNRESOLVED (a
+			 * referenced class not yet loaded) and ERROR both fall through to
+			 * runtime VERIFY so the user gets a catchable TypeError. */
+			if (ok && tf_concrete) {
+				for (uint32_t i = 0; i < src_arity; i++) {
+					zend_type bound = ce->generic_parameters->parameters[i].bound;
+					if (!ZEND_TYPE_IS_SET(bound)) continue;
+					if (zend_check_generic_arg_satisfies_bound(NULL, src_args[i], NULL, bound)
+							!= INHERITANCE_SUCCESS) {
+						ok = false;
+						break;
+					}
+				}
+			}
+			if (ok) {
+				zend_string *canonical =
+					zend_generic_canonical_class_name(ce->name, chosen, count);
+				zend_try_compile_time_synthesize_monomorph(canonical);
+				zend_string *lc = zend_string_tolower(canonical);
+				mono_ce = zend_hash_find_ptr(CG(class_table), lc);
+				zend_string_release(lc);
+				opline->op1_type = IS_CONST;
+				opline->op1.constant = zend_add_class_name_literal(canonical);
+				opline->op2.num = zend_alloc_cache_slot();
+				ct_synthesized = true;
+			}
 		}
-		if (ok) {
-			zend_string *canonical =
-				zend_generic_canonical_class_name(ce->name, chosen, count);
-			zend_try_compile_time_synthesize_monomorph(canonical);
-			opline->op1_type = IS_CONST;
-			opline->op1.constant = zend_add_class_name_literal(canonical);
-			opline->op2.num = zend_alloc_cache_slot();
+
+		for (uint32_t i = 0; i < tf_args_built_arity; i++) {
+			zend_type_release(tf_args_buf[i], /* persistent */ false);
 		}
 	}
 
 	const zend_function *fbc = NULL;
-	if (ce
-			&& ce->default_object_handlers->get_constructor == zend_std_get_constructor
-			&& ce->constructor
-			&& is_func_accessible(ce->constructor)) {
-		fbc = ce->constructor;
+	zend_class_entry *ctor_ce = mono_ce ? mono_ce : ce;
+	if (ctor_ce
+			&& ctor_ce->default_object_handlers->get_constructor == zend_std_get_constructor
+			&& ctor_ce->constructor
+			&& is_func_accessible(ctor_ce->constructor)) {
+		fbc = ctor_ce->constructor;
 	}
 
-	zend_compile_call_common(&ctor_result, args_ast, fbc, ast->lineno, BP_VAR_R, turbofish_ast, ZEND_VERIFY_ARITY_KIND_NEW, result);
+	zend_compile_call_common(&ctor_result, args_ast, fbc, ast->lineno, BP_VAR_R,
+		ct_synthesized ? NULL : turbofish_ast,
+		ZEND_VERIFY_ARITY_KIND_NEW, result);
 	zend_do_free(&ctor_result);
 }
 /* }}} */
@@ -9007,6 +9215,38 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
 	ZEND_ASSERT(!(ast->attr & ZEND_TYPE_NULLABLE));
 	zend_reject_typearg_on_iterable(ast);
 	if (ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
+		/* For concrete args (no T-refs), rewrite the named type as the
+		 * canonical monomorph class — so the runtime arg_info-driven RECV
+		 * check enforces `Box<int>` identity, not just bare `Box`. T-ref
+		 * args (`Box<T>`) can't be resolved here and fall back to the
+		 * erased base; the pre-erasure side table still carries the shape
+		 * for reflection and inference. `self`/`parent`/`static` keep
+		 * their lexical-scope meaning and also fall through.
+		 *
+		 * Builtin pseudo-types (`int`, `string`, ...) cannot carry type
+		 * arguments — those are caught by the validation in
+		 * zend_compile_pre_erasure_typename / the non-generic-class check. */
+		zend_ast *name_ast = ast->child[0];
+		bool is_relative_scope = false;
+		if (name_ast->kind == ZEND_AST_TYPE) {
+			is_relative_scope = true;
+		} else if (name_ast->kind == ZEND_AST_ZVAL) {
+			const zval *zv = zend_ast_get_zval(name_ast);
+			if (Z_TYPE_P(zv) == IS_STRING
+					&& zend_get_class_fetch_type(Z_STR_P(zv)) != ZEND_FETCH_CLASS_DEFAULT) {
+				is_relative_scope = true;
+			}
+		}
+		if (!is_relative_scope) {
+			zend_type pre_erasure = zend_compile_pre_erasure_typename(ast);
+			if (!zend_type_contains_type_parameter(pre_erasure)) {
+				zend_string *canonical = zend_type_to_canonical_string(pre_erasure);
+				zend_try_compile_time_synthesize_monomorph(canonical);
+				zend_type_release(pre_erasure, /* persistent */ false);
+				return (zend_type) ZEND_TYPE_INIT_CLASS(canonical, 0, 0);
+			}
+			zend_type_release(pre_erasure, /* persistent */ false);
+		}
 		ast = ast->child[0];
 	}
 	/* Generic type parameter reference: erase to the parameter's bound (or `mixed` when unbounded). */

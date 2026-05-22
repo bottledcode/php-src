@@ -5,7 +5,7 @@ Generic syntax: type argument is DNF
 interface A {}
 interface B {}
 class C {}
-class D {}
+class D<T> {}
 function f(D<(A&B)|C> $x): void {}
 $pt = (new ReflectionFunction('f'))->getParameters()[0]->getType();
 $arg = $pt->getGenericArguments()[0];

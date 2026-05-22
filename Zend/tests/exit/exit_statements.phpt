@@ -17,7 +17,9 @@ TEMPLATE;
 
 
 $php = getenv('TEST_PHP_EXECUTABLE_ESCAPED');
-$command = $php . ' ' . escapeshellarg(FILE_PATH);
+// Use -n so the spawned PHP doesn't inherit host php.ini extension
+// configuration (otherwise missing extension warnings can pollute output).
+$command = $php . ' -n ' . escapeshellarg(FILE_PATH);
 
 foreach (['exit', 'die'] as $value) {
     echo 'Using ', $value, ' as value:', PHP_EOL;

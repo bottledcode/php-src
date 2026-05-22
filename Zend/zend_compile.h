@@ -261,12 +261,14 @@ typedef struct _zend_turbofish_args_entry {
 
 ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count);
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
+ZEND_API zend_type_arg_table *zend_type_arg_table_capture_clone(const zend_type_arg_table *src);
 ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type);
 ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(zend_execute_data *call, const zend_type *args_box);
 ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(zend_execute_data *call, const zend_type *args_box, void **cache_slot);
 ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type);
 ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id, uint32_t fetch_type);
 ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box);
+ZEND_API bool zend_verify_generic_return_type(zend_execute_data *call, zval *retval_ptr);
 
 typedef union _zend_parser_stack_elem {
 	zend_ast *ast;

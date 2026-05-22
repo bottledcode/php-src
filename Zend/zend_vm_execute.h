@@ -1974,6 +1974,33 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_D
 			ret = EX_VAR(opline->result.var);
 		}
 
+		/* Closures created inside a generic frame carry that frame's T-table
+		 * via zend_vm_init_call_frame. Run the T-ref value-arg check against
+		 * the captured bindings now, before i_init_func_execute_data relocates
+		 * variadic args past the CV slots (which would leave the original arg
+		 * positions UNDEF and silently make every check pass). The cleanup on
+		 * failure matches ZEND_VERIFY_GENERIC_ARGUMENTS — at this point
+		 * call->prev_execute_data is still its zend_vm_init_call_frame value
+		 * (typically NULL), so EX(call) is the right slot to clear. */
+		if (UNEXPECTED(call->type_args
+				&& (fbc->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			SAVE_OPLINE();
+			zend_verify_generic_arg_types(call, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				zend_vm_stack_free_args(call);
+				if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+					zend_string_release_ex(call->func->common.function_name, 0);
+					zend_free_trampoline(call->func);
+				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				EX(call) = call->prev_execute_data;
+				zend_vm_stack_free_call_frame(call);
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		call->prev_execute_data = execute_data;
 		execute_data = call;
 		i_init_func_execute_data(&fbc->op_array, ret, 1 EXECUTE_DATA_CC);
@@ -2109,6 +2136,33 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_D
 			ret = EX_VAR(opline->result.var);
 		}
 
+		/* Closures created inside a generic frame carry that frame's T-table
+		 * via zend_vm_init_call_frame. Run the T-ref value-arg check against
+		 * the captured bindings now, before i_init_func_execute_data relocates
+		 * variadic args past the CV slots (which would leave the original arg
+		 * positions UNDEF and silently make every check pass). The cleanup on
+		 * failure matches ZEND_VERIFY_GENERIC_ARGUMENTS — at this point
+		 * call->prev_execute_data is still its zend_vm_init_call_frame value
+		 * (typically NULL), so EX(call) is the right slot to clear. */
+		if (UNEXPECTED(call->type_args
+				&& (fbc->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			SAVE_OPLINE();
+			zend_verify_generic_arg_types(call, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				zend_vm_stack_free_args(call);
+				if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+					zend_string_release_ex(call->func->common.function_name, 0);
+					zend_free_trampoline(call->func);
+				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				EX(call) = call->prev_execute_data;
+				zend_vm_stack_free_call_frame(call);
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		call->prev_execute_data = execute_data;
 		execute_data = call;
 		i_init_func_execute_data(&fbc->op_array, ret, 1 EXECUTE_DATA_CC);
@@ -2242,6 +2296,33 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 		ret = NULL;
 		if (RETURN_VALUE_USED(opline)) {
 			ret = EX_VAR(opline->result.var);
+		}
+
+		/* Closures created inside a generic frame carry that frame's T-table
+		 * via zend_vm_init_call_frame. Run the T-ref value-arg check against
+		 * the captured bindings now, before i_init_func_execute_data relocates
+		 * variadic args past the CV slots (which would leave the original arg
+		 * positions UNDEF and silently make every check pass). The cleanup on
+		 * failure matches ZEND_VERIFY_GENERIC_ARGUMENTS — at this point
+		 * call->prev_execute_data is still its zend_vm_init_call_frame value
+		 * (typically NULL), so EX(call) is the right slot to clear. */
+		if (UNEXPECTED(call->type_args
+				&& (fbc->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			SAVE_OPLINE();
+			zend_verify_generic_arg_types(call, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				zend_vm_stack_free_args(call);
+				if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+					zend_string_release_ex(call->func->common.function_name, 0);
+					zend_free_trampoline(call->func);
+				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				EX(call) = call->prev_execute_data;
+				zend_vm_stack_free_call_frame(call);
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		call->prev_execute_data = execute_data;
@@ -5200,7 +5281,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CATCH_SPEC_CO
 		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
 		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+		/* slot[2] != NULL distinguishes a populated entry from an
+		 * uninitialized (all-zeros) slot, which otherwise matches
+		 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+		if (EXPECTED(slot[2] != NULL
+				&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 			catch_ce = (zend_class_entry*)slot[2];
 		} else {
 			catch_ce = zend_fetch_class(NULL,
@@ -5977,6 +6062,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_LAMBD
 	SAVE_OPLINE();
 	zend_create_closure(EX_VAR(opline->result.var), func,
 		EX(func)->op_array.scope, called_scope, object);
+
+	/* If we're inside a generic frame, snapshot its T-table onto the new
+	 * closure so the closure body resolves outer T-refs against the
+	 * binding in effect at lambda-declaration time. */
+	if (UNEXPECTED(EX(type_args) != NULL)) {
+		zend_closure_capture_type_args(EX_VAR(opline->result.var), EX(type_args));
+	}
 
 	ZEND_VM_NEXT_OPCODE();
 }
@@ -11256,6 +11348,18 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 			ZVAL_DEREF(retval_ptr);
 		} else if (IS_CONST == IS_CV) {
 			ZVAL_DEREF(retval_ptr);
+		}
+
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
@@ -19755,7 +19859,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -21426,7 +21534,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -21642,6 +21754,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 			ZVAL_DEREF(retval_ptr);
 		} else if (IS_TMP_VAR == IS_CV) {
 			ZVAL_DEREF(retval_ptr);
+		}
+
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
@@ -21967,7 +22091,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -29848,6 +29976,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 			ZVAL_DEREF(retval_ptr);
 		}
 
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -33083,7 +33223,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CATCH_SPEC_UN
 		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
 		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+		/* slot[2] != NULL distinguishes a populated entry from an
+		 * uninitialized (all-zeros) slot, which otherwise matches
+		 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+		if (EXPECTED(slot[2] != NULL
+				&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 			catch_ce = (zend_class_entry*)slot[2];
 		} else {
 			catch_ce = zend_fetch_class(NULL,
@@ -37349,6 +37493,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 			ZVAL_DEREF(retval_ptr);
 		} else if (IS_UNUSED == IS_CV) {
 			ZVAL_DEREF(retval_ptr);
+		}
+
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
@@ -45112,7 +45268,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -48950,7 +49110,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -49779,6 +49943,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 			ZVAL_DEREF(retval_ptr);
 		}
 
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -50344,7 +50520,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -55391,6 +55571,33 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DO_FCA
 			ret = EX_VAR(opline->result.var);
 		}
 
+		/* Closures created inside a generic frame carry that frame's T-table
+		 * via zend_vm_init_call_frame. Run the T-ref value-arg check against
+		 * the captured bindings now, before i_init_func_execute_data relocates
+		 * variadic args past the CV slots (which would leave the original arg
+		 * positions UNDEF and silently make every check pass). The cleanup on
+		 * failure matches ZEND_VERIFY_GENERIC_ARGUMENTS — at this point
+		 * call->prev_execute_data is still its zend_vm_init_call_frame value
+		 * (typically NULL), so EX(call) is the right slot to clear. */
+		if (UNEXPECTED(call->type_args
+				&& (fbc->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			SAVE_OPLINE();
+			zend_verify_generic_arg_types(call, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				zend_vm_stack_free_args(call);
+				if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+					zend_string_release_ex(call->func->common.function_name, 0);
+					zend_free_trampoline(call->func);
+				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				EX(call) = call->prev_execute_data;
+				zend_vm_stack_free_call_frame(call);
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		call->prev_execute_data = execute_data;
 		execute_data = call;
 		i_init_func_execute_data(&fbc->op_array, ret, 1 EXECUTE_DATA_CC);
@@ -55526,6 +55733,33 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DO_FCA
 			ret = EX_VAR(opline->result.var);
 		}
 
+		/* Closures created inside a generic frame carry that frame's T-table
+		 * via zend_vm_init_call_frame. Run the T-ref value-arg check against
+		 * the captured bindings now, before i_init_func_execute_data relocates
+		 * variadic args past the CV slots (which would leave the original arg
+		 * positions UNDEF and silently make every check pass). The cleanup on
+		 * failure matches ZEND_VERIFY_GENERIC_ARGUMENTS — at this point
+		 * call->prev_execute_data is still its zend_vm_init_call_frame value
+		 * (typically NULL), so EX(call) is the right slot to clear. */
+		if (UNEXPECTED(call->type_args
+				&& (fbc->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			SAVE_OPLINE();
+			zend_verify_generic_arg_types(call, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				zend_vm_stack_free_args(call);
+				if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+					zend_string_release_ex(call->func->common.function_name, 0);
+					zend_free_trampoline(call->func);
+				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				EX(call) = call->prev_execute_data;
+				zend_vm_stack_free_call_frame(call);
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		call->prev_execute_data = execute_data;
 		execute_data = call;
 		i_init_func_execute_data(&fbc->op_array, ret, 1 EXECUTE_DATA_CC);
@@ -55659,6 +55893,33 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DO_FC
 		ret = NULL;
 		if (RETURN_VALUE_USED(opline)) {
 			ret = EX_VAR(opline->result.var);
+		}
+
+		/* Closures created inside a generic frame carry that frame's T-table
+		 * via zend_vm_init_call_frame. Run the T-ref value-arg check against
+		 * the captured bindings now, before i_init_func_execute_data relocates
+		 * variadic args past the CV slots (which would leave the original arg
+		 * positions UNDEF and silently make every check pass). The cleanup on
+		 * failure matches ZEND_VERIFY_GENERIC_ARGUMENTS — at this point
+		 * call->prev_execute_data is still its zend_vm_init_call_frame value
+		 * (typically NULL), so EX(call) is the right slot to clear. */
+		if (UNEXPECTED(call->type_args
+				&& (fbc->common.fn_flags & ZEND_ACC_CLOSURE))) {
+			SAVE_OPLINE();
+			zend_verify_generic_arg_types(call, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				zend_vm_stack_free_args(call);
+				if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
+					zend_string_release_ex(call->func->common.function_name, 0);
+					zend_free_trampoline(call->func);
+				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
+					OBJ_RELEASE(Z_OBJ(call->This));
+				}
+				EX(call) = call->prev_execute_data;
+				zend_vm_stack_free_call_frame(call);
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		call->prev_execute_data = execute_data;
@@ -58501,7 +58762,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CATCH_SPEC_CONST_T
 		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
 		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+		/* slot[2] != NULL distinguishes a populated entry from an
+		 * uninitialized (all-zeros) slot, which otherwise matches
+		 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+		if (EXPECTED(slot[2] != NULL
+				&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 			catch_ce = (zend_class_entry*)slot[2];
 		} else {
 			catch_ce = zend_fetch_class(NULL,
@@ -59278,6 +59543,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_LAMBDA_FUN
 	SAVE_OPLINE();
 	zend_create_closure(EX_VAR(opline->result.var), func,
 		EX(func)->op_array.scope, called_scope, object);
+
+	/* If we're inside a generic frame, snapshot its T-table onto the new
+	 * closure so the closure body resolves outer T-refs against the
+	 * binding in effect at lambda-declaration time. */
+	if (UNEXPECTED(EX(type_args) != NULL)) {
+		zend_closure_capture_type_args(EX_VAR(opline->result.var), EX(type_args));
+	}
 
 	ZEND_VM_NEXT_OPCODE();
 }
@@ -64455,6 +64727,18 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIF
 			ZVAL_DEREF(retval_ptr);
 		} else if (IS_CONST == IS_CV) {
 			ZVAL_DEREF(retval_ptr);
+		}
+
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
@@ -72954,7 +73238,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -74625,7 +74913,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -74741,6 +75033,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 			ZVAL_DEREF(retval_ptr);
 		} else if (IS_TMP_VAR == IS_CV) {
 			ZVAL_DEREF(retval_ptr);
+		}
+
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
@@ -75066,7 +75370,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -82947,6 +83255,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 			ZVAL_DEREF(retval_ptr);
 		}
 
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -86182,7 +86502,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CATCH_SPEC_UNUSED_
 		void **slot = CACHE_ADDR(opline->extended_value & ~ZEND_LAST_CATCH);
 		uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 		zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-		if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+		/* slot[2] != NULL distinguishes a populated entry from an
+		 * uninitialized (all-zeros) slot, which otherwise matches
+		 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+		if (EXPECTED(slot[2] != NULL
+				&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 			catch_ce = (zend_class_entry*)slot[2];
 		} else {
 			catch_ce = zend_fetch_class(NULL,
@@ -90448,6 +90772,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 			ZVAL_DEREF(retval_ptr);
 		} else if (IS_UNUSED == IS_CV) {
 			ZVAL_DEREF(retval_ptr);
+		}
+
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
 		}
 
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
@@ -98211,7 +98547,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -102049,7 +102389,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);
@@ -102776,6 +103120,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 			ZVAL_DEREF(retval_ptr);
 		}
 
+		/* If the return is a generic T-ref erased to a wider bound, the
+		 * inline ZEND_TYPE_CONTAINS_CODE fast-path may falsely accept (e.g.
+		 * mixed for unbounded T). Consult the reified binding first; the
+		 * erased check still runs after for non-T returns and composite
+		 * shapes that the reified helper leaves untouched. */
+		if (UNEXPECTED(execute_data->type_args != NULL)) {
+			SAVE_OPLINE();
+			if (UNEXPECTED(!zend_verify_generic_return_type(execute_data, retval_ptr))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
 			ZEND_VM_NEXT_OPCODE();
 		}
@@ -103341,7 +103697,11 @@ try_instanceof:
 			void **slot = CACHE_ADDR(opline->extended_value);
 			uintptr_t cur_gen = EX(type_args) ? EX(type_args)->generation : 0;
 			zend_class_entry *cur_scope = zend_get_called_scope(execute_data);
-			if (EXPECTED((uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
+			/* slot[2] != NULL distinguishes a populated entry from an
+			 * uninitialized (all-zeros) slot, which otherwise matches
+			 * cur_gen=0 / cur_scope=NULL and would return a spurious NULL ce. */
+			if (EXPECTED(slot[2] != NULL
+					&& (uintptr_t)slot[0] == cur_gen && slot[1] == (void*)cur_scope)) {
 				ce = (zend_class_entry*)slot[2];
 			} else {
 				ce = zend_fetch_class(NULL, opline->op2.num);

@@ -4,7 +4,7 @@ Generic syntax: type argument is an intersection
 <?php
 interface A {}
 interface B {}
-class C {}
+class C<T> {}
 function f(C<A&B> $x): void {}
 $pt = (new ReflectionFunction('f'))->getParameters()[0]->getType();
 $arg = $pt->getGenericArguments()[0];

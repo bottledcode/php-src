@@ -1,13 +1,9 @@
 --TEST--
-Erasure: type arguments stripped from named types in runtime view
+Erasure: type arguments on a non-generic class in a parameter/return type is a compile-time error
 --FILE--
 <?php
 class Container {}
 function f(Container<int> $x): Container<string> { return $x; }
-$r = new ReflectionFunction('f');
-echo $r->getParameters()[0]->getType()->getName(), "\n";
-echo $r->getReturnType()->getName(), "\n";
 ?>
---EXPECT--
-Container
-Container
+--EXPECTF--
+Fatal error: Type arguments are not allowed on non-generic class Container in %s on line %d
