@@ -2,19 +2,16 @@
 Generic syntax: catch with type arguments compares against the monomorph canonical name
 --FILE--
 <?php
-class MyErr extends Exception {}
-// MyErr is non-generic, so the canonical name MyErr<int> does not exist as a
-// class. catch (MyErr<int>) therefore never matches; the original exception
-// propagates to the outer catch.
+class MyErr<T> extends Exception {}
+// Throwing MyErr<int> matches a `catch (MyErr<int>)` block; a `catch (MyErr<string>)`
+// would not, because the two are distinct monomorphs.
 try {
-    try {
-        throw new MyErr('boom');
-    } catch (MyErr<int> $e) {
-        echo "inner caught: ", $e->getMessage(), "\n";
-    }
-} catch (MyErr $e) {
-    echo "outer caught: ", $e->getMessage(), "\n";
+    throw new MyErr::<int>('boom');
+} catch (MyErr<string> $e) {
+    echo "wrong-mono caught: ", $e->getMessage(), "\n";
+} catch (MyErr<int> $e) {
+    echo "right-mono caught: ", $e->getMessage(), "\n";
 }
 ?>
 --EXPECT--
-outer caught: boom
+right-mono caught: boom

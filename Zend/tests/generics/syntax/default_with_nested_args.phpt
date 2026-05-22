@@ -2,10 +2,10 @@
 Generic syntax: >>= splitting in default position
 --FILE--
 <?php
-class MapT {}
+class MapT<K, V> {}
 class C<T = MapT<int, string>> {}
 $p = (new ReflectionClass('C'))->getGenericParameters()[0];
 echo $p, "\n";
 ?>
 --EXPECT--
-T = MapT
+T = MapT<int,string>

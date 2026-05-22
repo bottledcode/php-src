@@ -24,6 +24,7 @@
 #include "zend_compile.h"
 #include "zend_extensions.h"
 #include "zend_API.h"
+#include "zend_inheritance.h"
 #include "zend_sort.h"
 #include "zend_constants.h"
 #include "zend_observer.h"
@@ -348,6 +349,33 @@ ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table) {
 		}
 	}
 	efree(table);
+}
+
+/* Clone a type-arg table for long-lived capture (e.g., closure capture). All
+ * entries are materialised into `owned_type` so the resulting table owns its
+ * type contents and doesn't depend on the source's lifetime. Returned table
+ * is marked persisted so frame teardown leaves it alone; the holder is
+ * responsible for clearing persisted and destroying when it's done. */
+ZEND_API zend_type_arg_table *zend_type_arg_table_capture_clone(const zend_type_arg_table *src) {
+	if (!src) {
+		return NULL;
+	}
+	zend_type_arg_table *dst = zend_type_arg_table_alloc(src->count);
+	dst->persisted = true;
+	for (uint32_t i = 0; i < src->count; i++) {
+		const zend_type_arg_entry *se = &src->entries[i];
+		zend_type_arg_entry *de = &dst->entries[i];
+		if (se->name) {
+			de->name = zend_string_copy(se->name);
+		}
+		const zend_type *src_type = zend_type_arg_entry_type(se);
+		if (src_type && ZEND_TYPE_IS_SET(*src_type)) {
+			zend_type owned = *src_type;
+			zend_type_copy_ctor(&owned, /* use_arena */ false, /* persistent */ false);
+			de->owned_type = owned;
+		}
+	}
+	return dst;
 }
 
 /* Always returns the canonical name of the bound type — class names, monomorph
@@ -741,6 +769,14 @@ ZEND_API void destroy_zend_class(zval *zv)
 						zend_hash_release(prop_info->attributes);
 					}
 					free(prop_info);
+				} else if (prop_info->flags & ZEND_ACC_GENERIC_CLONE) {
+					/* Cross-class generic clones (e.g., Holder<T>'s property
+					 * cloned into the Holder<Item> monomorph) take their own
+					 * reference on the borrowed name string in
+					 * do_inherit_property; release it here on the holder's
+					 * destruction so the count balances. The prop_info struct
+					 * itself is arena-allocated and freed in bulk. */
+					zend_string_release(prop_info->name);
 				}
 			} ZEND_HASH_FOREACH_END();
 			zend_hash_destroy(&ce->properties_info);
@@ -825,6 +861,32 @@ ZEND_API void zend_destroy_static_vars(zend_op_array *op_array)
 ZEND_API void destroy_op_array(zend_op_array *op_array)
 {
 	uint32_t i;
+
+	/* VERIFY/INSTALL_GENERIC_ARGS may have stashed a zend_type_arg_table* in
+	 * their cache slot, marked persisted so per-frame teardown leaves it
+	 * alone. The cache slot owns that allocation; release the contained
+	 * tables for every op_array, regardless of whether the cache buffer
+	 * itself is heap- or arena-allocated. */
+	if (op_array->opcodes && ZEND_MAP_PTR(op_array->run_time_cache)) {
+		char *cache_buf = (char *) ZEND_MAP_PTR_GET(op_array->run_time_cache);
+		if (cache_buf) {
+			for (uint32_t op_idx = 0; op_idx < op_array->last; op_idx++) {
+				const zend_op *op = &op_array->opcodes[op_idx];
+				if ((op->opcode == ZEND_VERIFY_GENERIC_ARGUMENTS
+						|| op->opcode == ZEND_INSTALL_GENERIC_ARGS)
+						&& op->result.num) {
+					void **cache_slot = (void **) (cache_buf + op->result.num);
+					zend_type_arg_table *t = (zend_type_arg_table *) cache_slot[0];
+					if (t) {
+						t->persisted = false;
+						zend_type_arg_table_destroy(t);
+						cache_slot[0] = NULL;
+						cache_slot[1] = NULL;
+					}
+				}
+			}
+		}
+	}
 
 	if ((op_array->fn_flags & ZEND_ACC_HEAP_RT_CACHE)
 	 && ZEND_MAP_PTR(op_array->run_time_cache)) {

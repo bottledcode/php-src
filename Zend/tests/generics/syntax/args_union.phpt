@@ -2,7 +2,7 @@
 Generic syntax: type argument is a union
 --FILE--
 <?php
-class Container {}
+class Container<T> {}
 function f(Container<int|string|null> $x): void {}
 $pt = (new ReflectionFunction('f'))->getParameters()[0]->getType();
 $arg = $pt->getGenericArguments()[0];

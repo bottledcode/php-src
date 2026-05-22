@@ -2,16 +2,16 @@
 Generic syntax: instanceof with type arguments resolves to the monomorph canonical name
 --FILE--
 <?php
-class C {}
-$c = new C;
-// C is non-generic; the canonical names C<int> and C<int,string> do not exist
-// as classes, so instanceof returns false.
+class C<T> {}
+$c = new C::<int>();
+var_dump($c instanceof C);
 var_dump($c instanceof C<int>);
-var_dump($c instanceof C<int, string>);
+var_dump($c instanceof C<string>);
 $x = new stdClass;
 var_dump($x instanceof C<int>);
 ?>
 --EXPECT--
-bool(false)
+bool(true)
+bool(true)
 bool(false)
 bool(false)

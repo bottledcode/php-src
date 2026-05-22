@@ -1,9 +1,9 @@
 --TEST--
-Inheritance arity: extends a non-generic class with type arguments is a compile error
+Type arguments on a non-generic class in a return type are a compile-time error
 --FILE--
 <?php
 class Plain {}
-class Bad extends Plain<int> {}
+function f(): Plain<int> { return new Plain; }
 ?>
 --EXPECTF--
 Fatal error: Type arguments are not allowed on non-generic class Plain in %s on line %d

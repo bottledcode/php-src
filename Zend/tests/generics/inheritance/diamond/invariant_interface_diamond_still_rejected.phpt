@@ -5,7 +5,6 @@ Diamond + invariant T: arity mismatch is the one remaining rejection at the diam
 interface Multi<A, B> {}
 interface Alpha extends Multi<int, string> {}
 interface Beta extends Multi<int, string, float> {}
-PHP
 ?>
 --EXPECTF--
-Fatal error: %s on line %d
+Fatal error: Too many generic type arguments to extends Multi in Beta, 3 passed and exactly 2 expected in %s on line %d

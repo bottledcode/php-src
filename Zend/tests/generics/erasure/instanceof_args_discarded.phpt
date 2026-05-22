@@ -1,14 +1,10 @@
 --TEST--
-Erasure: instanceof on a non-generic class with type arguments resolves to the canonical name (which does not exist) and returns false
+Erasure: instanceof on a non-generic class with type arguments is a compile-time error
 --FILE--
 <?php
 class C {}
 $c = new C;
-var_dump($c instanceof C);
 var_dump($c instanceof C<int>);
-var_dump($c instanceof C<string, int>);
 ?>
---EXPECT--
-bool(true)
-bool(false)
-bool(false)
+--EXPECTF--
+Fatal error: Type arguments are not allowed on non-generic class C in %s on line %d
