@@ -1532,14 +1532,43 @@ static zend_type zend_compile_pre_erasure_typename(zend_ast *ast)
 
 	if (ast->kind == ZEND_AST_TYPE_UNION || ast->kind == ZEND_AST_TYPE_INTERSECTION) {
 		zend_ast_list *list = zend_ast_get_list(ast);
+		bool is_union = ast->kind == ZEND_AST_TYPE_UNION;
 		zend_type_list *type_list = emalloc(ZEND_TYPE_LIST_SIZE(list->children));
-		type_list->num_types = list->children;
+		uint32_t out_count = 0;
+		uint32_t merged_scalar_mask = 0;
 		for (uint32_t i = 0; i < list->children; i++) {
-			type_list->types[i] = zend_compile_pre_erasure_typename(list->child[i]);
+			zend_type member = zend_compile_pre_erasure_typename(list->child[i]);
+			if (is_union) {
+				/* Mirror the erased form's normalization: aggregate scalar bits
+				 * to the outer mask so covariance checks see them, and drop
+				 * scalar-only members from the list. Complex members (T-refs,
+				 * named-with-args, nested lists, plain class names) stay in
+				 * the list with their scalar bits cleared. */
+				bool is_complex = ZEND_TYPE_HAS_LIST(member)
+					|| ZEND_TYPE_HAS_NAME(member)
+					|| ZEND_TYPE_HAS_LITERAL_NAME(member)
+					|| ZEND_TYPE_HAS_TYPE_PARAMETER(member)
+					|| ZEND_TYPE_HAS_NAMED_WITH_ARGS(member);
+				merged_scalar_mask |= ZEND_TYPE_PURE_MASK(member);
+				if (is_complex) {
+					ZEND_TYPE_FULL_MASK(member) &= ~_ZEND_TYPE_MAY_BE_MASK;
+					type_list->types[out_count++] = member;
+				}
+			} else {
+				type_list->types[out_count++] = member;
+			}
 		}
-		ZEND_TYPE_SET_PTR(result, type_list);
-		ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_LIST_BIT |
-			(ast->kind == ZEND_AST_TYPE_UNION ? _ZEND_TYPE_UNION_BIT : _ZEND_TYPE_INTERSECTION_BIT);
+		if (out_count == 0) {
+			/* All members folded into the scalar mask. */
+			efree(type_list);
+			ZEND_TYPE_FULL_MASK(result) |= merged_scalar_mask;
+		} else {
+			type_list->num_types = out_count;
+			ZEND_TYPE_SET_PTR(result, type_list);
+			ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_LIST_BIT |
+				(is_union ? _ZEND_TYPE_UNION_BIT : _ZEND_TYPE_INTERSECTION_BIT) |
+				merged_scalar_mask;
+		}
 	} else if (ast->kind == ZEND_AST_GENERIC_NAMED_TYPE) {
 		zend_ast *name_ast = ast->child[0];
 		zend_ast_list *args_list = zend_ast_get_list(ast->child[1]);
@@ -3009,6 +3038,30 @@ ZEND_API bool zend_type_contains_type_parameter(zend_type type)
 		const zend_type *member;
 		ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(type), member) {
 			if (zend_type_contains_type_parameter(*member)) return true;
+		} ZEND_TYPE_LIST_FOREACH_END();
+	}
+	return false;
+}
+
+/* Like zend_type_contains_type_parameter, but only counts class-scope refs.
+ * Function-scope T-refs erase to their bound and aren't bound by class
+ * inheritance, so callers walking inheritance can ignore them. */
+ZEND_API bool zend_type_contains_class_scope_type_parameter(zend_type type)
+{
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(type)) {
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(type);
+		return ref->origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE;
+	}
+	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(type)) {
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(type);
+		for (uint32_t i = 0; i < nwa->count; i++) {
+			if (zend_type_contains_class_scope_type_parameter(nwa->args[i])) return true;
+		}
+	}
+	if (ZEND_TYPE_HAS_LIST(type)) {
+		const zend_type *member;
+		ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(type), member) {
+			if (zend_type_contains_class_scope_type_parameter(*member)) return true;
 		} ZEND_TYPE_LIST_FOREACH_END();
 	}
 	return false;
