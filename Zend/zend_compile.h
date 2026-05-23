@@ -1208,6 +1208,7 @@ ZEND_API zend_string *zend_type_to_canonical_string(zend_type type);
 ZEND_API zend_string *zend_generic_canonical_class_name(
 	zend_string *base_name, const zend_type *args, uint32_t arity);
 ZEND_API bool zend_type_contains_type_parameter(zend_type type);
+ZEND_API bool zend_type_contains_class_scope_type_parameter(zend_type type);
 
 /* class fetches */
 #define ZEND_FETCH_CLASS_DEFAULT	0

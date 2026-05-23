@@ -909,6 +909,63 @@ static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *a
 		return result;
 	}
 
+	/* Named-with-args (e.g. `I<T>`): recurse into args. If every arg ends up
+	 * ground, materialize the monomorph and return a plain CLASS type — that's
+	 * the shape the runtime property/arg type checks already understand. If
+	 * any T-ref remains, return a new NWA with the partially-substituted args. */
+	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(t)) {
+		const zend_type_named_with_args *src_nwa = ZEND_TYPE_NAMED_WITH_ARGS(t);
+		bool needs_rebuild = false;
+		for (uint32_t i = 0; i < src_nwa->count; i++) {
+			zend_type probe = zend_substitute_leaf_type_param(src_nwa->args[i], args, arity);
+			if (memcmp(&probe, &src_nwa->args[i], sizeof(zend_type)) != 0) {
+				needs_rebuild = true;
+				break;
+			}
+		}
+		if (!needs_rebuild) {
+			return t;
+		}
+
+		ALLOCA_FLAG(use_heap)
+		zend_type *new_args = (zend_type *) do_alloca(sizeof(zend_type) * src_nwa->count, use_heap);
+		bool all_concrete = true;
+		for (uint32_t i = 0; i < src_nwa->count; i++) {
+			new_args[i] = zend_substitute_leaf_type_param(src_nwa->args[i], args, arity);
+			if (zend_type_contains_type_parameter(new_args[i])) {
+				all_concrete = false;
+			}
+		}
+
+		zend_type result;
+		if (all_concrete) {
+			/* All bound — fold to a plain CLASS reference to the monomorph.
+			 * The class-lookup hook synthesizes it on demand if needed. */
+			zend_string *canonical = zend_generic_canonical_class_name(
+				src_nwa->name, new_args, src_nwa->count);
+			result = (zend_type) ZEND_TYPE_INIT_CLASS(canonical, 0, 0);
+		} else {
+			/* Partial substitution — keep as NWA with substituted args. */
+			size_t size = ZEND_TYPE_NAMED_WITH_ARGS_SIZE(src_nwa->count);
+			zend_type_named_with_args *new_nwa = zend_arena_alloc(&CG(arena), size);
+			new_nwa->name = zend_string_copy(src_nwa->name);
+			new_nwa->name_attr = src_nwa->name_attr;
+			new_nwa->count = src_nwa->count;
+			for (uint32_t i = 0; i < src_nwa->count; i++) {
+				new_nwa->args[i] = new_args[i];
+				zend_type_copy_ctor(&new_nwa->args[i], /* use_arena */ true, /* persistent */ false);
+			}
+			ZEND_TYPE_SET_PTR(result, new_nwa);
+			ZEND_TYPE_FULL_MASK(result) = ZEND_TYPE_FULL_MASK(t);
+		}
+
+		if (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_NULLABLE_BIT) {
+			ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
+		}
+		free_alloca(new_args, use_heap);
+		return result;
+	}
+
 	if (!ZEND_TYPE_HAS_LIST(t)) {
 		return t;
 	}
@@ -1199,10 +1256,12 @@ static bool zend_get_target_default_args(
 	return true;
 }
 
-/* If ce supplies type arguments to proto's declaring scope (directly,
- * transitively, or via parameter defaults), returns proto's pre-erasure type
- * with class-scope T-refs substituted. */
-static zend_type zend_substitute_proto_type(
+/* Internal: substitute proto's pre-erasure against ce's binding without
+ * applying the top-level type-parameter fallback. May return a type that
+ * still has TYPE_PARAMETER refs at the top — callers use this to detect
+ * the "would fall back" case so the child side can mirror it. Returns
+ * `fallback` (unchanged) when no substitution applies at all. */
+static zend_type zend_substitute_proto_type_raw(
 		zend_type fallback,
 		const zend_type *pre_erasure,
 		const zend_function *proto,
@@ -1212,8 +1271,32 @@ static zend_type zend_substitute_proto_type(
 		return fallback;
 	}
 
-	if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_erasure)
-			|| ZEND_TYPE_TYPE_PARAMETER(*pre_erasure)->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE) {
+	/* Top-level type-param ref of function-scope origin: dereference to the
+	 * param's bound's pre-erasure. This lets `set<U : T>(U $x)` substitute
+	 * T → ce's binding in U's bound, so the inheritance check compares the
+	 * substituted bound rather than the erased mixed. */
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_erasure)
+			&& ZEND_TYPE_TYPE_PARAMETER(*pre_erasure)->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE) {
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pre_erasure);
+		if (!ZEND_USER_CODE(proto->common.type)) return fallback;
+		const zend_op_array *op = &proto->op_array;
+		if (!op->generic_parameters || ref->index >= op->generic_parameters->count) {
+			return fallback;
+		}
+		const zend_generic_parameter *p = &op->generic_parameters->parameters[ref->index];
+		const zend_type *bound_pre = ZEND_TYPE_IS_SET(p->bound_pre_erasure)
+			? &p->bound_pre_erasure
+			: (ZEND_TYPE_IS_SET(p->bound) ? &p->bound : NULL);
+		if (!bound_pre || !zend_type_contains_type_parameter(*bound_pre)) {
+			return fallback;
+		}
+		/* Recurse with the bound as the pre-erasure. The recursive call may
+		 * also need to deref (chained method-level bounds), but loop detection
+		 * isn't needed for inheritance because the user-visible bound is a
+		 * finite expression. */
+		return zend_substitute_proto_type_raw(fallback, bound_pre, proto, ce);
+	}
+	if (!zend_type_contains_type_parameter(*pre_erasure)) {
 		return fallback;
 	}
 
@@ -1235,12 +1318,101 @@ static zend_type zend_substitute_proto_type(
 			&& !zend_get_target_default_args(proto_scope, args, cap, &arity)) {
 		result = fallback;
 	} else {
-		zend_type substituted = zend_substitute_leaf_type_param(*pre_erasure, args, arity);
-		result = ZEND_TYPE_HAS_TYPE_PARAMETER(substituted) ? fallback : substituted;
+		result = zend_substitute_leaf_type_param(*pre_erasure, args, arity);
 	}
 
 	free_alloca(args, use_heap);
 	return result;
+}
+
+/* If ce supplies type arguments to proto's declaring scope (directly,
+ * transitively, or via parameter defaults), returns proto's pre-erasure type
+ * with class-scope T-refs substituted. Applies a top-level fallback when the
+ * substituted result is still a bare TYPE_PARAMETER (couldn't be ground). */
+static zend_type zend_substitute_proto_type(
+		zend_type fallback,
+		const zend_type *pre_erasure,
+		const zend_function *proto,
+		zend_class_entry *ce)
+{
+	zend_type result = zend_substitute_proto_type_raw(fallback, pre_erasure, proto, ce);
+	/* If the result is *still* a bare type-parameter (couldn't be ground),
+	 * fall back to the erased form. Compound types containing leftover
+	 * type-param leaves are kept — the structural comparison handles them
+	 * by identity. */
+	return ZEND_TYPE_HAS_TYPE_PARAMETER(result) ? fallback : result;
+}
+
+/* Returns the type the inheritance check should use for the child (fe) side.
+ * When the child has a pre-erasure stash and that stash carries class-scope
+ * shape the arg_info erased away (e.g. `Tl|Tr` collapsed to mixed because
+ * both members are unbounded class-scope type parameters), prefer the
+ * pre-erasure so the check sees the same structure that's substituted in
+ * for the parent side. Function-scope refs aren't bound by inheritance —
+ * they erase to their bound and we keep using the erased form.
+ *
+ * `proto_substituted_had_type_param` tells us whether the parent's
+ * substitution would have fallen back to its erased form (its substituted
+ * result was a bare TYPE_PARAMETER). When that's true and the child's
+ * pre-erasure is also a bare TYPE_PARAMETER, the child falls back too —
+ * keeping both sides at the erased mixed so the comparison stays symmetric.
+ * Otherwise the child uses its pre-erasure so structural compounds (unions
+ * like `Tl|Tr`, named-with-args like `I<T>`) line up with the parent's
+ * substituted form. */
+static zend_type zend_resolve_fe_type(
+		zend_type fallback,
+		const zend_type *pre_erasure,
+		const zend_function *fe,
+		zend_class_entry *ce,
+		bool proto_substituted_had_type_param)
+{
+	if (!pre_erasure || !ZEND_TYPE_IS_SET(*pre_erasure)) {
+		return fallback;
+	}
+	/* Function-scope TYPE_PARAMETER ref: deref to the param's bound's
+	 * pre-erasure so its class-scope content can still drive the comparison.
+	 * Mirrors the symmetric deref in zend_substitute_proto_type_raw. */
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_erasure)
+			&& ZEND_TYPE_TYPE_PARAMETER(*pre_erasure)->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE) {
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pre_erasure);
+		if (!ZEND_USER_CODE(fe->common.type)) return fallback;
+		const zend_op_array *op = &fe->op_array;
+		if (!op->generic_parameters || ref->index >= op->generic_parameters->count) {
+			return fallback;
+		}
+		const zend_generic_parameter *p = &op->generic_parameters->parameters[ref->index];
+		const zend_type *bound_pre = ZEND_TYPE_IS_SET(p->bound_pre_erasure)
+			? &p->bound_pre_erasure
+			: (ZEND_TYPE_IS_SET(p->bound) ? &p->bound : NULL);
+		if (!bound_pre) return fallback;
+		return zend_resolve_fe_type(fallback, bound_pre, fe, ce, proto_substituted_had_type_param);
+	}
+	if (!zend_type_contains_class_scope_type_parameter(*pre_erasure)) {
+		/* Pre-erasure has structure but no class-scope refs to substitute.
+		 * If proto fell back (its substituted result was still a bare type
+		 * param), fall back here too for symmetric mixed-vs-mixed compare;
+		 * otherwise use the pre-erasure structure directly so unions like
+		 * `string|int` compare properly. */
+		if (proto_substituted_had_type_param
+				&& ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_erasure)) {
+			return fallback;
+		}
+		return *pre_erasure;
+	}
+	/* Mirror the parent's fall-back: if proto fell back AND fe's pre-erasure
+	 * is itself a bare TYPE_PARAMETER, fall back to the erased form too. */
+	if (proto_substituted_had_type_param
+			&& ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_erasure)) {
+		return fallback;
+	}
+	/* Immediate-child case: the pre-erasure type-param refs are already in
+	 * fe_scope, which is the same scope the comparison runs in. */
+	if (ce == fe->common.scope) {
+		return *pre_erasure;
+	}
+	/* Transitive: substitute the child's class-scope refs against ce's
+	 * binding to fe's scope. */
+	return zend_substitute_proto_type(fallback, pre_erasure, fe, ce);
 }
 
 static const zend_type *zend_get_param_pre_erasure(const zend_function *proto, uint32_t param_idx)
@@ -1260,11 +1432,10 @@ static const zend_type *zend_get_return_pre_erasure(const zend_function *proto)
 }
 
 static inheritance_status zend_do_perform_arg_type_hint_check(
-		zend_class_entry *fe_scope, const zend_arg_info *fe_arg_info,
-		zend_class_entry *proto_scope, const zend_arg_info *proto_arg_info,
-		zend_type proto_type) /* {{{ */
+		zend_class_entry *fe_scope, zend_type fe_type,
+		zend_class_entry *proto_scope, zend_type proto_type) /* {{{ */
 {
-	if (!ZEND_TYPE_IS_SET(fe_arg_info->type) || ZEND_TYPE_PURE_MASK(fe_arg_info->type) == MAY_BE_ANY) {
+	if (!ZEND_TYPE_IS_SET(fe_type) || ZEND_TYPE_PURE_MASK(fe_type) == MAY_BE_ANY) {
 		/* Child with no type or mixed type is always compatible */
 		return INHERITANCE_SUCCESS;
 	}
@@ -1277,7 +1448,7 @@ static inheritance_status zend_do_perform_arg_type_hint_check(
 	/* Contravariant type check is performed as a covariant type check with swapped
 	 * argument order. */
 	return zend_perform_covariant_type_check(
-		proto_scope, proto_type, fe_scope, fe_arg_info->type);
+		proto_scope, proto_type, fe_scope, fe_type);
 }
 /* }}} */
 
@@ -1349,14 +1520,19 @@ static inheritance_status zend_do_perform_implementation_check(
 		}
 
 		uint32_t proto_param_idx = i < proto_num_args ? i : proto_num_args - 1;
-		zend_type proto_type = zend_substitute_proto_type(
+		zend_type proto_raw = zend_substitute_proto_type_raw(
 			proto_arg_info->type,
 			zend_get_param_pre_erasure(proto, proto_param_idx),
-			proto,
-			ce
-		);
+			proto, ce);
+		bool proto_fell_back = ZEND_TYPE_HAS_TYPE_PARAMETER(proto_raw);
+		zend_type proto_type = proto_fell_back ? proto_arg_info->type : proto_raw;
+		uint32_t fe_param_idx = i < fe_num_args ? i : fe_num_args - 1;
+		zend_type fe_type = zend_resolve_fe_type(
+			fe_arg_info->type,
+			zend_get_param_pre_erasure(fe, fe_param_idx),
+			fe, ce, proto_fell_back);
 		local_status = zend_do_perform_arg_type_hint_check(
-			fe_scope, fe_arg_info, proto_scope, proto_arg_info, proto_type);
+			fe_scope, fe_type, proto_scope, proto_type);
 
 		if (UNEXPECTED(local_status != INHERITANCE_SUCCESS)) {
 			if (UNEXPECTED(local_status == INHERITANCE_ERROR)) {
@@ -1386,12 +1562,19 @@ static inheritance_status zend_do_perform_implementation_check(
 			return status;
 		}
 
-		zend_type proto_return_type = zend_substitute_proto_type(
+		zend_type proto_raw_ret = zend_substitute_proto_type_raw(
 			proto->common.arg_info[-1].type,
 			zend_get_return_pre_erasure(proto),
 			proto, ce);
+		bool proto_ret_fell_back = ZEND_TYPE_HAS_TYPE_PARAMETER(proto_raw_ret);
+		zend_type proto_return_type = proto_ret_fell_back
+			? proto->common.arg_info[-1].type : proto_raw_ret;
+		zend_type fe_return_type = zend_resolve_fe_type(
+			fe->common.arg_info[-1].type,
+			zend_get_return_pre_erasure(fe),
+			fe, ce, proto_ret_fell_back);
 		local_status = zend_perform_covariant_type_check(
-			fe_scope, fe->common.arg_info[-1].type, proto_scope, proto_return_type);
+			fe_scope, fe_return_type, proto_scope, proto_return_type);
 
 		if (UNEXPECTED(local_status != INHERITANCE_SUCCESS)) {
 			if (local_status == INHERITANCE_ERROR
@@ -1455,9 +1638,20 @@ static ZEND_COLD zend_string *zend_get_function_declaration(
 		}
 		for (uint32_t i = 0; i < num_args;) {
 			uint32_t param_idx = i < fptr->common.num_args ? i : fptr->common.num_args;
-			zend_type display_type = subst_ce
-				? zend_substitute_proto_type(arg_info->type, zend_get_param_pre_erasure(fptr, param_idx), fptr, subst_ce)
-				: arg_info->type;
+			const zend_type *param_pre = zend_get_param_pre_erasure(fptr, param_idx);
+			zend_type display_type;
+			if (subst_ce) {
+				display_type = zend_substitute_proto_type(arg_info->type, param_pre, fptr, subst_ce);
+			} else if (param_pre && ZEND_TYPE_IS_SET(*param_pre)
+					&& zend_type_contains_class_scope_type_parameter(*param_pre)) {
+				/* Render the pre-erasure shape so messages mirror what the
+				 * inheritance check actually compared. Function-scope refs
+				 * erase to their bound and aren't bound by inheritance, so
+				 * we keep the erased rendering for those. */
+				display_type = *param_pre;
+			} else {
+				display_type = arg_info->type;
+			}
 			zend_append_type_hint(&str, scope, arg_info, display_type, false);
 			if (ZEND_ARG_SEND_MODE(arg_info)) {
 				smart_str_appendc(&str, '&');
@@ -1553,9 +1747,18 @@ static ZEND_COLD zend_string *zend_get_function_declaration(
 	if (fptr->common.fn_flags & ZEND_ACC_HAS_RETURN_TYPE) {
 		smart_str_appends(&str, ": ");
 		const zend_arg_info *ret_info = fptr->common.arg_info - 1;
-		zend_type ret_display = subst_ce
-			? zend_substitute_proto_type(ret_info->type, zend_get_return_pre_erasure(fptr), fptr, subst_ce)
-			: ret_info->type;
+		const zend_type *ret_pre = zend_get_return_pre_erasure(fptr);
+		zend_type ret_display;
+		if (subst_ce) {
+			ret_display = zend_substitute_proto_type(ret_info->type, ret_pre, fptr, subst_ce);
+		} else if (ret_pre && ZEND_TYPE_IS_SET(*ret_pre)
+				&& zend_type_contains_class_scope_type_parameter(*ret_pre)) {
+			/* Mirror the pre-erasure shape so messages match what the
+			 * inheritance check actually compared. */
+			ret_display = *ret_pre;
+		} else {
+			ret_display = ret_info->type;
+		}
 		zend_append_type_hint(&str, scope, ret_info, ret_display, true);
 	}
 	smart_str_0(&str);
@@ -6671,11 +6874,12 @@ ZEND_API zend_class_entry *zend_get_defaults_monomorph(zend_class_entry *base)
  * "Box<T>"-style args and its method arg_info would never resolve to a concrete
  * type. Walks args[i]; for top-level T-refs, substitutes via the frame's
  * function-level type_args (FUNCTION_LIKE) or the lexical class's monomorph
- * descendant's generic_type_args (CLASS_LIKE). Out slots that didn't need
- * substitution are copied verbatim so callers can pass out[] unconditionally.
- * Returns false when any ref can't be resolved — caller should fall through to
- * the existing synth-with-unresolved-args behavior so the diagnostic remains
- * where it always was. */
+ * descendant's generic_type_args (CLASS_LIKE). When the frame has no binding,
+ * falls back to the referenced parameter's class bound (matching the runtime
+ * fallback used by `new T()` / `instanceof T` resolution). Throws and returns
+ * NULL when neither a binding nor a class-bound fallback is available — same
+ * shape and message as the existing zend_resolve_generic_type_param error so
+ * users see one consistent diagnostic across `new T()` and `new C::<T>()`. */
 static bool zend_resolve_synth_args_against_frame(
 	const zend_type *args, uint32_t arity, zend_type *out)
 {
@@ -6687,11 +6891,13 @@ static bool zend_resolve_synth_args_against_frame(
 		}
 		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(args[i]);
 		const zend_type *resolved = NULL;
+		const zend_generic_parameter_list *params = NULL;
 		if (ref->origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
-			if (ex && ZEND_USER_CODE(ex->func->type)
-					&& ex->type_args
-					&& ref->index < ex->type_args->count) {
-				resolved = zend_type_arg_entry_type(&ex->type_args->entries[ref->index]);
+			if (ex && ZEND_USER_CODE(ex->func->type)) {
+				if (ex->type_args && ref->index < ex->type_args->count) {
+					resolved = zend_type_arg_entry_type(&ex->type_args->entries[ref->index]);
+				}
+				params = ex->func->op_array.generic_parameters;
 			}
 		} else {
 			/* Walk from called scope up to the direct child of the lexical
@@ -6708,12 +6914,35 @@ static bool zend_resolve_synth_args_against_frame(
 					resolved = zend_type_arg_entry_type(
 						&cur->generic_type_args->entries[ref->index]);
 				}
+				if (lexical) {
+					params = lexical->generic_parameters;
+				}
 			}
 		}
-		if (!resolved || !ZEND_TYPE_IS_SET(*resolved)) {
-			return false;
+		if (resolved && ZEND_TYPE_IS_SET(*resolved)) {
+			out[i] = *resolved;
+			continue;
 		}
-		out[i] = *resolved;
+		/* No binding from the frame. Fall back to the referenced parameter's
+		 * class bound — same fallback as `new T()` / `instanceof T`. A
+		 * non-class bound (default `mixed`, scalar, union, etc.) has no
+		 * class name to substitute, so synth cannot proceed: throw. */
+		if (params && ref->index < params->count) {
+			zend_type bound = params->parameters[ref->index].bound;
+			if (ZEND_TYPE_HAS_NAME(bound)) {
+				out[i] = bound;
+				continue;
+			}
+			zend_throw_error(NULL,
+				"Cannot resolve generic type parameter %s at runtime: "
+				"no binding was supplied and its bound is not a class",
+				ZSTR_VAL(params->parameters[ref->index].name));
+		} else {
+			zend_throw_error(NULL,
+				"Cannot resolve generic type parameter at runtime: "
+				"no binding was supplied and no parameter scope is available");
+		}
+		return false;
 	}
 	return true;
 }
@@ -6731,10 +6960,7 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph_resolved(
 	}
 	zend_type resolved[ZEND_GENERIC_MAX_PARAMS];
 	if (!zend_resolve_synth_args_against_frame(args, arity, resolved)) {
-		/* Fall through with the unresolved refs — produces the
-		 * pre-existing "Box<T>" monomorph + downstream TypeError that the
-		 * caller's existing error path already handles. */
-		return zend_synthesize_monomorph(base, args, arity);
+		return NULL;
 	}
 	return zend_synthesize_monomorph(base, resolved, arity);
 }
@@ -6919,6 +7145,124 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph(
 				ZVAL_COPY_OR_DUP(slot, src);
 			}
 		}
+	}
+
+	/* Substitute T-typed implements on the inherited interface chain. When
+	 * the base declares `class B<T> implements I<T>` and is monomorphized as
+	 * `B<string>`, the inherited interfaces[] still points at the erased
+	 * base interface I — so `instanceof I<string>` returns false. Walk the
+	 * base's parent chain too, since `class B<T> extends A<T>` where
+	 * `class A<U> implements I<U>` needs the same substitution for B<string>.
+	 * For each generic ancestor, resolve the binding from `base` to that
+	 * ancestor, substitute each implements entry's args, synthesize the
+	 * corresponding interface monomorph, and add it to linked->interfaces.
+	 * The standard `instanceof` walks both the parent chain and interfaces[],
+	 * so the substituted forms become discoverable and the erased base
+	 * interfaces stay reachable transitively. */
+	{
+		ALLOCA_FLAG(extras_use_heap)
+		SET_ALLOCA_FLAG(extras_use_heap);
+		uint32_t max_extras = 0;
+		for (zend_class_entry *a = base; a; a = a->parent) {
+			max_extras += a->num_interfaces;
+		}
+		zend_class_entry **extras = max_extras
+			? do_alloca(sizeof(zend_class_entry *) * max_extras, extras_use_heap)
+			: NULL;
+		uint32_t extra_count = 0;
+
+		for (zend_class_entry *ancestor = base; ancestor; ancestor = ancestor->parent) {
+			if (!ancestor->generic_types || !ancestor->generic_types->implements
+					|| !ancestor->generic_parameters) {
+				continue;
+			}
+			uint32_t a_cap = ancestor->generic_parameters->count;
+			if (a_cap == 0) continue;
+
+			/* Resolve the binding from the synthesized monomorph (whose direct
+			 * binding is to `base`) to `ancestor`. For the immediate-base case,
+			 * the binding is the args we were called with. For deeper ancestors,
+			 * compose base→ancestor's binding and then substitute its T-refs
+			 * with the args we hold. */
+			zend_type bound_args[ZEND_GENERIC_MAX_PARAMS];
+			uint32_t bound_arity = 0;
+			if (ancestor == base) {
+				if (arity > ZEND_GENERIC_MAX_PARAMS) continue;
+				for (uint32_t k = 0; k < arity; k++) bound_args[k] = args[k];
+				bound_arity = arity;
+			} else {
+				bool have = zend_get_inheritance_binding_full_cached(
+					base, ancestor, bound_args, ZEND_GENERIC_MAX_PARAMS, &bound_arity);
+				if (!have) continue;
+				for (uint32_t k = 0; k < bound_arity; k++) {
+					bound_args[k] = zend_substitute_leaf_type_param(
+						bound_args[k], args, arity);
+				}
+			}
+
+			const HashTable *impl_table = ancestor->generic_types->implements;
+			for (uint32_t i = 0; i < ancestor->num_interfaces; i++) {
+				const zend_type *impl_args_t = (const zend_type *) zend_hash_index_find_ptr(impl_table, i);
+				if (!impl_args_t || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*impl_args_t)) {
+					continue;
+				}
+				const zend_type_named_with_args *impl_nwa = ZEND_TYPE_NAMED_WITH_ARGS(*impl_args_t);
+
+				ALLOCA_FLAG(sub_use_heap)
+				zend_type *sub_args = do_alloca(
+					sizeof(zend_type) * impl_nwa->count, sub_use_heap);
+				bool all_ground = true;
+				for (uint32_t j = 0; j < impl_nwa->count; j++) {
+					sub_args[j] = zend_substitute_leaf_type_param(
+						impl_nwa->args[j], bound_args, bound_arity);
+					if (zend_type_contains_type_parameter(sub_args[j])) {
+						all_ground = false;
+						break;
+					}
+				}
+				if (!all_ground) {
+					free_alloca(sub_args, sub_use_heap);
+					continue;
+				}
+				zend_class_entry *iface_base = ancestor->interfaces
+					? ancestor->interfaces[i] : NULL;
+				if (!iface_base) {
+					iface_base = zend_lookup_class(impl_nwa->name);
+				}
+				zend_class_entry *iface_mono = NULL;
+				if (iface_base && iface_base->generic_parameters) {
+					iface_mono = zend_synthesize_monomorph(
+						iface_base, sub_args, impl_nwa->count);
+				}
+				free_alloca(sub_args, sub_use_heap);
+				if (!iface_mono) continue;
+
+				bool already = false;
+				for (uint32_t k = 0; k < linked->num_interfaces; k++) {
+					if (linked->interfaces[k] == iface_mono) { already = true; break; }
+				}
+				if (already) continue;
+				for (uint32_t k = 0; k < extra_count; k++) {
+					if (extras[k] == iface_mono) { already = true; break; }
+				}
+				if (already) continue;
+				extras[extra_count++] = iface_mono;
+			}
+		}
+
+		if (extra_count > 0) {
+			uint32_t new_count = linked->num_interfaces + extra_count;
+			linked->interfaces = perealloc(
+				linked->interfaces,
+				sizeof(zend_class_entry *) * new_count,
+				linked->type == ZEND_INTERNAL_CLASS);
+			for (uint32_t k = 0; k < extra_count; k++) {
+				linked->interfaces[linked->num_interfaces + k] = extras[k];
+				do_implement_interface(linked, extras[k]);
+			}
+			linked->num_interfaces = new_count;
+		}
+		if (extras) free_alloca(extras, extras_use_heap);
 	}
 
 	/* Substitute T-typed class constants. When the base declares `const T FOO`,
