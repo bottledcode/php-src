@@ -6664,6 +6664,81 @@ ZEND_API zend_class_entry *zend_get_defaults_monomorph(zend_class_entry *base)
 	ZEND_UNREACHABLE();
 }
 
+/* When `new C::<...>(...)` is compiled inside a generic function/class, the
+ * turbofish args may reference enclosing-scope T parameters by ref. The op_array
+ * side-table stores those refs verbatim — at synth time they must be resolved
+ * against the executing frame's bindings, or the monomorph would carry literal
+ * "Box<T>"-style args and its method arg_info would never resolve to a concrete
+ * type. Walks args[i]; for top-level T-refs, substitutes via the frame's
+ * function-level type_args (FUNCTION_LIKE) or the lexical class's monomorph
+ * descendant's generic_type_args (CLASS_LIKE). Out slots that didn't need
+ * substitution are copied verbatim so callers can pass out[] unconditionally.
+ * Returns false when any ref can't be resolved — caller should fall through to
+ * the existing synth-with-unresolved-args behavior so the diagnostic remains
+ * where it always was. */
+static bool zend_resolve_synth_args_against_frame(
+	const zend_type *args, uint32_t arity, zend_type *out)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	for (uint32_t i = 0; i < arity; i++) {
+		if (!ZEND_TYPE_HAS_TYPE_PARAMETER(args[i])) {
+			out[i] = args[i];
+			continue;
+		}
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(args[i]);
+		const zend_type *resolved = NULL;
+		if (ref->origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
+			if (ex && ZEND_USER_CODE(ex->func->type)
+					&& ex->type_args
+					&& ref->index < ex->type_args->count) {
+				resolved = zend_type_arg_entry_type(&ex->type_args->entries[ref->index]);
+			}
+		} else {
+			/* Walk from called scope up to the direct child of the lexical
+			 * class — that's the monomorph carrying the binding (see the
+			 * matching walk in zend_resolve_generic_type_param). */
+			if (ex) {
+				zend_class_entry *lexical = ex->func->common.scope;
+				zend_class_entry *cur = zend_get_called_scope(ex);
+				while (cur && cur->parent != lexical) {
+					cur = cur->parent;
+				}
+				if (cur && cur->generic_type_args
+						&& ref->index < cur->generic_type_args->count) {
+					resolved = zend_type_arg_entry_type(
+						&cur->generic_type_args->entries[ref->index]);
+				}
+			}
+		}
+		if (!resolved || !ZEND_TYPE_IS_SET(*resolved)) {
+			return false;
+		}
+		out[i] = *resolved;
+	}
+	return true;
+}
+
+/* Same as zend_synthesize_monomorph, but resolves TYPE_PARAMETER refs in args
+ * against the executing frame's T-tables first. Use this at runtime `new`
+ * sites where the args originate from a compile-time side-table that may
+ * reference enclosing-scope T's. Static callers (class-build extends/implements
+ * with already-resolved args) keep using zend_synthesize_monomorph directly. */
+ZEND_API zend_class_entry *zend_synthesize_monomorph_resolved(
+	zend_class_entry *base, const zend_type *args, uint32_t arity)
+{
+	if (arity == 0) {
+		return zend_synthesize_monomorph(base, args, arity);
+	}
+	zend_type resolved[ZEND_GENERIC_MAX_PARAMS];
+	if (!zend_resolve_synth_args_against_frame(args, arity, resolved)) {
+		/* Fall through with the unresolved refs — produces the
+		 * pre-existing "Box<T>" monomorph + downstream TypeError that the
+		 * caller's existing error path already handles. */
+		return zend_synthesize_monomorph(base, args, arity);
+	}
+	return zend_synthesize_monomorph(base, resolved, arity);
+}
+
 ZEND_API zend_class_entry *zend_synthesize_monomorph(
 	zend_class_entry *base, const zend_type *args, uint32_t arity)
 {

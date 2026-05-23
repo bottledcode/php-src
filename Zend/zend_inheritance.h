@@ -70,6 +70,15 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 ZEND_API zend_class_entry *zend_synthesize_monomorph(
 	zend_class_entry *base, const zend_type *args, uint32_t arity);
 
+/* Same as zend_synthesize_monomorph, but first resolves any TYPE_PARAMETER refs
+ * in args[] against the currently executing frame's bindings (function-level
+ * via EX()->type_args; class-level via the lexical class's monomorph descendant).
+ * Use at runtime `new` sites where the args originate from an op_array side-table
+ * compiled inside a generic scope and may name enclosing-scope T's by ref.
+ * Static-build callers with already-resolved args keep using the base. */
+ZEND_API zend_class_entry *zend_synthesize_monomorph_resolved(
+	zend_class_entry *base, const zend_type *args, uint32_t arity);
+
 /* For a bare generic class `base`, synthesize (or return the cached) monomorph
  * built from the parameters' declared defaults. Returns NULL and throws Error
  * if any parameter has no default. If `base` is itself a monomorph (no

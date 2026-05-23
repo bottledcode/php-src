@@ -9118,7 +9118,7 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
 			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
 			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
 				if (mono && mono != ce) {
 					Z_OBJ_P(new_obj)->ce = mono;
 					if (mono->constructor && call->func == ce->constructor) {
@@ -9184,7 +9184,7 @@ ZEND_VM_HANDLER(213, ZEND_INSTALL_GENERIC_ARGS, TMP|UNUSED, UNUSED)
 		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
 			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
 			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph(ce, nwa->args, nwa->count);
+				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
 				if (mono && mono != ce) {
 					Z_OBJ_P(new_obj)->ce = mono;
 					if (mono->constructor && call->func == ce->constructor) {
