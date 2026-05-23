@@ -81,7 +81,7 @@ object(Dog)#%d (0) {
 caught: id(): Argument #1 ($x) must be of type Dog, Cat given
 int(42)
 caught: id(): Argument #1 ($x) must be of type int, string given
-caught: id(): Argument #1 ($x) must be of type int|string, array given
+caught: id(): Argument #1 ($x) must be of type string|int, array given
 object(Both)#%d (0) {
 }
 caught: id(): Argument #1 ($x) must be of type Fooable&Barable, FooOnly given
