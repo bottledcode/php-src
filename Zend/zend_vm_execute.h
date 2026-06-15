@@ -382,8 +382,8 @@ static zend_vm_opcode_handler_func_t zend_vm_get_opcode_handler_func(uint8_t opc
 #else
 # define ZEND_OPCODE_HANDLER_ARGS zend_execute_data *execute_data, const zend_op *opline
 # define ZEND_OPCODE_HANDLER_ARGS_PASSTHRU execute_data, opline
-# define ZEND_OPCODE_HANDLER_ARGS_EX ZEND_OPCODE_HANDLER_ARGS, 
-# define ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX ZEND_OPCODE_HANDLER_ARGS_PASSTHRU, 
+# define ZEND_OPCODE_HANDLER_ARGS_EX ZEND_OPCODE_HANDLER_ARGS,
+# define ZEND_OPCODE_HANDLER_ARGS_PASSTHRU_EX ZEND_OPCODE_HANDLER_ARGS_PASSTHRU,
 #endif
 
 #if defined(ZEND_VM_FP_GLOBAL_REG) && defined(ZEND_VM_IP_GLOBAL_REG)
@@ -22290,25 +22290,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		zend_check_generic_new_arguments(ce, arity, args_box);
-		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
-		 * object's class entry and the pending constructor call. The monomorph
-		 * shares Box's property layout, so swapping ce is safe; swapping
-		 * call->func ensures the constructor's RECV opcodes verify against the
-		 * monomorph's substituted arg_info. */
-		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -22362,19 +22344,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 		zend_verify_generic_arg_types(call, args_box);
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -37925,25 +37895,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		zend_check_generic_new_arguments(ce, arity, args_box);
-		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
-		 * object's class entry and the pending constructor call. The monomorph
-		 * shares Box's property layout, so swapping ce is safe; swapping
-		 * call->func ensures the constructor's RECV opcodes verify against the
-		 * monomorph's substituted arg_info. */
-		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -37997,19 +37949,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 		zend_verify_generic_arg_types(call, args_box);
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -75584,25 +75524,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		zend_check_generic_new_arguments(ce, arity, args_box);
-		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
-		 * object's class entry and the pending constructor call. The monomorph
-		 * shares Box's property layout, so swapping ce is safe; swapping
-		 * call->func ensures the constructor's RECV opcodes verify against the
-		 * monomorph's substituted arg_info. */
-		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -75656,19 +75578,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 		zend_verify_generic_arg_types(call, args_box);
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -91219,25 +91129,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		zend_check_generic_new_arguments(ce, arity, args_box);
-		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
-		 * object's class entry and the pending constructor call. The monomorph
-		 * shares Box's property layout, so swapping ce is safe; swapping
-		 * call->func ensures the constructor's RECV opcodes verify against the
-		 * monomorph's substituted arg_info. */
-		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -91291,19 +91183,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 		zend_verify_generic_arg_types(call, args_box);
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
 	if (UNEXPECTED(EG(exception))) {

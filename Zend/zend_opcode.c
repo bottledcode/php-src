@@ -862,11 +862,14 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 {
 	uint32_t i;
 
-	/* VERIFY/INSTALL_GENERIC_ARGS may have stashed a zend_type_arg_table* in
-	 * their cache slot, marked persisted so per-frame teardown leaves it
-	 * alone. The cache slot owns that allocation; release the contained
-	 * tables for every op_array, regardless of whether the cache buffer
-	 * itself is heap- or arena-allocated. */
+	/* VERIFY/INSTALL_GENERIC_ARGS on a CALL site (op1_type == IS_UNUSED) may
+	 * have stashed a zend_type_arg_table* in their cache slot, marked persisted
+	 * so per-frame teardown leaves it alone. The cache slot owns that
+	 * allocation; release the contained tables for every op_array, regardless
+	 * of whether the cache buffer itself is heap- or arena-allocated.
+	 *
+	 * (op1_type != IS_UNUSED) instead caches a resolved monomorph zend_class_entry* in slot[0].
+	 * That entry is owned by EG(class_table), so it mustn't be freed here. */
 	if (op_array->opcodes && ZEND_MAP_PTR(op_array->run_time_cache)) {
 		char *cache_buf = (char *) ZEND_MAP_PTR_GET(op_array->run_time_cache);
 		if (cache_buf) {
@@ -874,6 +877,7 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 				const zend_op *op = &op_array->opcodes[op_idx];
 				if ((op->opcode == ZEND_VERIFY_GENERIC_ARGUMENTS
 						|| op->opcode == ZEND_INSTALL_GENERIC_ARGS)
+						&& op->op1_type == IS_UNUSED
 						&& op->result.num) {
 					void **cache_slot = (void **) (cache_buf + op->result.num);
 					zend_type_arg_table *t = (zend_type_arg_table *) cache_slot[0];
