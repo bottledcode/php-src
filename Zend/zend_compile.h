@@ -155,6 +155,22 @@ typedef struct _zend_generic_parameter_list {
 #define ZEND_GENERIC_PARAMETER_LIST_SIZE(count) \
 	(sizeof(zend_generic_parameter_list) + ((count) - 1) * sizeof(zend_generic_parameter))
 
+/* Packed, callee-static list of the direct FUNCTION_LIKE type-parameter value
+ * parameters that zend_verify_generic_arg_types must runtime-check. Derived once
+ * from `parameters`, it replaces a per-call HashTable iteration (+ per-entry
+ * TYPE_PARAMETER/origin filtering) with a tight array walk. Built lazily on the
+ * first verify; left NULL on opcache-persisted tables (which are read-only), in
+ * which case verify falls back to iterating `parameters` directly. */
+typedef struct _zend_generic_value_check {
+	uint32_t arg_idx;   /* parameter position (0-based) */
+	uint32_t tp_index;  /* type-parameter index to substitute (ref->index) */
+} zend_generic_value_check;
+
+typedef struct _zend_generic_value_check_plan {
+	uint32_t count;
+	zend_generic_value_check checks[1]; /* flexible array */
+} zend_generic_value_check_plan;
+
 typedef struct _zend_generic_type_table {
 	zend_type   *return_type;       /* function/method return; NULL if equal to erased */
 	zend_type   *extends;           /* class extends; NULL if equal */
@@ -165,6 +181,7 @@ typedef struct _zend_generic_type_table {
 	HashTable   *trait_uses;        /* trait-use index -> zend_type * */
 	HashTable   *turbofish_args;    /* opline->extended_value -> zend_type * (NAMED_WITH_ARGS holding the call-site type arguments); index is stable across optimizer reorderings */
 	bool         persisted;         /* set by opcache when the table lives in SHM/file-cache memory; suppresses destruction */
+	zend_generic_value_check_plan *value_check_plan; /* lazily built; request-local; NULL on persisted tables */
 } zend_generic_type_table;
 
 /* Compile-time linked stack of in-scope generic type parameters. */
@@ -254,6 +271,25 @@ static zend_always_inline const zend_type *zend_type_arg_entry_type(const zend_t
 typedef struct _zend_turbofish_args_entry {
 	zend_type             args_box;
 } zend_turbofish_args_entry;
+
+/* Resolve a generic call site's turbofish args_box, memoizing the (static per
+ * site) turbofish_args lookup in cache_slot[2] so the VERIFY/INSTALL handlers
+ * skip the hash lookup after the first call. Returns NULL when the site has no
+ * turbofish (args_id == 0 / no entry). */
+static zend_always_inline const zend_type *zend_generic_get_or_cache_args_box(
+		const zend_op_array *op_array, uint32_t args_id, void **cache_slot)
+{
+	zend_turbofish_args_entry *entry;
+	if (cache_slot && cache_slot[2]) {
+		entry = (zend_turbofish_args_entry *) cache_slot[2];
+	} else {
+		entry = zend_generic_get_turbofish_call_entry(op_array, args_id);
+		if (cache_slot && entry) {
+			cache_slot[2] = entry;
+		}
+	}
+	return entry ? &entry->args_box : NULL;
+}
 
 /* Cache key sentinel for concrete-arg call sites (no T-refs in the args).
  * Cache key 0 means empty; CONCRETE means "args fully resolved at compile
