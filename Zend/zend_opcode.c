@@ -234,6 +234,9 @@ ZEND_API void zend_generic_type_table_destroy(zend_generic_type_table *table) {
 		zend_hash_destroy(table->turbofish_args);
 		FREE_HASHTABLE(table->turbofish_args);
 	}
+	if (table->value_check_plan) {
+		efree(table->value_check_plan);
+	}
 	efree(table);
 }
 
@@ -868,8 +871,10 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 	 * allocation; release the contained tables for every op_array, regardless
 	 * of whether the cache buffer itself is heap- or arena-allocated.
 	 *
-	 * (op1_type != IS_UNUSED) instead caches a resolved monomorph zend_class_entry* in slot[0].
-	 * That entry is owned by EG(class_table), so it mustn't be freed here. */
+	 * The NEW form of the same opcodes (op1_type != IS_UNUSED) instead caches a
+	 * resolved monomorph zend_class_entry* in slot[0]. That entry is owned by
+	 * EG(class_table), NOT by the cache slot, so it must be left untouched here
+	 * — freeing it as a type_arg_table corrupts the heap. */
 	if (op_array->opcodes && ZEND_MAP_PTR(op_array->run_time_cache)) {
 		char *cache_buf = (char *) ZEND_MAP_PTR_GET(op_array->run_time_cache);
 		if (cache_buf) {

@@ -9075,9 +9075,8 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
-	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
-	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
+	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
@@ -9105,6 +9104,12 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
+		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
+		 * object's class entry and the pending constructor call. The monomorph
+		 * shares Box's property layout, so swapping ce is safe; swapping
+		 * call->func ensures the constructor's RECV opcodes verify against the
+		 * monomorph's substituted arg_info. The call-site inline cache (incl. the
+		 * concrete-args fast path) lives in zend_apply_generic_new. */
 		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
@@ -9142,9 +9147,8 @@ ZEND_VM_HANDLER(213, ZEND_INSTALL_GENERIC_ARGS, TMP|UNUSED, UNUSED)
 {
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
-	zend_turbofish_args_entry *call_entry = zend_generic_get_turbofish_call_entry(&EX(func)->op_array, opline->extended_value);
-	const zend_type *args_box = call_entry ? &call_entry->args_box : NULL;
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
+	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
@@ -9159,6 +9163,8 @@ ZEND_VM_HANDLER(213, ZEND_INSTALL_GENERIC_ARGS, TMP|UNUSED, UNUSED)
 		zend_verify_generic_arg_types(call, args_box);
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
+		/* Statically pre-validated: skip the runtime arity/bound check, but
+		 * still cache the resolved monomorph at the call site. */
 		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 

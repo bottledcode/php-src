@@ -81,7 +81,16 @@ ZEND_API bool ZEND_FASTCALL instanceof_function_slow(const zend_class_entry *ins
 
 static zend_always_inline bool instanceof_function(
 		const zend_class_entry *instance_ce, const zend_class_entry *ce) {
-	return instance_ce == ce || instanceof_function_slow(instance_ce, ce);
+	/* `instance_ce->parent == ce` is a cheap second-level fast path for the
+	 * direct-subclass case: it always implies `instance_ce instanceof ce`
+	 * (parent is a class, never an interface). It is the common shape for a
+	 * generic monomorph checked against its erased base (e.g. a
+	 * `DirectedGraph<string,int>` value flowing into a `DirectedGraph`-typed
+	 * parameter), which would otherwise pay a full slow-path call on every
+	 * boundary check. */
+	return instance_ce == ce
+		|| instance_ce->parent == ce
+		|| instanceof_function_slow(instance_ce, ce);
 }
 
 ZEND_API bool zend_string_only_has_ascii_alphanumeric(const zend_string *str);
