@@ -196,6 +196,7 @@ ZEND_API void zend_check_generic_arg_list_size(zend_ast *list_ast);
 
 ZEND_API void zend_check_generic_call_arguments(const zend_function *fbc, uint32_t arity, const zend_type *args_box);
 ZEND_API void zend_check_generic_new_arguments(const zend_class_entry *ce, uint32_t arity, const zend_type *args_box);
+ZEND_API void zend_apply_generic_new(zval *new_obj, zend_execute_data *call, const zend_type *args_box, uint32_t arity, void **cache_slot, bool do_checks);
 ZEND_API const zend_type *zend_generic_get_turbofish_args(const zend_op_array *caller_op_array, uint32_t args_id);
 ZEND_API struct _zend_turbofish_args_entry *zend_generic_get_turbofish_call_entry(const zend_op_array *caller_op_array, uint32_t args_id);
 

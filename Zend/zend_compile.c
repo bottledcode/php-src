@@ -755,6 +755,133 @@ ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(
 	return t;
 }
 
+ZEND_API zend_class_entry *zend_get_called_scope(const zend_execute_data *ex);
+
+/* Cache key for a `new C::<...>` site's resolved monomorph. The monomorph is a
+ * pure function of (base ce, resolved type args). The args are a
+ * compile-time-constant side table for the opline; only TYPE_PARAMETER refs add
+ * runtime variability, resolved against the executing frame:
+ *   - FUNCTION_LIKE ref -> the frame's type_args entry, keyed by its interned
+ *                          canonical-name pointer (stable per binding);
+ *   - CLASS_LIKE ref    -> the called scope's generic_type_args, fully
+ *                          determined by the called_scope ce pointer.
+ * The key is seeded with the base ce pointer so a cached monomorph for one base
+ * can never satisfy a different base (e.g. `new $dynamic::<int>`). Returns 0
+ * ("uncacheable") only when a needed binding is unavailable (error paths). */
+static uintptr_t zend_compute_new_mono_cache_key(
+		const zend_class_entry *base, const zend_type_named_with_args *nwa,
+		const zend_execute_data *ex)
+{
+	uintptr_t key = (uintptr_t) base * 0x9E3779B97F4A7C15ULL;
+	for (uint32_t i = 0; i < nwa->count; i++) {
+		if (!ZEND_TYPE_HAS_TYPE_PARAMETER(nwa->args[i])) {
+			continue;
+		}
+		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(nwa->args[i]);
+		if (ref->origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) {
+			if (!ex || !ex->type_args || ref->index >= ex->type_args->count) {
+				return 0;
+			}
+			zend_string *bound_name = ex->type_args->entries[ref->index].name;
+			if (!bound_name) {
+				return 0;
+			}
+			key = key * 0x100000001B3ULL + (uintptr_t) bound_name + i + 1;
+		} else {
+			zend_class_entry *cs = ex ? zend_get_called_scope(ex) : NULL;
+			if (!cs) {
+				return 0;
+			}
+			key = key * 0x100000001B3ULL + (uintptr_t) cs + i + 1;
+		}
+	}
+	if (key == 0) {
+		key = (uintptr_t) -1;
+	}
+	return key;
+}
+
+static zend_always_inline void zend_generic_new_swap_ce(
+		zval *new_obj, zend_execute_data *call, zend_class_entry *ce, zend_class_entry *mono)
+{
+	if (mono && mono != ce) {
+		Z_OBJ_P(new_obj)->ce = mono;
+		if (mono->constructor && call->func == ce->constructor) {
+			call->func = mono->constructor;
+		}
+	}
+}
+
+/*
+ * Monomorphize: synthesize (or look up) Box<args> and swap both the
+ * object's class entry and the pending constructor call. The monomorph
+ * shares Box's property layout, so swapping ce is safe; swapping
+ * call->func ensures the constructor's RECV opcodes verify against the
+ * monomorph's substituted arg_info.
+ * Use a call-site inline cache to avoid building the canonical name and performing the class-table loookup again.
+ *
+ * `new C::<...>` resolution with a call-site monomorph cache. Without the cache
+ * every instantiation rebuilds the canonical class name (smart_str + interning),
+ * lowercases it, and hashes EG(class_table) — all to rediscover the same
+ * monomorph. On a cache hit we skip the arity/bound check and the synthesis
+ * lookup entirely: the cached ce is swapped into the new object (and the pending
+ * constructor call) directly. On a miss we run the full path and, when the site
+ * is cacheable, stash the resolved monomorph keyed by the binding fingerprint.
+ *
+ * `do_checks` mirrors the VERIFY vs INSTALL split: VERIFY runs the runtime
+ * arity+bound check on a miss; INSTALL (statically pre-validated) does not. The
+ * cached `mono` lives in EG(class_table) for the whole request and the cache
+ * slot is request-local runtime-cache memory, so the two share a lifetime. */
+ZEND_API void zend_apply_generic_new(
+		zval *new_obj, zend_execute_data *call, const zend_type *args_box,
+		uint32_t arity, void **cache_slot, bool do_checks)
+{
+	zend_class_entry *ce = Z_OBJCE_P(new_obj);
+	const zend_type_named_with_args *nwa =
+		(args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box))
+			? ZEND_TYPE_NAMED_WITH_ARGS(*args_box) : NULL;
+
+	if (nwa && ce->generic_parameters && cache_slot) {
+		uintptr_t key = zend_compute_new_mono_cache_key(ce, nwa, EG(current_execute_data));
+		if (key && cache_slot[0] && (uintptr_t) cache_slot[1] == key) {
+			zend_generic_new_swap_ce(new_obj, call, ce, (zend_class_entry *) cache_slot[0]);
+			return;
+		}
+		if (do_checks) {
+			zend_check_generic_new_arguments(ce, arity, args_box);
+			if (EG(exception)) {
+				return;
+			}
+		}
+		zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
+		if (!mono || EG(exception)) {
+			return;
+		}
+		if (key) {
+			cache_slot[0] = mono;
+			cache_slot[1] = (void *) key;
+		}
+		zend_generic_new_swap_ce(new_obj, call, ce, mono);
+		return;
+	}
+
+	/* No turbofish args, or ce isn't generic, or no cache slot: preserve the
+	 * original semantics (the arity check still fires to reject turbofish args
+	 * passed to a non-generic class). */
+	if (do_checks) {
+		zend_check_generic_new_arguments(ce, arity, args_box);
+		if (EG(exception)) {
+			return;
+		}
+	}
+	if (nwa && ce->generic_parameters) {
+		zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
+		if (!EG(exception)) {
+			zend_generic_new_swap_ce(new_obj, call, ce, mono);
+		}
+	}
+}
+
 /* Slots left NULL mean "fall back to the parameter's bound". Order of resolution
  * for each slot: explicit turbofish arg → parameter's declared default →
  * value-directed inference from any argument whose pre-erasure type is a

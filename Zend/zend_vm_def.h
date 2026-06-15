@@ -9105,25 +9105,7 @@ ZEND_VM_HANDLER(212, ZEND_VERIFY_GENERIC_ARGUMENTS, TMP|UNUSED, UNUSED)
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		zend_check_generic_new_arguments(ce, arity, args_box);
-		/* Monomorphize: synthesize (or look up) Box<args> and swap both the
-		 * object's class entry and the pending constructor call. The monomorph
-		 * shares Box's property layout, so swapping ce is safe; swapping
-		 * call->func ensures the constructor's RECV opcodes verify against the
-		 * monomorph's substituted arg_info. */
-		if (!EG(exception) && args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
@@ -9177,19 +9159,7 @@ ZEND_VM_HANDLER(213, ZEND_INSTALL_GENERIC_ARGS, TMP|UNUSED, UNUSED)
 		zend_verify_generic_arg_types(call, args_box);
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
-		zend_class_entry *ce = Z_OBJCE_P(new_obj);
-		if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
-			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
-			if (ce->generic_parameters) {
-				zend_class_entry *mono = zend_synthesize_monomorph_resolved(ce, nwa->args, nwa->count);
-				if (mono && mono != ce) {
-					Z_OBJ_P(new_obj)->ce = mono;
-					if (mono->constructor && call->func == ce->constructor) {
-						call->func = mono->constructor;
-					}
-				}
-			}
-		}
+		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
 	if (UNEXPECTED(EG(exception))) {
