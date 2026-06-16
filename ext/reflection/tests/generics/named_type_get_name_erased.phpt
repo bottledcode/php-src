@@ -1,5 +1,5 @@
 --TEST--
-Reflection: ReflectionNamedType::getName() returns the erased name
+Reflection: ReflectionNamedType::getName() returns the reified name with type arguments
 --FILE--
 <?php
 class Box<T> {}
@@ -9,5 +9,5 @@ echo $r->getParameters()[0]->getType()->getName(), "\n";
 echo $r->getReturnType()->getName(), "\n";
 ?>
 --EXPECT--
-Box
-Box
+Box<int>
+Box<string>

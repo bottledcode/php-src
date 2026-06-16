@@ -9060,6 +9060,9 @@ static void reflection_collect_interface_bindings(
 			if (!intermediate || intermediate == ancestor) {
 				continue;
 			}
+			if (zend_class_is_monomorph(intermediate)) {
+				continue;
+			}
 			if (generic_implements
 					&& zend_hash_index_exists(generic_implements, i - parent_count)) {
 				continue;
