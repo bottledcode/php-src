@@ -892,12 +892,15 @@ static bool zend_get_inheritance_binding(
  *
  * This is what makes property types like `T|null` reify correctly. Without the
  * recursive walk, a T living inside a union stays literal at runtime and the
- * property type check rejects valid assignments with "of type T". */
-static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *args, uint32_t arity)
+ * property type check rejects valid assignments with "of type T".
+ *
+ * `origin` selects which type-parameter refs to substitute: CLASS_LIKE for the
+ * class monomorphizer, FUNCTION_LIKE for the function monomorphizer. */
+static zend_type zend_substitute_leaf_type_param_origin(zend_type t, const zend_type *args, uint32_t arity, uint8_t origin)
 {
 	if (ZEND_TYPE_HAS_TYPE_PARAMETER(t)) {
 		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(t);
-		if (ref->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE || ref->index >= arity) {
+		if (ref->origin != origin || ref->index >= arity) {
 			return t;
 		}
 
@@ -917,7 +920,7 @@ static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *a
 		const zend_type_named_with_args *src_nwa = ZEND_TYPE_NAMED_WITH_ARGS(t);
 		bool needs_rebuild = false;
 		for (uint32_t i = 0; i < src_nwa->count; i++) {
-			zend_type probe = zend_substitute_leaf_type_param(src_nwa->args[i], args, arity);
+			zend_type probe = zend_substitute_leaf_type_param_origin(src_nwa->args[i], args, arity, origin);
 			if (memcmp(&probe, &src_nwa->args[i], sizeof(zend_type)) != 0) {
 				needs_rebuild = true;
 				break;
@@ -931,7 +934,7 @@ static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *a
 		zend_type *new_args = (zend_type *) do_alloca(sizeof(zend_type) * src_nwa->count, use_heap);
 		bool all_concrete = true;
 		for (uint32_t i = 0; i < src_nwa->count; i++) {
-			new_args[i] = zend_substitute_leaf_type_param(src_nwa->args[i], args, arity);
+			new_args[i] = zend_substitute_leaf_type_param_origin(src_nwa->args[i], args, arity, origin);
 			if (zend_type_contains_type_parameter(new_args[i])) {
 				all_concrete = false;
 			}
@@ -976,14 +979,14 @@ static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *a
 		const zend_type *elem = &src_list->types[i];
 		if (ZEND_TYPE_HAS_TYPE_PARAMETER(*elem)) {
 			const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*elem);
-			if (ref->origin == ZEND_GENERIC_ORIGIN_CLASS_LIKE && ref->index < arity) {
+			if (ref->origin == origin && ref->index < arity) {
 				needs_rebuild = true;
 				break;
 			}
-		} else if (ZEND_TYPE_HAS_LIST(*elem)) {
-			/* Nested list (DNF: intersection inside union, etc.) — recurse to
+		} else if (ZEND_TYPE_HAS_LIST(*elem) || ZEND_TYPE_HAS_NAMED_WITH_ARGS(*elem)) {
+			/* Nested list (DNF) or named-with-args (`I<T>`) — recurse to
 			 * see if there's a T-ref buried in there. */
-			zend_type probe = zend_substitute_leaf_type_param(*elem, args, arity);
+			zend_type probe = zend_substitute_leaf_type_param_origin(*elem, args, arity, origin);
 			if (memcmp(&probe, elem, sizeof(zend_type)) != 0) {
 				needs_rebuild = true;
 				break;
@@ -1005,7 +1008,7 @@ static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *a
 	uint32_t out_count = 0;
 
 	for (uint32_t i = 0; i < src_list->num_types; i++) {
-		zend_type substituted = zend_substitute_leaf_type_param(src_list->types[i], args, arity);
+		zend_type substituted = zend_substitute_leaf_type_param_origin(src_list->types[i], args, arity, origin);
 
 		/* Keep complex elements (named types, intersection sublists, unresolved
 		 * T-refs) in the list; their scalar contribution is also OR'd into the
@@ -1050,6 +1053,16 @@ static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *a
 
 	free_alloca(out, use_heap);
 	return result;
+}
+
+static zend_type zend_substitute_leaf_type_param(zend_type t, const zend_type *args, uint32_t arity)
+{
+	return zend_substitute_leaf_type_param_origin(t, args, arity, ZEND_GENERIC_ORIGIN_CLASS_LIKE);
+}
+
+ZEND_API zend_type zend_substitute_function_type_param(zend_type t, const zend_type *args, uint32_t arity)
+{
+	return zend_substitute_leaf_type_param_origin(t, args, arity, ZEND_GENERIC_ORIGIN_FUNCTION_LIKE);
 }
 
 static bool zend_get_trait_use_binding(
@@ -7617,6 +7630,250 @@ ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 	}
 
 	zend_class_entry *mono = zend_synthesize_monomorph(base, args, count);
+	for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+	efree(args);
+	return mono;
+}
+
+/* Function monomorphization: synthesize a concrete op_array for a generic
+ * function. The clone shares the base's refcounted body buffers (refcount==NULL
+ * so destroy_op_array never frees them) and only its arg_info differs. */
+
+/* Build a concrete arg_info block by substituting the FUNCTION_LIKE T-refs in
+ * the base's pre-erasure generic types with the concrete args. */
+static zend_arg_info *zend_monomorph_build_arg_info(
+		const zend_op_array *base, const zend_type *args, uint32_t arity)
+{
+	uint32_t num_args = base->num_args;
+	bool has_return = (base->fn_flags & ZEND_ACC_HAS_RETURN_TYPE) != 0;
+	bool variadic = (base->fn_flags & ZEND_ACC_VARIADIC) != 0;
+	uint32_t total = num_args + (has_return ? 1 : 0) + (variadic ? 1 : 0);
+	if (total == 0 || !base->arg_info) {
+		return NULL;
+	}
+
+	const zend_arg_info *orig_block = base->arg_info - (has_return ? 1 : 0);
+	zend_arg_info *new_block = zend_arena_alloc(&CG(arena), sizeof(zend_arg_info) * total);
+	memcpy(new_block, orig_block, sizeof(zend_arg_info) * total);
+
+	const HashTable *pre_params = base->generic_types ? base->generic_types->parameters : NULL;
+	const zend_type *pre_return = base->generic_types ? base->generic_types->return_type : NULL;
+
+	for (uint32_t slot = 0; slot < total; slot++) {
+		/* slot 0 is the return type when has_return; UINT32_MAX marks it. */
+		uint32_t param_index = has_return ? (slot == 0 ? UINT32_MAX : slot - 1) : slot;
+
+		const zend_type *pre = NULL;
+		if (param_index == UINT32_MAX) {
+			pre = pre_return;
+		} else if (pre_params) {
+			zval *zv = zend_hash_index_find(pre_params, param_index);
+			pre = zv ? (const zend_type *) Z_PTR_P(zv) : NULL;
+		}
+
+		/* Only specialize a BARE FUNCTION_LIKE type-parameter leaf (`T $x`).
+		 * Composite generic types keep the base's erased arg_info: the erased model
+		 * represents generic instances by their plain class, so folding to a
+		 * monomorph name would make RECV reject the plain instances the body emits. */
+		bool is_bare_leaf = pre && ZEND_TYPE_IS_SET(*pre)
+			&& ZEND_TYPE_HAS_TYPE_PARAMETER(*pre)
+			&& ZEND_TYPE_TYPE_PARAMETER(*pre)->origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE;
+		if (is_bare_leaf) {
+			zend_type sub = zend_substitute_function_type_param(*pre, args, arity);
+			zend_type_copy_ctor(&sub, /* use_arena */ true, /* persistent */ false);
+			new_block[slot].type = sub;
+		} else {
+			zend_type_copy_ctor(&new_block[slot].type, /* use_arena */ true, /* persistent */ false);
+		}
+		if (new_block[slot].name) {
+			zend_string_addref(new_block[slot].name);
+		}
+		if (new_block[slot].doc_comment) {
+			zend_string_addref(new_block[slot].doc_comment);
+		}
+	}
+
+	return new_block + (has_return ? 1 : 0);
+}
+
+ZEND_API zend_function *zend_synthesize_function_monomorph(
+		zend_function *base, const zend_type *args, uint32_t arity)
+{
+	if (!base || base->type != ZEND_USER_FUNCTION) {
+		return NULL;
+	}
+	const zend_generic_parameter_list *params = base->op_array.generic_parameters;
+	if (!params || params->count == 0) {
+		return NULL;
+	}
+
+	/* Fill trailing defaults so the args array covers every parameter. */
+	zend_type filled[ZEND_GENERIC_MAX_PARAMS];
+	uint32_t total = params->count;
+	if (arity > total) {
+		return NULL;
+	}
+	if (arity < total) {
+		for (uint32_t i = 0; i < arity; i++) filled[i] = args[i];
+		for (uint32_t i = arity; i < total; i++) {
+			const zend_generic_parameter *p = &params->parameters[i];
+			const zend_type *def = ZEND_TYPE_IS_SET(p->default_pre_erasure)
+				? &p->default_pre_erasure
+				: (ZEND_TYPE_IS_SET(p->default_type) ? &p->default_type : NULL);
+			if (!def) {
+				return NULL;
+			}
+			filled[i] = *def;
+		}
+		args = filled;
+		arity = total;
+	}
+
+	/* A remaining type parameter means this isn't a concrete instantiation. */
+	for (uint32_t i = 0; i < arity; i++) {
+		if (zend_type_contains_type_parameter(args[i])) {
+			return NULL;
+		}
+	}
+
+	zend_string *display_name = zend_generic_canonical_class_name(
+		base->common.function_name, args, arity);
+	zend_string *lc_name = zend_string_tolower(display_name);
+
+	zend_function *existing = zend_hash_find_ptr(EG(function_table), lc_name);
+	if (existing) {
+		zend_string_release(display_name);
+		zend_string_release(lc_name);
+		return existing;
+	}
+
+	zend_arg_info *new_arg_info = zend_monomorph_build_arg_info(&base->op_array, args, arity);
+
+	zend_op_array *mono = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
+	memcpy(mono, &base->op_array, sizeof(zend_op_array));
+
+	/* Invariant concrete type-arg table, shared across all calls to this monomorph
+	 * so the body's own T-refs resolve under by-name dispatch. Arena-allocated and
+	 * marked persisted so the refcount==NULL monomorph teardown never frees it. */
+	zend_type_arg_table *mono_targs = NULL;
+	{
+		uint32_t tcount = params->count;
+		mono_targs = zend_arena_alloc(&CG(arena), ZEND_TYPE_ARG_TABLE_SIZE(tcount));
+		mono_targs->count = tcount;
+		mono_targs->generation = 0;
+		mono_targs->persisted = true;
+		for (uint32_t i = 0; i < tcount; i++) {
+			mono_targs->entries[i].name = NULL;
+			mono_targs->entries[i].type_ref = NULL;
+			mono_targs->entries[i].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
+			if (i < arity && ZEND_TYPE_IS_SET(args[i])) {
+				zend_type owned = args[i];
+				zend_type_copy_ctor(&owned, /* use_arena */ true, /* persistent */ false);
+				mono_targs->entries[i].owned_type = owned;
+				zend_string *cname = zend_type_arg_canonical_name(args[i]);
+				mono_targs->entries[i].name = cname;
+			}
+		}
+	}
+
+	{
+		zend_generic_type_table *gt = zend_arena_alloc(&CG(arena), sizeof(zend_generic_type_table));
+		memset(gt, 0, sizeof(*gt));
+		if (base->op_array.generic_types && base->op_array.generic_types->turbofish_args) {
+			gt->turbofish_args = base->op_array.generic_types->turbofish_args;
+		}
+		gt->persisted = true;
+		gt->monomorph_type_args = mono_targs;
+		mono->generic_types = gt;
+	}
+	mono->fn_flags2 |= ZEND_ACC2_MONOMORPH_TYPE_ARGS;
+
+	/* refcount==NULL: destroy_op_array won't free the shared body buffers. */
+	mono->refcount = NULL;
+	mono->fn_flags &= ~(ZEND_ACC_IMMUTABLE | ZEND_ACC_HEAP_RT_CACHE | ZEND_ACC_PRELOADED);
+	/* TRAIT_CLONE forces RECV onto the slow path that checks the substituted
+	 * arg_info (the shared RECV opcodes carry the base's erased type mask). */
+	mono->fn_flags |= ZEND_ACC_TRAIT_CLONE;
+
+	/* Keep the base name so TypeError messages match the erased path; the mangled
+	 * name is only the EG(function_table) key. */
+	mono->function_name = zend_string_copy(base->op_array.function_name);
+	if (new_arg_info) {
+		mono->arg_info = new_arg_info;
+	}
+
+	ZEND_MAP_PTR_INIT(mono->run_time_cache, NULL);
+	ZEND_MAP_PTR_INIT(mono->static_variables_ptr, NULL);
+
+	/* Allocate the runtime cache now: the call swaps to this op_array before
+	 * DO_FCALL, whose hot path reads RUN_TIME_CACHE without lazy allocation. */
+	zend_init_func_run_time_cache(mono);
+
+	zend_function *mono_fn = (zend_function *) mono;
+	if (!zend_hash_add_ptr(EG(function_table), lc_name, mono_fn)) {
+		existing = zend_hash_find_ptr(EG(function_table), lc_name);
+		zend_string_release(display_name);
+		zend_string_release(lc_name);
+		zend_string_release(mono->function_name);
+		return existing;
+	}
+
+	zend_string_release(display_name);
+	zend_string_release(lc_name);
+	return mono_fn;
+}
+
+ZEND_API zend_function *zend_try_synthesize_function_monomorph_by_name(zend_string *lc_name)
+{
+	size_t lt_pos, args_len;
+	if (!zend_mp_split_name(lc_name, &lt_pos, &args_len)) return NULL;
+
+	zend_string *base_lc = zend_string_init(ZSTR_VAL(lc_name), lt_pos, 0);
+	zend_function *base = zend_hash_find_ptr(EG(function_table), base_lc);
+	zend_string_release(base_lc);
+	if (!base || base->type != ZEND_USER_FUNCTION || !base->op_array.generic_parameters) {
+		return NULL;
+	}
+
+	zend_monomorph_parser parser = {
+		.p = ZSTR_VAL(lc_name) + lt_pos + 1,
+		.end = ZSTR_VAL(lc_name) + ZSTR_LEN(lc_name) - 1,
+		.error = false,
+	};
+	uint32_t cap = 4, count = 0;
+	zend_type *args = emalloc(sizeof(zend_type) * cap);
+	do {
+		if (count == cap) { cap *= 2; args = erealloc(args, sizeof(zend_type) * cap); }
+		args[count++] = zend_mp_parse_type(&parser);
+		if (parser.error) break;
+	} while (zend_mp_eat(&parser, ','));
+	zend_mp_skip_ws(&parser);
+	if (parser.error || parser.p != parser.end) {
+		for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+		efree(args);
+		return NULL;
+	}
+
+	/* The by-name call skipped ZEND_VERIFY_GENERIC_ARGUMENTS, so enforce arity and
+	 * bounds here (once); the monomorph's RECV opcodes cover per-argument checks. */
+	zend_type args_box = ZEND_TYPE_INIT_NONE(0);
+	zend_type_named_with_args *nwa =
+		emalloc(ZEND_TYPE_NAMED_WITH_ARGS_SIZE(count));
+	nwa->name = NULL;
+	nwa->name_attr = 0;
+	nwa->count = count;
+	for (uint32_t i = 0; i < count; i++) nwa->args[i] = args[i];
+	ZEND_TYPE_SET_PTR(args_box, nwa);
+	ZEND_TYPE_FULL_MASK(args_box) |= _ZEND_TYPE_NAMED_WITH_ARGS_BIT;
+	zend_check_generic_call_arguments(base, count, &args_box);
+	efree(nwa);
+	if (UNEXPECTED(EG(exception))) {
+		for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+		efree(args);
+		return NULL;
+	}
+
+	zend_function *mono = zend_synthesize_function_monomorph(base, args, count);
 	for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
 	efree(args);
 	return mono;

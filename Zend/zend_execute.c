@@ -4493,6 +4493,19 @@ static zend_never_inline void ZEND_FASTCALL init_func_run_time_cache(zend_op_arr
 }
 /* }}} */
 
+/* Synthesize a monomorph from a mangled name (`base<args>`) on by-name dispatch
+ * miss; returns NULL when the name isn't a synthesizable generic shape. */
+ZEND_API zend_function * ZEND_FASTCALL zend_resolve_monomorph_by_name(zend_string *lc_name) /* {{{ */
+{
+	zend_function *fbc = zend_try_synthesize_function_monomorph_by_name(lc_name);
+	if (fbc) {
+		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
+			init_func_run_time_cache_i(&fbc->op_array);
+		}
+	}
+	return fbc;
+} /* }}} */
+
 ZEND_API zend_function * ZEND_FASTCALL zend_fetch_function(zend_string *name) /* {{{ */
 {
 	zval *zv = zend_hash_find(EG(function_table), name);

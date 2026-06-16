@@ -488,6 +488,47 @@ static HashTable *zend_persist_generic_type_table_ht(HashTable *ht)
 	return ptr;
 }
 
+/* Relocate a turbofish entry's concrete_table into SHM, rebinding each type_ref
+ * against the just-persisted copy->args_box NWA. Bails to the runtime rebuild
+ * path (copy->concrete_table = NULL) for any populated default slot. */
+static void zend_persist_concrete_call_table(zend_turbofish_args_entry *copy)
+{
+	zend_type_arg_table *src = copy->concrete_table;
+	if (!src) {
+		return;
+	}
+
+	const zend_type_named_with_args *new_nwa =
+		ZEND_TYPE_HAS_NAMED_WITH_ARGS(copy->args_box)
+			? ZEND_TYPE_NAMED_WITH_ARGS(copy->args_box) : NULL;
+	uint32_t passed = new_nwa ? new_nwa->count : 0;
+
+	for (uint32_t i = 0; i < src->count; i++) {
+		if (i >= passed && (src->entries[i].name || src->entries[i].type_ref)) {
+			zend_type_arg_table_destroy(src);
+			copy->concrete_table = NULL;
+			return;
+		}
+	}
+
+	for (uint32_t i = 0; i < src->count; i++) {
+		if (src->entries[i].name) {
+			zend_accel_store_interned_string(src->entries[i].name);
+		}
+		if (ZEND_TYPE_IS_SET(src->entries[i].owned_type)) {
+			zend_persist_type(&src->entries[i].owned_type);
+		}
+		src->entries[i].type_ref =
+			(new_nwa && src->entries[i].name && i < new_nwa->count)
+				? &new_nwa->args[i] : NULL;
+	}
+
+	zend_type_arg_table *persisted = zend_shared_memdup_put_free(
+		src, ZEND_TYPE_ARG_TABLE_SIZE(src->count));
+	persisted->persisted = true;
+	copy->concrete_table = persisted;
+}
+
 /* Persist the turbofish_args HT. Each entry is a zend_turbofish_args_entry
  * which now stores only args_box — the per-call-site runtime cache that
  * pairs with it lives in the caller op_array's runtime cache slot, not
@@ -501,6 +542,7 @@ static HashTable *zend_persist_turbofish_args_ht(HashTable *ht)
 			zend_turbofish_args_entry *entry = Z_PTR_P(v);
 			zend_turbofish_args_entry *copy = zend_shared_memdup_put_free(entry, sizeof(*entry));
 			zend_persist_type(&copy->args_box);
+			zend_persist_concrete_call_table(copy);
 			Z_PTR_P(v) = copy;
 		} ZEND_HASH_FOREACH_END();
 	} else {
@@ -512,6 +554,7 @@ static HashTable *zend_persist_turbofish_args_ht(HashTable *ht)
 			zend_turbofish_args_entry *entry = Z_PTR(p->val);
 			zend_turbofish_args_entry *copy = zend_shared_memdup_put_free(entry, sizeof(*entry));
 			zend_persist_type(&copy->args_box);
+			zend_persist_concrete_call_table(copy);
 			Z_PTR(p->val) = copy;
 		} ZEND_HASH_FOREACH_END();
 	}
@@ -615,6 +658,19 @@ static zend_generic_type_table *zend_persist_generic_type_table(zend_generic_typ
 
 	if (persisted->turbofish_args) {
 		persisted->turbofish_args = zend_persist_turbofish_args_ht(persisted->turbofish_args);
+	}
+
+	/* Precompute the value-check plan into SHM (relocated via the persist arena,
+	 * which also works in file_cache mode where no SHM segment is locked). */
+	if (persisted->parameters) {
+		uint32_t cnt = zend_count_generic_value_checks(persisted->parameters);
+		size_t sz = offsetof(zend_generic_value_check_plan, checks)
+			+ cnt * sizeof(zend_generic_value_check);
+		zend_generic_value_check_plan *tmp = emalloc(sz);
+		zend_fill_generic_value_check_plan(tmp, persisted->parameters);
+		persisted->value_check_plan = zend_shared_memdup_free(tmp, sz);
+	} else {
+		persisted->value_check_plan = NULL;
 	}
 
 	return persisted;
