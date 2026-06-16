@@ -189,6 +189,10 @@ static void zend_generic_type_table_value_dtor(zval *zv) {
 static void zend_turbofish_args_entry_dtor(zval *zv) {
 	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
 	zend_type_release(entry->args_box, /* persistent */ false);
+	/* Free the heap concrete table; SHM-relocated tables have persisted set. */
+	if (entry->concrete_table && !entry->concrete_table->persisted) {
+		zend_type_arg_table_destroy(entry->concrete_table);
+	}
 	efree(entry);
 }
 
@@ -315,6 +319,8 @@ ZEND_API void zend_generic_type_table_set_trait_use(zend_generic_type_table *t, 
 ZEND_API void zend_generic_type_table_set_turbofish_args(zend_generic_type_table *t, uint32_t op_num, zend_type type) {
 	zend_turbofish_args_entry *entry = emalloc(sizeof(*entry));
 	entry->args_box = type;
+	entry->concrete_table = NULL;
+	entry->concrete_skip_value_check = false;
 	zend_hash_index_update_ptr(zend_generic_type_table_ensure_turbofish(&t->turbofish_args), op_num, entry);
 }
 
@@ -875,7 +881,8 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 	 * resolved monomorph zend_class_entry* in slot[0]. That entry is owned by
 	 * EG(class_table), NOT by the cache slot, so it must be left untouched here
 	 * — freeing it as a type_arg_table corrupts the heap. */
-	if (op_array->opcodes && ZEND_MAP_PTR(op_array->run_time_cache)) {
+	if ((op_array->fn_flags2 & ZEND_ACC2_HAS_GENERIC_CALL_OPS)
+	 && op_array->opcodes && ZEND_MAP_PTR(op_array->run_time_cache)) {
 		char *cache_buf = (char *) ZEND_MAP_PTR_GET(op_array->run_time_cache);
 		if (cache_buf) {
 			for (uint32_t op_idx = 0; op_idx < op_array->last; op_idx++) {
@@ -885,6 +892,19 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 						&& op->op1_type == IS_UNUSED
 						&& op->result.num) {
 					void **cache_slot = (void **) (cache_buf + op->result.num);
+					/* Monomorphized site: slot[0] is a function* owned by
+					 * EG(function_table); free only slot[4]'s type_arg table. */
+					if ((uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH) {
+						zend_type_arg_table *mt = (zend_type_arg_table *) cache_slot[4];
+						if (mt) {
+							mt->persisted = false;
+							zend_type_arg_table_destroy(mt);
+							cache_slot[4] = NULL;
+						}
+						cache_slot[0] = NULL;
+						cache_slot[1] = NULL;
+						continue;
+					}
 					zend_type_arg_table *t = (zend_type_arg_table *) cache_slot[0];
 					if (t) {
 						t->persisted = false;

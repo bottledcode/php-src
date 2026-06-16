@@ -698,13 +698,12 @@ void zend_optimizer_compact_literals(zend_op_array *op_array, zend_optimizer_ctx
 				case ZEND_INSTALL_GENERIC_ARGS:
 					/* When this site has a turbofish (args_id in extended_value)
 					 * or is a call (op1_type == IS_UNUSED, which caches its table
-					 * regardless), the compiler allocated a 3-slot inline cache for
-					 * the (zend_type_arg_table*, cache key, turbofish entry) — re-
-					 * allocate it here so the offset stays in sync with
+					 * regardless), the compiler allocated a 5-slot inline cache —
+					 * re-allocate it here so the offset stays in sync with
 					 * compact_literals' fresh cache_size. */
 					if (opline->extended_value != 0 || opline->op1_type == IS_UNUSED) {
 						opline->result.num = cache_size;
-						cache_size += 3 * sizeof(void *);
+						cache_size += 5 * sizeof(void *);
 					}
 					break;
 				case ZEND_CATCH:

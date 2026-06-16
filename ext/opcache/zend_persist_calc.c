@@ -290,6 +290,34 @@ static void zend_persist_generic_type_table_ht_calc(HashTable *ht)
 	ADD_SIZE(sizeof(HashTable));
 }
 
+/* Mirror zend_persist_concrete_call_table's SHM reservation; the eligibility
+ * predicate must stay byte-identical to persist or SHM is corrupted. */
+static void zend_persist_concrete_call_table_calc(zend_turbofish_args_entry *entry)
+{
+	zend_type_arg_table *src = entry->concrete_table;
+	if (!src) {
+		return;
+	}
+	const zend_type_named_with_args *nwa =
+		ZEND_TYPE_HAS_NAMED_WITH_ARGS(entry->args_box)
+			? ZEND_TYPE_NAMED_WITH_ARGS(entry->args_box) : NULL;
+	uint32_t passed = nwa ? nwa->count : 0;
+	for (uint32_t i = 0; i < src->count; i++) {
+		if (i >= passed && (src->entries[i].name || src->entries[i].type_ref)) {
+			return; /* NULL-fallback: persist reserves nothing for this site. */
+		}
+	}
+	ADD_SIZE(ZEND_TYPE_ARG_TABLE_SIZE(src->count));
+	for (uint32_t i = 0; i < src->count; i++) {
+		if (src->entries[i].name) {
+			ADD_INTERNED_STRING(src->entries[i].name);
+		}
+		if (ZEND_TYPE_IS_SET(src->entries[i].owned_type)) {
+			zend_persist_type_calc(&src->entries[i].owned_type);
+		}
+	}
+}
+
 /* The turbofish_args HT entries are zend_turbofish_args_entry — same as a
  * boxed type for size accounting purposes, but the entry struct itself is
  * what we shared-memdup, not a bare zend_type. */
@@ -300,7 +328,9 @@ static void zend_persist_turbofish_args_ht_calc(HashTable *ht)
 		zval *v;
 		ZEND_HASH_PACKED_FOREACH_VAL(ht, v) {
 			ADD_SIZE(sizeof(zend_turbofish_args_entry));
-			zend_persist_type_calc(&((zend_turbofish_args_entry *) Z_PTR_P(v))->args_box);
+			zend_turbofish_args_entry *e = (zend_turbofish_args_entry *) Z_PTR_P(v);
+			zend_persist_type_calc(&e->args_box);
+			zend_persist_concrete_call_table_calc(e);
 		} ZEND_HASH_FOREACH_END();
 	} else {
 		Bucket *p;
@@ -309,7 +339,9 @@ static void zend_persist_turbofish_args_ht_calc(HashTable *ht)
 				ADD_INTERNED_STRING(p->key);
 			}
 			ADD_SIZE(sizeof(zend_turbofish_args_entry));
-			zend_persist_type_calc(&((zend_turbofish_args_entry *) Z_PTR(p->val))->args_box);
+			zend_turbofish_args_entry *e = (zend_turbofish_args_entry *) Z_PTR(p->val);
+			zend_persist_type_calc(&e->args_box);
+			zend_persist_concrete_call_table_calc(e);
 		} ZEND_HASH_FOREACH_END();
 	}
 	ADD_SIZE(sizeof(HashTable));
@@ -354,6 +386,13 @@ static void zend_persist_generic_type_table_calc(zend_generic_type_table *table)
 
 	if (table->turbofish_args) {
 		zend_persist_turbofish_args_ht_calc(table->turbofish_args);
+	}
+
+	/* Mirror the value-check plan reservation in zend_persist_generic_type_table. */
+	if (table->parameters) {
+		uint32_t cnt = zend_count_generic_value_checks(table->parameters);
+		ADD_SIZE(offsetof(zend_generic_value_check_plan, checks)
+			+ cnt * sizeof(zend_generic_value_check));
 	}
 }
 

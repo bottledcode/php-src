@@ -182,6 +182,7 @@ typedef struct _zend_generic_type_table {
 	HashTable   *turbofish_args;    /* opline->extended_value -> zend_type * (NAMED_WITH_ARGS holding the call-site type arguments); index is stable across optimizer reorderings */
 	bool         persisted;         /* set by opcache when the table lives in SHM/file-cache memory; suppresses destruction */
 	zend_generic_value_check_plan *value_check_plan; /* lazily built; request-local; NULL on persisted tables */
+	struct _zend_type_arg_table *monomorph_type_args; /* on a monomorph op_array: invariant concrete type-args installed onto the call frame by dispatch; NULL otherwise */
 } zend_generic_type_table;
 
 /* Compile-time linked stack of in-scope generic type parameters. */
@@ -198,6 +199,8 @@ ZEND_API zend_generic_parameter_list *zend_generic_parameter_list_alloc(uint32_t
 ZEND_API void zend_generic_parameter_list_destroy(zend_generic_parameter_list *list);
 ZEND_API zend_generic_type_table *zend_generic_type_table_alloc(void);
 ZEND_API void zend_generic_type_table_destroy(zend_generic_type_table *table);
+ZEND_API uint32_t zend_count_generic_value_checks(const HashTable *parameters);
+ZEND_API void zend_fill_generic_value_check_plan(zend_generic_value_check_plan *plan, const HashTable *parameters);
 ZEND_API void zend_generic_type_table_set_return(zend_generic_type_table *t, zend_type type);
 ZEND_API void zend_generic_type_table_set_extends(zend_generic_type_table *t, zend_type type);
 ZEND_API zend_generic_type_table *zend_generic_get_or_create_class_table(zend_class_entry *ce);
@@ -270,6 +273,8 @@ static zend_always_inline const zend_type *zend_type_arg_entry_type(const zend_t
  * writable even when the entry itself is persisted to opcache SHM. */
 typedef struct _zend_turbofish_args_entry {
 	zend_type             args_box;
+	struct _zend_type_arg_table *concrete_table; /* precomputed read-only table for a concrete INSTALL site; NULL when the handler must rebuild at runtime */
+	bool                  concrete_skip_value_check; /* callee has no direct T-ref value params, so the value check is a no-op */
 } zend_turbofish_args_entry;
 
 /* Resolve a generic call site's turbofish args_box, memoizing the (static per
@@ -291,10 +296,34 @@ static zend_always_inline const zend_type *zend_generic_get_or_cache_args_box(
 	return entry ? &entry->args_box : NULL;
 }
 
+/* Like zend_generic_get_or_cache_args_box, but returns the whole entry. */
+static zend_always_inline zend_turbofish_args_entry *zend_generic_get_or_cache_args_entry(
+		const zend_op_array *op_array, uint32_t args_id, void **cache_slot)
+{
+	zend_turbofish_args_entry *entry;
+	if (cache_slot && cache_slot[2]) {
+		entry = (zend_turbofish_args_entry *) cache_slot[2];
+	} else {
+		entry = zend_generic_get_turbofish_call_entry(op_array, args_id);
+		if (cache_slot && entry) {
+			cache_slot[2] = entry;
+		}
+	}
+	return entry;
+}
+
 /* Cache key sentinel for concrete-arg call sites (no T-refs in the args).
  * Cache key 0 means empty; CONCRETE means "args fully resolved at compile
  * time, table is invariant across calls." */
 #define ZEND_TURBOFISH_CACHE_KEY_CONCRETE ((uintptr_t)1)
+
+/* Runtime-promoted site: cache_slot[0] = invariant table, cache_slot[3] =
+ * memoized callee (low bit = value check is a no-op). */
+#define ZEND_TURBOFISH_CACHE_KEY_PROMOTED ((uintptr_t)2)
+
+/* Monomorphized site: cache_slot[0] = monomorph func, [3] = base func guard,
+ * [4] = shared invariant type-arg table. */
+#define ZEND_TURBOFISH_CACHE_KEY_MONOMORPH ((uintptr_t)3)
 
 ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count);
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
@@ -305,6 +334,8 @@ ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(zend_execute_da
 ZEND_API zend_class_entry *zend_resolve_generic_type_param(uint32_t param_index, uint32_t fetch_type);
 ZEND_API zend_class_entry *zend_resolve_deferred_generic_class(uint32_t args_id, uint32_t fetch_type);
 ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_type *args_box);
+ZEND_API zend_function *zend_get_or_synthesize_call_monomorph(zend_execute_data *call, const zend_type *args_box, uint32_t arity, void **cache_slot, zend_type_arg_table **out_type_args);
+ZEND_API zend_function *zend_try_monomorph_resolved_call(zend_execute_data *call, zend_type_arg_table *resolved, void **cache_slot, zend_type_arg_table **out_type_args);
 ZEND_API bool zend_verify_generic_return_type(zend_execute_data *call, zval *retval_ptr);
 
 typedef union _zend_parser_stack_elem {
@@ -611,6 +642,12 @@ typedef struct _zend_oparray_context {
 /*                                                        |     |     |     */
 /* Function forbids dynamic calls                         |     |     |     */
 #define ZEND_ACC2_FORBID_DYN_CALLS       (1 << 0)  /*     |  X  |     |     */
+/*                                                        |     |     |     */
+/* op_array has generic CALL opcodes (scanned at teardown)|     |     |     */
+#define ZEND_ACC2_HAS_GENERIC_CALL_OPS   (1 << 1)  /*     |  X  |     |     */
+/*                                                        |     |     |     */
+/* synthesized monomorph carrying concrete type-args      |     |     |     */
+#define ZEND_ACC2_MONOMORPH_TYPE_ARGS    (1 << 2)  /*     |  X  |     |     */
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)
