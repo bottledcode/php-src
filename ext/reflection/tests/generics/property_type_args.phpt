@@ -12,6 +12,6 @@ echo count($rt->getGenericArguments()), "\n";
 echo $rt->getGenericArguments()[0]->getName(), "\n";
 ?>
 --EXPECT--
-Box
+Box<int>
 1
 int
