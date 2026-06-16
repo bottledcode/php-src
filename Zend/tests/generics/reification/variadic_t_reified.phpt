@@ -67,9 +67,9 @@ try {
 ?>
 --EXPECTF--
 int(6)
-1: sum(): Argument #2 ($xs) must be of type int, string given
-2: sum(): Argument #3 ($xs) must be of type int, string given
+1: sum(): Argument #2 must be of type int, string given, called in %s on line %d
+2: sum(): Argument #3 must be of type int, string given, called in %s on line %d
 string(6) ":: 123"
-3: concat(): Argument #3 ($xs) must be of type int, array given
+3: concat(): Argument #3 must be of type int, array given, called in %s on line %d
 int(3)
-4: herd(): Argument #2 ($xs) must be of type Dog, Cat given
+4: herd(): Argument #2 must be of type Dog, Cat given, called in %s on line %d

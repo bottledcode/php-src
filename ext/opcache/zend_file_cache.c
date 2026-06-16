@@ -545,6 +545,8 @@ static void zend_file_cache_serialize_turbofish_args_entry(
 	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
 	UNSERIALIZE_PTR(entry);
 	zend_file_cache_serialize_type(&entry->args_box, script, info, buf);
+	/* concrete_table is a non-portable SHM address; the load path rebuilds it. */
+	entry->concrete_table = NULL;
 }
 
 static void zend_file_cache_serialize_generic_type_table_ht(
@@ -1627,6 +1629,8 @@ static void zend_file_cache_unserialize_turbofish_args_entry(
 	zend_turbofish_args_entry *entry = Z_PTR_P(zv);
 	zend_file_cache_unserialize_type(
 		&entry->args_box, zend_file_cache_generic_unserialize_scope, script, buf);
+	entry->concrete_table = NULL;
+	entry->concrete_skip_value_check = false;
 }
 
 static void zend_file_cache_unserialize_generic_type_table_ht(
@@ -1705,6 +1709,9 @@ static void zend_file_cache_unserialize_generic_type_table(
 	if (table->turbofish_args) {
 		zend_file_cache_unserialize_turbofish_args_ht(&table->turbofish_args, scope, script, buf);
 	}
+
+	/* value_check_plan is not file-serialized; the verify path rebuilds it. */
+	table->value_check_plan = NULL;
 }
 
 /* Mirror of zend_file_cache_serialize_type_arg_table. Rebuilds `type_ref`

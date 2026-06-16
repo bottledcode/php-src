@@ -348,6 +348,10 @@ static zend_always_inline void zend_vm_init_call_frame(zend_execute_data *call, 
 		const zend_closure *closure =
 			(const zend_closure *) ZEND_CLOSURE_OBJECT(func);
 		call->type_args = closure->captured_type_args;
+	} else if (UNEXPECTED(ZEND_USER_CODE(func->type)
+			&& (func->op_array.fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS))) {
+		/* Monomorph reached via by-name dispatch: bind its concrete type-arg table. */
+		call->type_args = func->op_array.generic_types->monomorph_type_args;
 	} else {
 		call->type_args = NULL;
 	}
@@ -499,6 +503,7 @@ ZEND_API zend_class_entry *zend_fetch_class_with_scope(zend_string *class_name, 
 ZEND_API zend_class_entry *zend_fetch_class_by_name(zend_string *class_name, zend_string *lcname, uint32_t fetch_type);
 
 ZEND_API zend_function * ZEND_FASTCALL zend_fetch_function(zend_string *name);
+ZEND_API zend_function * ZEND_FASTCALL zend_resolve_monomorph_by_name(zend_string *lc_name);
 ZEND_API zend_function * ZEND_FASTCALL zend_fetch_function_str(const char *name, size_t len);
 ZEND_API void ZEND_FASTCALL zend_init_func_run_time_cache(zend_op_array *op_array);
 

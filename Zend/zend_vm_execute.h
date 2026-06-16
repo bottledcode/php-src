@@ -4161,7 +4161,17 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		function_name = (zval*)RT_CONSTANT(opline, opline->op2);
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(function_name+1));
 		if (UNEXPECTED(func == NULL)) {
-			ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+			/* Mangled monomorph name: synthesize on first reference (may throw). */
+			SAVE_OPLINE();
+			fbc = zend_resolve_monomorph_by_name(Z_STR_P(function_name+1));
+			if (UNEXPECTED(EG(exception) != NULL)) {
+				HANDLE_EXCEPTION();
+			}
+			if (UNEXPECTED(fbc == NULL)) {
+				ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+			}
+			CACHE_PTR(opline->result.num, fbc);
+			goto fcall_by_name_push;
 		}
 		fbc = Z_FUNC_P(func);
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -4169,6 +4179,7 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		}
 		CACHE_PTR(opline->result.num, fbc);
 	}
+fcall_by_name_push:
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 	call->prev_execute_data = EX(call);
@@ -4246,7 +4257,21 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		if (func == NULL) {
 			func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(func_name + 2));
 			if (UNEXPECTED(func == NULL)) {
-				ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+				/* Mangled monomorph name: synthesize on first reference (qualified
+				 * then unqualified; may throw). */
+				SAVE_OPLINE();
+				fbc = zend_resolve_monomorph_by_name(Z_STR_P(func_name + 1));
+				if (fbc == NULL && !EG(exception)) {
+					fbc = zend_resolve_monomorph_by_name(Z_STR_P(func_name + 2));
+				}
+				if (UNEXPECTED(EG(exception) != NULL)) {
+					HANDLE_EXCEPTION();
+				}
+				if (UNEXPECTED(fbc == NULL)) {
+					ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+				}
+				CACHE_PTR(opline->result.num, fbc);
+				goto ns_fcall_by_name_push;
 			}
 		}
 		fbc = Z_FUNC_P(func);
@@ -4256,6 +4281,7 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		CACHE_PTR(opline->result.num, fbc);
 	}
 
+ns_fcall_by_name_push:
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 	call->prev_execute_data = EX(call);
@@ -22261,31 +22287,121 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	/* Skip the entry lookup for speculative sites (args_id == 0). */
+	zend_turbofish_args_entry *tf_entry =
+		(IS_TMP_VAR == IS_UNUSED && opline->extended_value)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_TMP_VAR == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_TMP_VAR == IS_UNUSED) {
-		/* Speculative emission for dispatchable calls: when there's no
-		 * turbofish AND the resolved callee turns out to be non-generic,
-		 * there's nothing to verify and no table to build. With turbofish
-		 * present the arity check still needs to fire (the user supplied
-		 * type args to a non-generic callee — explicit "too many" error). */
+		/* Erased fast path: non-generic speculative site, nothing to verify. */
 		if (args_box == NULL
 				&& (!ZEND_USER_CODE(call->func->type)
 					|| !call->func->op_array.generic_parameters)) {
 			ZEND_VM_NEXT_OPCODE();
 		}
-		zend_check_generic_call_arguments(call->func, arity, args_box);
-		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-			if (t) {
-				if (call->type_args) {
-					zend_type_arg_table_destroy(call->type_args);
-				}
-				call->type_args = t;
+		/* Concrete turbofish args: dispatch to a synthesized plain monomorph and
+		 * skip generic verification (the monomorph's RECV does concrete checks). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, arity, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			zend_verify_generic_arg_types(call, args_box);
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_verify_check_exception;
+			}
+		}
+		/* Runtime-promoted site: install the cached invariant table after a func
+		 * guard (cache_slot[3], bit1 = value check is a no-op). */
+		if (cache_slot && cache_slot[3]
+				&& ((uintptr_t) cache_slot[3] & ~(uintptr_t)3) == (uintptr_t) call->func) {
+			call->type_args = (zend_type_arg_table *) cache_slot[0];
+			if (((uintptr_t) cache_slot[3] & 2) == 0) {
+				zend_verify_generic_arg_types(call, args_box);
+				if (UNEXPECTED(EG(exception))) {
+					goto generic_verify_check_exception;
+				}
+			}
+			ZEND_VM_NEXT_OPCODE();
+		}
+		/* Inner/inference call already monomorphized: swap func + reinstall table. */
+		if (cache_slot && (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH) {
+			zend_type_arg_table *ma = NULL;
+			zend_function *mono = zend_try_monomorph_resolved_call(call, NULL, cache_slot, &ma);
+			if (mono) {
+				call->func = mono;
+				call->type_args = ma;
+				ZEND_VM_NEXT_OPCODE();
+			}
+		}
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete turbofish VERIFY: install the precomputed SHM table after
+			 * the arity/bound check (memoized in cache_slot[0] per resolved func).
+			 * The persisted guard excludes the no-opcache heap-table case. */
+			bool checked = (cache_slot && cache_slot[0] == (void *) call->func);
+			if (!checked) {
+				zend_check_generic_call_arguments(call->func, arity, args_box);
+			}
+			if (EXPECTED(!EG(exception))) {
+				if (!checked && cache_slot) {
+					cache_slot[0] = (void *) call->func;
+				}
+				call->type_args = tf_entry->concrete_table;
+				if (!tf_entry->concrete_skip_value_check) {
+					zend_verify_generic_arg_types(call, args_box);
+				}
+			}
+		} else {
+			zend_check_generic_call_arguments(call->func, arity, args_box);
+			if (!EG(exception)) {
+				zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+				if (t) {
+					if (call->type_args) {
+						zend_type_arg_table_destroy(call->type_args);
+					}
+					call->type_args = t;
+				}
+				/* If the resolved table is invariant (CONCRETE sentinel), try to
+				 * monomorphize so later calls take the mono fast path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					zend_type_arg_table *ma = NULL;
+					zend_function *mono = zend_try_monomorph_resolved_call(call, t, cache_slot, &ma);
+					if (mono) {
+						call->func = mono;
+						call->type_args = ma;
+						ZEND_VM_NEXT_OPCODE();
+					}
+				}
+				zend_verify_generic_arg_types(call, args_box);
+				/* Promote the invariant site: record the resolved callee in
+				 * cache_slot[3] so later calls take the minimal install path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					/* Tag bits (func is >=8-aligned): bit0 = PROMOTED, bit1 = value
+					 * check is a no-op. slot[1] stays CONCRETE so the build cache
+					 * keeps returning the table on a func-guard miss. */
+					uintptr_t fn = (uintptr_t) call->func | 1u;
+					if (ZEND_USER_CODE(call->func->type)
+							&& call->func->op_array.generic_types
+							&& call->func->op_array.generic_types->parameters
+							&& zend_count_generic_value_checks(
+								call->func->op_array.generic_types->parameters) == 0) {
+						fn |= 2; /* value check is a no-op for this callee */
+					}
+					cache_slot[3] = (void *) fn;
+				}
+			}
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
@@ -22298,6 +22414,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
+generic_verify_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
@@ -22333,19 +22450,48 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	zend_turbofish_args_entry *tf_entry =
+		(IS_TMP_VAR == IS_UNUSED)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_TMP_VAR == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_TMP_VAR == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-		if (t) {
-			if (call->type_args) {
-				zend_type_arg_table_destroy(call->type_args);
+		/* Dispatch to a synthesized plain monomorph (see ZEND_VERIFY_GENERIC_ARGUMENTS). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, opline->op2.num, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			call->type_args = t;
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_install_check_exception;
+			}
 		}
-		zend_verify_generic_arg_types(call, args_box);
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete INSTALL: install the precomputed SHM table directly. The
+			 * persisted guard excludes the no-opcache heap-table case (whose table
+			 * is owned by the turbofish entry and must not be freed at teardown). */
+			call->type_args = tf_entry->concrete_table;
+			if (!tf_entry->concrete_skip_value_check) {
+				zend_verify_generic_arg_types(call, args_box);
+			}
+		} else {
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+			if (t) {
+				if (call->type_args) {
+					zend_type_arg_table_destroy(call->type_args);
+				}
+				call->type_args = t;
+			}
+			zend_verify_generic_arg_types(call, args_box);
+		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
 		/* Statically pre-validated: skip the runtime arity/bound check, but
@@ -22353,6 +22499,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
+generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
@@ -37872,31 +38019,121 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	/* Skip the entry lookup for speculative sites (args_id == 0). */
+	zend_turbofish_args_entry *tf_entry =
+		(IS_UNUSED == IS_UNUSED && opline->extended_value)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_UNUSED == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_UNUSED == IS_UNUSED) {
-		/* Speculative emission for dispatchable calls: when there's no
-		 * turbofish AND the resolved callee turns out to be non-generic,
-		 * there's nothing to verify and no table to build. With turbofish
-		 * present the arity check still needs to fire (the user supplied
-		 * type args to a non-generic callee — explicit "too many" error). */
+		/* Erased fast path: non-generic speculative site, nothing to verify. */
 		if (args_box == NULL
 				&& (!ZEND_USER_CODE(call->func->type)
 					|| !call->func->op_array.generic_parameters)) {
 			ZEND_VM_NEXT_OPCODE();
 		}
-		zend_check_generic_call_arguments(call->func, arity, args_box);
-		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-			if (t) {
-				if (call->type_args) {
-					zend_type_arg_table_destroy(call->type_args);
-				}
-				call->type_args = t;
+		/* Concrete turbofish args: dispatch to a synthesized plain monomorph and
+		 * skip generic verification (the monomorph's RECV does concrete checks). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, arity, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			zend_verify_generic_arg_types(call, args_box);
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_verify_check_exception;
+			}
+		}
+		/* Runtime-promoted site: install the cached invariant table after a func
+		 * guard (cache_slot[3], bit1 = value check is a no-op). */
+		if (cache_slot && cache_slot[3]
+				&& ((uintptr_t) cache_slot[3] & ~(uintptr_t)3) == (uintptr_t) call->func) {
+			call->type_args = (zend_type_arg_table *) cache_slot[0];
+			if (((uintptr_t) cache_slot[3] & 2) == 0) {
+				zend_verify_generic_arg_types(call, args_box);
+				if (UNEXPECTED(EG(exception))) {
+					goto generic_verify_check_exception;
+				}
+			}
+			ZEND_VM_NEXT_OPCODE();
+		}
+		/* Inner/inference call already monomorphized: swap func + reinstall table. */
+		if (cache_slot && (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH) {
+			zend_type_arg_table *ma = NULL;
+			zend_function *mono = zend_try_monomorph_resolved_call(call, NULL, cache_slot, &ma);
+			if (mono) {
+				call->func = mono;
+				call->type_args = ma;
+				ZEND_VM_NEXT_OPCODE();
+			}
+		}
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete turbofish VERIFY: install the precomputed SHM table after
+			 * the arity/bound check (memoized in cache_slot[0] per resolved func).
+			 * The persisted guard excludes the no-opcache heap-table case. */
+			bool checked = (cache_slot && cache_slot[0] == (void *) call->func);
+			if (!checked) {
+				zend_check_generic_call_arguments(call->func, arity, args_box);
+			}
+			if (EXPECTED(!EG(exception))) {
+				if (!checked && cache_slot) {
+					cache_slot[0] = (void *) call->func;
+				}
+				call->type_args = tf_entry->concrete_table;
+				if (!tf_entry->concrete_skip_value_check) {
+					zend_verify_generic_arg_types(call, args_box);
+				}
+			}
+		} else {
+			zend_check_generic_call_arguments(call->func, arity, args_box);
+			if (!EG(exception)) {
+				zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+				if (t) {
+					if (call->type_args) {
+						zend_type_arg_table_destroy(call->type_args);
+					}
+					call->type_args = t;
+				}
+				/* If the resolved table is invariant (CONCRETE sentinel), try to
+				 * monomorphize so later calls take the mono fast path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					zend_type_arg_table *ma = NULL;
+					zend_function *mono = zend_try_monomorph_resolved_call(call, t, cache_slot, &ma);
+					if (mono) {
+						call->func = mono;
+						call->type_args = ma;
+						ZEND_VM_NEXT_OPCODE();
+					}
+				}
+				zend_verify_generic_arg_types(call, args_box);
+				/* Promote the invariant site: record the resolved callee in
+				 * cache_slot[3] so later calls take the minimal install path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					/* Tag bits (func is >=8-aligned): bit0 = PROMOTED, bit1 = value
+					 * check is a no-op. slot[1] stays CONCRETE so the build cache
+					 * keeps returning the table on a func-guard miss. */
+					uintptr_t fn = (uintptr_t) call->func | 1u;
+					if (ZEND_USER_CODE(call->func->type)
+							&& call->func->op_array.generic_types
+							&& call->func->op_array.generic_types->parameters
+							&& zend_count_generic_value_checks(
+								call->func->op_array.generic_types->parameters) == 0) {
+						fn |= 2; /* value check is a no-op for this callee */
+					}
+					cache_slot[3] = (void *) fn;
+				}
+			}
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
@@ -37909,6 +38146,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_GENERI
 		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
+generic_verify_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
@@ -37944,19 +38182,48 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	zend_turbofish_args_entry *tf_entry =
+		(IS_UNUSED == IS_UNUSED)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_UNUSED == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_UNUSED == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-		if (t) {
-			if (call->type_args) {
-				zend_type_arg_table_destroy(call->type_args);
+		/* Dispatch to a synthesized plain monomorph (see ZEND_VERIFY_GENERIC_ARGUMENTS). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, opline->op2.num, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			call->type_args = t;
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_install_check_exception;
+			}
 		}
-		zend_verify_generic_arg_types(call, args_box);
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete INSTALL: install the precomputed SHM table directly. The
+			 * persisted guard excludes the no-opcache heap-table case (whose table
+			 * is owned by the turbofish entry and must not be freed at teardown). */
+			call->type_args = tf_entry->concrete_table;
+			if (!tf_entry->concrete_skip_value_check) {
+				zend_verify_generic_arg_types(call, args_box);
+			}
+		} else {
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+			if (t) {
+				if (call->type_args) {
+					zend_type_arg_table_destroy(call->type_args);
+				}
+				call->type_args = t;
+			}
+			zend_verify_generic_arg_types(call, args_box);
+		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
 		/* Statically pre-validated: skip the runtime arity/bound check, but
@@ -37964,6 +38231,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
+generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
@@ -57609,7 +57877,17 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		function_name = (zval*)RT_CONSTANT(opline, opline->op2);
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(function_name+1));
 		if (UNEXPECTED(func == NULL)) {
-			ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+			/* Mangled monomorph name: synthesize on first reference (may throw). */
+			SAVE_OPLINE();
+			fbc = zend_resolve_monomorph_by_name(Z_STR_P(function_name+1));
+			if (UNEXPECTED(EG(exception) != NULL)) {
+				HANDLE_EXCEPTION();
+			}
+			if (UNEXPECTED(fbc == NULL)) {
+				ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+			}
+			CACHE_PTR(opline->result.num, fbc);
+			goto fcall_by_name_push;
 		}
 		fbc = Z_FUNC_P(func);
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -57617,6 +57895,7 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		}
 		CACHE_PTR(opline->result.num, fbc);
 	}
+fcall_by_name_push:
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 	call->prev_execute_data = EX(call);
@@ -57694,7 +57973,21 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_N
 		if (func == NULL) {
 			func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(func_name + 2));
 			if (UNEXPECTED(func == NULL)) {
-				ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+				/* Mangled monomorph name: synthesize on first reference (qualified
+				 * then unqualified; may throw). */
+				SAVE_OPLINE();
+				fbc = zend_resolve_monomorph_by_name(Z_STR_P(func_name + 1));
+				if (fbc == NULL && !EG(exception)) {
+					fbc = zend_resolve_monomorph_by_name(Z_STR_P(func_name + 2));
+				}
+				if (UNEXPECTED(EG(exception) != NULL)) {
+					HANDLE_EXCEPTION();
+				}
+				if (UNEXPECTED(fbc == NULL)) {
+					ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+				}
+				CACHE_PTR(opline->result.num, fbc);
+				goto ns_fcall_by_name_push;
 			}
 		}
 		fbc = Z_FUNC_P(func);
@@ -57704,6 +57997,7 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_N
 		CACHE_PTR(opline->result.num, fbc);
 	}
 
+ns_fcall_by_name_push:
 	call = _zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION,
 		fbc, opline->extended_value, NULL);
 	call->prev_execute_data = EX(call);
@@ -75507,31 +75801,121 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	/* Skip the entry lookup for speculative sites (args_id == 0). */
+	zend_turbofish_args_entry *tf_entry =
+		(IS_TMP_VAR == IS_UNUSED && opline->extended_value)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_TMP_VAR == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_TMP_VAR == IS_UNUSED) {
-		/* Speculative emission for dispatchable calls: when there's no
-		 * turbofish AND the resolved callee turns out to be non-generic,
-		 * there's nothing to verify and no table to build. With turbofish
-		 * present the arity check still needs to fire (the user supplied
-		 * type args to a non-generic callee — explicit "too many" error). */
+		/* Erased fast path: non-generic speculative site, nothing to verify. */
 		if (args_box == NULL
 				&& (!ZEND_USER_CODE(call->func->type)
 					|| !call->func->op_array.generic_parameters)) {
 			ZEND_VM_NEXT_OPCODE();
 		}
-		zend_check_generic_call_arguments(call->func, arity, args_box);
-		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-			if (t) {
-				if (call->type_args) {
-					zend_type_arg_table_destroy(call->type_args);
-				}
-				call->type_args = t;
+		/* Concrete turbofish args: dispatch to a synthesized plain monomorph and
+		 * skip generic verification (the monomorph's RECV does concrete checks). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, arity, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			zend_verify_generic_arg_types(call, args_box);
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_verify_check_exception;
+			}
+		}
+		/* Runtime-promoted site: install the cached invariant table after a func
+		 * guard (cache_slot[3], bit1 = value check is a no-op). */
+		if (cache_slot && cache_slot[3]
+				&& ((uintptr_t) cache_slot[3] & ~(uintptr_t)3) == (uintptr_t) call->func) {
+			call->type_args = (zend_type_arg_table *) cache_slot[0];
+			if (((uintptr_t) cache_slot[3] & 2) == 0) {
+				zend_verify_generic_arg_types(call, args_box);
+				if (UNEXPECTED(EG(exception))) {
+					goto generic_verify_check_exception;
+				}
+			}
+			ZEND_VM_NEXT_OPCODE();
+		}
+		/* Inner/inference call already monomorphized: swap func + reinstall table. */
+		if (cache_slot && (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH) {
+			zend_type_arg_table *ma = NULL;
+			zend_function *mono = zend_try_monomorph_resolved_call(call, NULL, cache_slot, &ma);
+			if (mono) {
+				call->func = mono;
+				call->type_args = ma;
+				ZEND_VM_NEXT_OPCODE();
+			}
+		}
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete turbofish VERIFY: install the precomputed SHM table after
+			 * the arity/bound check (memoized in cache_slot[0] per resolved func).
+			 * The persisted guard excludes the no-opcache heap-table case. */
+			bool checked = (cache_slot && cache_slot[0] == (void *) call->func);
+			if (!checked) {
+				zend_check_generic_call_arguments(call->func, arity, args_box);
+			}
+			if (EXPECTED(!EG(exception))) {
+				if (!checked && cache_slot) {
+					cache_slot[0] = (void *) call->func;
+				}
+				call->type_args = tf_entry->concrete_table;
+				if (!tf_entry->concrete_skip_value_check) {
+					zend_verify_generic_arg_types(call, args_box);
+				}
+			}
+		} else {
+			zend_check_generic_call_arguments(call->func, arity, args_box);
+			if (!EG(exception)) {
+				zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+				if (t) {
+					if (call->type_args) {
+						zend_type_arg_table_destroy(call->type_args);
+					}
+					call->type_args = t;
+				}
+				/* If the resolved table is invariant (CONCRETE sentinel), try to
+				 * monomorphize so later calls take the mono fast path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					zend_type_arg_table *ma = NULL;
+					zend_function *mono = zend_try_monomorph_resolved_call(call, t, cache_slot, &ma);
+					if (mono) {
+						call->func = mono;
+						call->type_args = ma;
+						ZEND_VM_NEXT_OPCODE();
+					}
+				}
+				zend_verify_generic_arg_types(call, args_box);
+				/* Promote the invariant site: record the resolved callee in
+				 * cache_slot[3] so later calls take the minimal install path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					/* Tag bits (func is >=8-aligned): bit0 = PROMOTED, bit1 = value
+					 * check is a no-op. slot[1] stays CONCRETE so the build cache
+					 * keeps returning the table on a func-guard miss. */
+					uintptr_t fn = (uintptr_t) call->func | 1u;
+					if (ZEND_USER_CODE(call->func->type)
+							&& call->func->op_array.generic_types
+							&& call->func->op_array.generic_types->parameters
+							&& zend_count_generic_value_checks(
+								call->func->op_array.generic_types->parameters) == 0) {
+						fn |= 2; /* value check is a no-op for this callee */
+					}
+					cache_slot[3] = (void *) fn;
+				}
+			}
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
@@ -75544,6 +75928,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
+generic_verify_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
@@ -75579,19 +75964,48 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	zend_turbofish_args_entry *tf_entry =
+		(IS_TMP_VAR == IS_UNUSED)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_TMP_VAR == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_TMP_VAR == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-		if (t) {
-			if (call->type_args) {
-				zend_type_arg_table_destroy(call->type_args);
+		/* Dispatch to a synthesized plain monomorph (see ZEND_VERIFY_GENERIC_ARGUMENTS). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, opline->op2.num, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			call->type_args = t;
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_install_check_exception;
+			}
 		}
-		zend_verify_generic_arg_types(call, args_box);
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete INSTALL: install the precomputed SHM table directly. The
+			 * persisted guard excludes the no-opcache heap-table case (whose table
+			 * is owned by the turbofish entry and must not be freed at teardown). */
+			call->type_args = tf_entry->concrete_table;
+			if (!tf_entry->concrete_skip_value_check) {
+				zend_verify_generic_arg_types(call, args_box);
+			}
+		} else {
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+			if (t) {
+				if (call->type_args) {
+					zend_type_arg_table_destroy(call->type_args);
+				}
+				call->type_args = t;
+			}
+			zend_verify_generic_arg_types(call, args_box);
+		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
 		/* Statically pre-validated: skip the runtime arity/bound check, but
@@ -75599,6 +76013,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
+generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 
@@ -91118,31 +91533,121 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 	zend_execute_data *call = EX(call);
 	uint32_t arity = opline->op2.num;
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	/* Skip the entry lookup for speculative sites (args_id == 0). */
+	zend_turbofish_args_entry *tf_entry =
+		(IS_UNUSED == IS_UNUSED && opline->extended_value)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_UNUSED == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_UNUSED == IS_UNUSED) {
-		/* Speculative emission for dispatchable calls: when there's no
-		 * turbofish AND the resolved callee turns out to be non-generic,
-		 * there's nothing to verify and no table to build. With turbofish
-		 * present the arity check still needs to fire (the user supplied
-		 * type args to a non-generic callee — explicit "too many" error). */
+		/* Erased fast path: non-generic speculative site, nothing to verify. */
 		if (args_box == NULL
 				&& (!ZEND_USER_CODE(call->func->type)
 					|| !call->func->op_array.generic_parameters)) {
 			ZEND_VM_NEXT_OPCODE();
 		}
-		zend_check_generic_call_arguments(call->func, arity, args_box);
-		if (!EG(exception)) {
-			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-			if (t) {
-				if (call->type_args) {
-					zend_type_arg_table_destroy(call->type_args);
-				}
-				call->type_args = t;
+		/* Concrete turbofish args: dispatch to a synthesized plain monomorph and
+		 * skip generic verification (the monomorph's RECV does concrete checks). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, arity, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			zend_verify_generic_arg_types(call, args_box);
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_verify_check_exception;
+			}
+		}
+		/* Runtime-promoted site: install the cached invariant table after a func
+		 * guard (cache_slot[3], bit1 = value check is a no-op). */
+		if (cache_slot && cache_slot[3]
+				&& ((uintptr_t) cache_slot[3] & ~(uintptr_t)3) == (uintptr_t) call->func) {
+			call->type_args = (zend_type_arg_table *) cache_slot[0];
+			if (((uintptr_t) cache_slot[3] & 2) == 0) {
+				zend_verify_generic_arg_types(call, args_box);
+				if (UNEXPECTED(EG(exception))) {
+					goto generic_verify_check_exception;
+				}
+			}
+			ZEND_VM_NEXT_OPCODE();
+		}
+		/* Inner/inference call already monomorphized: swap func + reinstall table. */
+		if (cache_slot && (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH) {
+			zend_type_arg_table *ma = NULL;
+			zend_function *mono = zend_try_monomorph_resolved_call(call, NULL, cache_slot, &ma);
+			if (mono) {
+				call->func = mono;
+				call->type_args = ma;
+				ZEND_VM_NEXT_OPCODE();
+			}
+		}
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete turbofish VERIFY: install the precomputed SHM table after
+			 * the arity/bound check (memoized in cache_slot[0] per resolved func).
+			 * The persisted guard excludes the no-opcache heap-table case. */
+			bool checked = (cache_slot && cache_slot[0] == (void *) call->func);
+			if (!checked) {
+				zend_check_generic_call_arguments(call->func, arity, args_box);
+			}
+			if (EXPECTED(!EG(exception))) {
+				if (!checked && cache_slot) {
+					cache_slot[0] = (void *) call->func;
+				}
+				call->type_args = tf_entry->concrete_table;
+				if (!tf_entry->concrete_skip_value_check) {
+					zend_verify_generic_arg_types(call, args_box);
+				}
+			}
+		} else {
+			zend_check_generic_call_arguments(call->func, arity, args_box);
+			if (!EG(exception)) {
+				zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+				if (t) {
+					if (call->type_args) {
+						zend_type_arg_table_destroy(call->type_args);
+					}
+					call->type_args = t;
+				}
+				/* If the resolved table is invariant (CONCRETE sentinel), try to
+				 * monomorphize so later calls take the mono fast path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					zend_type_arg_table *ma = NULL;
+					zend_function *mono = zend_try_monomorph_resolved_call(call, t, cache_slot, &ma);
+					if (mono) {
+						call->func = mono;
+						call->type_args = ma;
+						ZEND_VM_NEXT_OPCODE();
+					}
+				}
+				zend_verify_generic_arg_types(call, args_box);
+				/* Promote the invariant site: record the resolved callee in
+				 * cache_slot[3] so later calls take the minimal install path. */
+				if (EXPECTED(!EG(exception)) && t
+						&& cache_slot && cache_slot[0] == (void *) t
+						&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_CONCRETE) {
+					/* Tag bits (func is >=8-aligned): bit0 = PROMOTED, bit1 = value
+					 * check is a no-op. slot[1] stays CONCRETE so the build cache
+					 * keeps returning the table on a func-guard miss. */
+					uintptr_t fn = (uintptr_t) call->func | 1u;
+					if (ZEND_USER_CODE(call->func->type)
+							&& call->func->op_array.generic_types
+							&& call->func->op_array.generic_types->parameters
+							&& zend_count_generic_value_checks(
+								call->func->op_array.generic_types->parameters) == 0) {
+						fn |= 2; /* value check is a no-op for this callee */
+					}
+					cache_slot[3] = (void *) fn;
+				}
+			}
 		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
@@ -91155,6 +91660,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_GENERIC_ARG
 		zend_apply_generic_new(new_obj, call, args_box, arity, cache_slot, /* do_checks */ true);
 	}
 
+generic_verify_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		/* Args have already been pushed by the SEND opcodes preceding the
 		 * VERIFY emission for call kind; release them so refcounted values
@@ -91190,19 +91696,48 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 	USE_OPLINE
 	zend_execute_data *call = EX(call);
 	void **cache_slot = opline->result.num ? CACHE_ADDR(opline->result.num) : NULL;
-	const zend_type *args_box = zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
+	zend_turbofish_args_entry *tf_entry =
+		(IS_UNUSED == IS_UNUSED)
+			? zend_generic_get_or_cache_args_entry(&EX(func)->op_array, opline->extended_value, cache_slot)
+			: NULL;
+	const zend_type *args_box = (IS_UNUSED == IS_UNUSED)
+		? (tf_entry ? &tf_entry->args_box : NULL)
+		: zend_generic_get_or_cache_args_box(&EX(func)->op_array, opline->extended_value, cache_slot);
 
 	SAVE_OPLINE();
 
 	if (IS_UNUSED == IS_UNUSED) {
-		zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
-		if (t) {
-			if (call->type_args) {
-				zend_type_arg_table_destroy(call->type_args);
+		/* Dispatch to a synthesized plain monomorph (see ZEND_VERIFY_GENERIC_ARGUMENTS). */
+		{
+			zend_type_arg_table *mono_args = NULL;
+			zend_function *mono = zend_get_or_synthesize_call_monomorph(call, args_box, opline->op2.num, cache_slot, &mono_args);
+			if (mono) {
+				call->func = mono;
+				call->type_args = mono_args;
+				ZEND_VM_NEXT_OPCODE();
 			}
-			call->type_args = t;
+			if (UNEXPECTED(EG(exception))) {
+				goto generic_install_check_exception;
+			}
 		}
-		zend_verify_generic_arg_types(call, args_box);
+		if (tf_entry && tf_entry->concrete_table && tf_entry->concrete_table->persisted) {
+			/* Concrete INSTALL: install the precomputed SHM table directly. The
+			 * persisted guard excludes the no-opcache heap-table case (whose table
+			 * is owned by the turbofish entry and must not be freed at teardown). */
+			call->type_args = tf_entry->concrete_table;
+			if (!tf_entry->concrete_skip_value_check) {
+				zend_verify_generic_arg_types(call, args_box);
+			}
+		} else {
+			zend_type_arg_table *t = zend_build_or_get_cached_type_args(call, args_box, cache_slot);
+			if (t) {
+				if (call->type_args) {
+					zend_type_arg_table_destroy(call->type_args);
+				}
+				call->type_args = t;
+			}
+			zend_verify_generic_arg_types(call, args_box);
+		}
 	} else {
 		zval *new_obj = EX_VAR(opline->op1.var);
 		/* Statically pre-validated: skip the runtime arity/bound check, but
@@ -91210,6 +91745,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 		zend_apply_generic_new(new_obj, call, args_box, opline->op2.num, cache_slot, /* do_checks */ false);
 	}
 
+generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
 		zend_vm_stack_free_args(call);
 

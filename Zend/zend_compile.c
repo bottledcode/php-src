@@ -809,6 +809,109 @@ ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(
 	return t;
 }
 
+/* Resolve (and cache per call site) the concrete monomorph for a turbofish CALL
+ * with concrete args in `args_box`; *out_type_args gets the invariant type-arg
+ * table for body T-ref resolution. NULL when the site can't be monomorphized. */
+static zend_type_arg_table *zend_build_concrete_call_type_args(
+		const zend_function *fbc, const zend_type *args_box);
+
+ZEND_API zend_function *zend_get_or_synthesize_call_monomorph(
+		zend_execute_data *call, const zend_type *args_box, uint32_t arity, void **cache_slot,
+		zend_type_arg_table **out_type_args)
+{
+	zend_function *base = call->func;
+
+	if (cache_slot
+			&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH
+			&& cache_slot[3] == (void *) base) {
+		*out_type_args = (zend_type_arg_table *) cache_slot[4];
+		return (zend_function *) cache_slot[0];
+	}
+
+	if (!args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+		return NULL;
+	}
+	const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+
+	/* Enforce arity + bounds as the erased VERIFY path does (first call only). */
+	zend_check_generic_call_arguments(base, arity, args_box);
+	if (UNEXPECTED(EG(exception))) {
+		return NULL;
+	}
+
+	zend_function *mono = zend_synthesize_function_monomorph(base, nwa->args, nwa->count);
+	if (!mono) {
+		return NULL;
+	}
+
+	zend_type_arg_table *table = zend_build_concrete_call_type_args(base, args_box);
+	if (table) {
+		table->persisted = true;
+	}
+
+	if (cache_slot) {
+		cache_slot[0] = mono;
+		cache_slot[1] = (void *) ZEND_TURBOFISH_CACHE_KEY_MONOMORPH;
+		cache_slot[3] = (void *) base;
+		cache_slot[4] = table;
+	}
+	*out_type_args = table;
+	return mono;
+}
+
+/* Monomorphize a non-turbofish generic call once its per-frame type-arg table
+ * `resolved` is known concrete and invariant, swapping call->func to a plain
+ * monomorph to skip the per-call value check. NULL keeps the erased path. */
+ZEND_API zend_function *zend_try_monomorph_resolved_call(
+		zend_execute_data *call, zend_type_arg_table *resolved, void **cache_slot,
+		zend_type_arg_table **out_type_args)
+{
+	zend_function *base = call->func;
+
+	if (cache_slot
+			&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH
+			&& cache_slot[3] == (void *) base) {
+		*out_type_args = (zend_type_arg_table *) cache_slot[4];
+		return (zend_function *) cache_slot[0];
+	}
+
+	if (!resolved || resolved->count == 0
+			|| !ZEND_USER_CODE(base->type)
+			|| !base->op_array.generic_parameters) {
+		return NULL;
+	}
+
+	/* All bindings must be concrete (free of T-refs). */
+	ALLOCA_FLAG(use_heap)
+	zend_type *args = do_alloca(sizeof(zend_type) * resolved->count, use_heap);
+	bool ok = true;
+	for (uint32_t i = 0; i < resolved->count; i++) {
+		const zend_type *bt = zend_type_arg_entry_type(&resolved->entries[i]);
+		if (!bt || !ZEND_TYPE_IS_SET(*bt) || zend_type_contains_type_parameter(*bt)) {
+			ok = false;
+			break;
+		}
+		args[i] = *bt;
+	}
+
+	zend_function *mono = ok
+		? zend_synthesize_function_monomorph(base, args, resolved->count)
+		: NULL;
+	free_alloca(args, use_heap);
+	if (!mono) {
+		return NULL;
+	}
+
+	if (cache_slot) {
+		cache_slot[0] = mono;
+		cache_slot[1] = (void *) ZEND_TURBOFISH_CACHE_KEY_MONOMORPH;
+		cache_slot[3] = (void *) base;
+		cache_slot[4] = resolved;
+	}
+	*out_type_args = resolved;
+	return mono;
+}
+
 ZEND_API zend_class_entry *zend_get_called_scope(const zend_execute_data *ex);
 
 /* Cache key for a `new C::<...>` site's resolved monomorph. The monomorph is a
@@ -1218,28 +1321,32 @@ static zend_always_inline bool zend_verify_one_generic_param(
 	return true;
 }
 
-/* Build the packed value-check plan from a callee's `parameters` table: one
- * entry per direct FUNCTION_LIKE T-ref value parameter, in hash order (so the
- * "first failing argument" diagnostic matches the legacy iteration). */
-static zend_generic_value_check_plan *zend_build_generic_value_check_plan(
-		const zend_op_array *op_array)
+/* Count the direct FUNCTION_LIKE T-ref value parameters; the persister and the
+ * runtime builder share it so both size the plan identically. */
+ZEND_API uint32_t zend_count_generic_value_checks(const HashTable *parameters)
 {
-	const HashTable *pre = op_array->generic_types->parameters;
 	uint32_t cnt = 0;
 	zend_ulong arg_idx;
 	zend_type *pe_type_ptr;
-	ZEND_HASH_FOREACH_NUM_KEY_PTR(pre, arg_idx, pe_type_ptr) {
+	ZEND_HASH_FOREACH_NUM_KEY_PTR(parameters, arg_idx, pe_type_ptr) {
 		(void) arg_idx;
 		if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe_type_ptr)) continue;
 		if (ZEND_TYPE_TYPE_PARAMETER(*pe_type_ptr)->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) continue;
 		cnt++;
 	} ZEND_HASH_FOREACH_END();
+	return cnt;
+}
 
-	zend_generic_value_check_plan *plan = emalloc(
-		offsetof(zend_generic_value_check_plan, checks) + cnt * sizeof(zend_generic_value_check));
-	plan->count = cnt;
+/* Fill a plan buffer (sized for zend_count_generic_value_checks() entries): one
+ * entry per direct FUNCTION_LIKE T-ref value parameter, in hash order so the
+ * "first failing argument" diagnostic matches the legacy iteration. */
+ZEND_API void zend_fill_generic_value_check_plan(
+		zend_generic_value_check_plan *plan, const HashTable *parameters)
+{
+	zend_ulong arg_idx;
+	zend_type *pe_type_ptr;
 	uint32_t w = 0;
-	ZEND_HASH_FOREACH_NUM_KEY_PTR(pre, arg_idx, pe_type_ptr) {
+	ZEND_HASH_FOREACH_NUM_KEY_PTR(parameters, arg_idx, pe_type_ptr) {
 		if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe_type_ptr)) continue;
 		const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pe_type_ptr);
 		if (ref->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) continue;
@@ -1247,6 +1354,18 @@ static zend_generic_value_check_plan *zend_build_generic_value_check_plan(
 		plan->checks[w].tp_index = ref->index;
 		w++;
 	} ZEND_HASH_FOREACH_END();
+	plan->count = w;
+}
+
+/* Build the packed value-check plan from a callee's `parameters` table into
+ * request-local memory. */
+static zend_generic_value_check_plan *zend_build_generic_value_check_plan(
+		const HashTable *parameters)
+{
+	uint32_t cnt = zend_count_generic_value_checks(parameters);
+	zend_generic_value_check_plan *plan = emalloc(
+		offsetof(zend_generic_value_check_plan, checks) + cnt * sizeof(zend_generic_value_check));
+	zend_fill_generic_value_check_plan(plan, parameters);
 	return plan;
 }
 
@@ -1277,7 +1396,7 @@ ZEND_API bool zend_verify_generic_arg_types(zend_execute_data *call, const zend_
 	zend_generic_type_table *gt = fbc->op_array.generic_types;
 	zend_generic_value_check_plan *plan = gt->value_check_plan;
 	if (!plan && !gt->persisted) {
-		plan = zend_build_generic_value_check_plan(&fbc->op_array);
+		plan = zend_build_generic_value_check_plan(fbc->op_array.generic_types->parameters);
 		gt->value_check_plan = plan;
 	}
 
@@ -1455,6 +1574,8 @@ ZEND_API void zend_check_generic_new_arguments(const zend_class_entry *ce, uint3
 
 #define ZEND_VERIFY_ARITY_KIND_CALL  0
 #define ZEND_VERIFY_ARITY_KIND_NEW   1
+/* Site dispatches directly to a monomorph by name; emit no VERIFY/INSTALL. */
+#define ZEND_VERIFY_ARITY_KIND_NONE  2
 
 static zend_type zend_compile_turbofish_args_type(zend_ast *turbofish_ast)
 {
@@ -1525,6 +1646,84 @@ static bool zend_can_install_call_args_statically(
 		params, ZEND_TYPE_NAMED_WITH_ARGS(*args_box), arity);
 }
 
+/* Compile-time equivalent of zend_build_generic_call_type_args for a concrete
+ * call site: each entry borrows its type_ref into the args_box NWA (i<passed) or
+ * the callee default (i>=passed). NULL when any arg still contains a T-ref. */
+static zend_type_arg_table *zend_build_concrete_call_type_args(
+		const zend_function *fbc, const zend_type *args_box)
+{
+	if (!fbc || !ZEND_USER_CODE(fbc->common.type)) {
+		return NULL;
+	}
+	const zend_generic_parameter_list *params = fbc->op_array.generic_parameters;
+	if (!params || params->count == 0) {
+		return NULL;
+	}
+
+	uint32_t passed = 0;
+	const zend_type *passed_args = NULL;
+	if (args_box && ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+		passed = nwa->count;
+		passed_args = nwa->args;
+	}
+
+	zend_type_arg_table *table = zend_type_arg_table_alloc(params->count);
+	for (uint32_t i = 0; i < params->count; i++) {
+		const zend_type *src = NULL;
+		if (i < passed) {
+			src = &passed_args[i];
+		} else if (ZEND_TYPE_IS_SET(params->parameters[i].default_type)) {
+			src = &params->parameters[i].default_type;
+		}
+		if (!src || !ZEND_TYPE_IS_SET(*src)) {
+			continue;
+		}
+		if (zend_type_contains_type_parameter(*src)) {
+			zend_type_arg_table_destroy(table);
+			return NULL;
+		}
+		table->entries[i].name = zend_type_arg_canonical_name(*src);
+		table->entries[i].type_ref = src;
+	}
+
+	return table;
+}
+
+/* If this turbofish CALL site is concrete, build the resolved type-arg table now
+ * and stash it on the turbofish entry so persist can relocate it into SHM. */
+static bool zend_try_attach_concrete_call_table(
+		const zend_function *fbc, const zend_type *args_box, uint32_t args_id)
+{
+	if (!fbc || !args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
+		return false;
+	}
+	const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
+	for (uint32_t i = 0; i < nwa->count; i++) {
+		if (zend_type_contains_type_parameter(nwa->args[i])) {
+			return false;
+		}
+	}
+	if (!zend_call_is_cacheable_against_args(fbc, args_box)) {
+		return false;
+	}
+	zend_type_arg_table *ct = zend_build_concrete_call_type_args(fbc, args_box);
+	if (!ct) {
+		return false;
+	}
+	zend_generic_type_table *gtt = CG(active_op_array)->generic_types;
+	zend_turbofish_args_entry *entry =
+		zend_hash_index_find_ptr(gtt->turbofish_args, args_id);
+	ZEND_ASSERT(entry != NULL);
+	entry->concrete_table = ct;
+	entry->concrete_skip_value_check =
+		fbc->op_array.generic_types
+		&& fbc->op_array.generic_types->parameters
+		&& zend_count_generic_value_checks(
+			fbc->op_array.generic_types->parameters) == 0;
+	return true;
+}
+
 static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t kind, const znode *new_result, const zend_function *fbc)
 {
 	uint32_t arity = 0;
@@ -1562,6 +1761,11 @@ static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t 
 	if (kind == ZEND_VERIFY_ARITY_KIND_CALL
 			&& zend_can_install_call_args_statically(fbc, args_box, arity)) {
 		opcode = ZEND_INSTALL_GENERIC_ARGS;
+		zend_try_attach_concrete_call_table(fbc, args_box, args_id);
+	} else if (kind == ZEND_VERIFY_ARITY_KIND_CALL && turbofish_ast && args_id) {
+		/* Concrete args but VERIFY stays (bounds not statically decidable);
+		 * still attach the invariant table for the handler to install. */
+		zend_try_attach_concrete_call_table(fbc, args_box, args_id);
 	}
 
 	zend_op *opline = get_next_op();
@@ -1578,16 +1782,22 @@ static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t 
 		opline->op1.num = 0;
 	}
 	opline->result_type = IS_UNUSED;
-	/* Reserve a 3-slot inline cache in the caller op_array's runtime cache:
+	/* Reserve a 5-slot inline cache in the caller op_array's runtime cache:
 	 * slot[0] = cached zend_type_arg_table* (CALL) / monomorph ce* (NEW),
-	 * slot[1] = cache key (caller-binding fingerprint),
-	 * slot[2] = cached zend_turbofish_args_entry* (resolved once per site so the
-	 *           handler skips the per-call turbofish_args hash lookup).
+	 * slot[1] = cache key (caller-binding fingerprint) / state sentinel,
+	 * slot[2] = cached zend_turbofish_args_entry* (skips the per-call lookup),
+	 * slot[3] = promotion/monomorph memo (resolved callee guard),
+	 * slot[4] = monomorph type-arg table.
 	 * The runtime cache is per-process and writable even when the op_array's
-	 * side tables are persisted to opcache SHM, so this cache survives opcache
-	 * without the SHM-write gating that previously disabled it. */
+	 * side tables are persisted to opcache SHM. */
 	opline->result.num = (args_id || kind == ZEND_VERIFY_ARITY_KIND_CALL)
-		? zend_alloc_cache_slots(3) : 0;
+		? zend_alloc_cache_slots(5) : 0;
+
+	/* Mark so destroy_op_array scans opcodes for a CALL-form generic-args slot
+	 * that may own a zend_type_arg_table; non-generic op_arrays skip the scan. */
+	if (opline->op1_type == IS_UNUSED && opline->result.num) {
+		CG(active_op_array)->fn_flags2 |= ZEND_ACC2_HAS_GENERIC_CALL_OPS;
+	}
 }
 
 static zend_generic_parameter_list *zend_compile_generic_type_parameter_list(
@@ -6760,8 +6970,111 @@ static uint32_t zend_compile_frameless_icall(znode *result, const zend_ast_list 
 	return zend_compile_frameless_icall_ex(result, args, fbc, frameless_function_info, type);
 }
 
+/* For a turbofish call with only concrete args, return the lowercased mangled
+ * monomorph name (`base<c0,c1>`) used as the by-name dispatch key, or NULL to
+ * keep the runtime VERIFY path. */
+static zend_string *zend_build_concrete_turbofish_monomorph_name(
+		zend_string *base_name, zend_ast *turbofish_ast)
+{
+	if (!turbofish_ast) {
+		return NULL;
+	}
+	zend_ast_list *list = zend_ast_get_list(turbofish_ast);
+	uint32_t arity = list->children;
+	if (arity == 0 || arity > ZEND_GENERIC_MAX_PARAMS) {
+		return NULL;
+	}
+
+	/* Bail on any T-ref or class-name arg: the mangled name is lowercased and the
+	 * synthesize-by-name path reparses it, which would lose class-name case. Only
+	 * case-insensitive scalar args round-trip losslessly. */
+	zend_type args[ZEND_GENERIC_MAX_PARAMS];
+	bool ok = true;
+	uint32_t built = 0;
+	for (uint32_t i = 0; i < arity; i++) {
+		args[i] = zend_compile_pre_erasure_typename(list->child[i]);
+		built++;
+		if (zend_type_contains_type_parameter(args[i])
+				|| ZEND_TYPE_HAS_NAME(args[i])
+				|| ZEND_TYPE_HAS_LITERAL_NAME(args[i])
+				|| ZEND_TYPE_HAS_NAMED_WITH_ARGS(args[i])
+				|| ZEND_TYPE_HAS_LIST(args[i])) {
+			ok = false;
+			break;
+		}
+	}
+
+	zend_string *result = NULL;
+	if (ok) {
+		zend_string *canonical =
+			zend_generic_canonical_class_name(base_name, args, arity);
+		result = zend_string_tolower(canonical);
+		zend_string_release(canonical);
+	}
+
+	for (uint32_t i = 0; i < built; i++) {
+		zend_type_release(args[i], /* persistent */ false);
+	}
+	return result;
+}
+
+/* Emit the literal triple for an INIT_NS_FCALL_BY_NAME targeting the mangled
+ * monomorph name (mirrors zend_add_ns_func_name_literal). -1 when not concrete. */
+static int zend_add_ns_monomorph_name_literal(zend_string *full_name, zend_ast *turbofish_ast)
+{
+	zend_string *mangled_lc_full =
+		zend_build_concrete_turbofish_monomorph_name(full_name, turbofish_ast);
+	if (!mangled_lc_full) {
+		return -1;
+	}
+
+	/* slot[0]: original-case mangled full name (only used in diagnostics). */
+	zend_string *orig = zend_string_dup(mangled_lc_full, 0);
+	int ret = zend_add_literal_string(&orig);
+
+	/* slot[1]: lowercased mangled full name (primary lookup key). */
+	zend_string *lc_full = zend_string_copy(mangled_lc_full);
+	zend_add_literal_string(&lc_full);
+
+	/* slot[2]: lowercased mangled unqualified name (global fallback key). */
+	const char *uq;
+	size_t uq_len;
+	if (zend_get_unqualified_name(full_name, &uq, &uq_len)) {
+		zend_string *base_uq = zend_string_init(uq, uq_len, 0);
+		zend_string *mangled_lc_uq =
+			zend_build_concrete_turbofish_monomorph_name(base_uq, turbofish_ast);
+		zend_string_release(base_uq);
+		if (mangled_lc_uq) {
+			zend_add_literal_string(&mangled_lc_uq);
+		} else {
+			zend_string *dup = zend_string_copy(mangled_lc_full);
+			zend_add_literal_string(&dup);
+		}
+	}
+
+	zend_string_release(mangled_lc_full);
+	return ret;
+}
+
 static void zend_compile_ns_call(znode *result, const znode *name_node, zend_ast *args_ast, zend_ast *turbofish_ast, uint32_t lineno, uint32_t type) /* {{{ */
 {
+	/* Concrete turbofish ns call -> by-name dispatch to the monomorph, no VERIFY.
+	 * Skip callable-convert (Closure creation needs the base generic function). */
+	if (turbofish_ast != NULL
+			&& args_ast->kind != ZEND_AST_CALLABLE_CONVERT) {
+		int mono_constants =
+			zend_add_ns_monomorph_name_literal(Z_STR(name_node->u.constant), turbofish_ast);
+		if (mono_constants != -1) {
+			zend_op *opline = get_next_op();
+			opline->opcode = ZEND_INIT_NS_FCALL_BY_NAME;
+			opline->op2_type = IS_CONST;
+			opline->op2.constant = mono_constants;
+			opline->result.num = zend_alloc_cache_slot();
+			zend_compile_call_common(result, args_ast, NULL, lineno, type, NULL, ZEND_VERIFY_ARITY_KIND_NONE, NULL);
+			return;
+		}
+	}
+
 	int name_constants = zend_add_ns_func_name_literal(Z_STR(name_node->u.constant));
 
 	/* Find frameless function with same name. */
@@ -7402,6 +7715,28 @@ static void zend_compile_call(znode *result, const zend_ast *ast, uint32_t type)
 			zend_string_release_ex(lcname, 0);
 			zend_compile_dynamic_call(result, &name_node, args_ast, turbofish_ast, ast->lineno, type);
 			return;
+		}
+
+		/* Concrete turbofish call to a known generic function -> by-name dispatch
+		 * to the monomorph (synthesized on first INIT_FCALL_BY_NAME miss), no VERIFY. */
+		if (turbofish_ast != NULL
+				&& !is_callable_convert
+				&& ZEND_USER_CODE(fbc->common.type)
+				&& fbc->op_array.generic_parameters) {
+			zend_string *mono_lc =
+				zend_build_concrete_turbofish_monomorph_name(lcname, turbofish_ast);
+			if (mono_lc) {
+				zend_string_release_ex(lcname, 0);
+				zval_ptr_dtor(&name_node.u.constant);
+				zend_op *bn_opline = get_next_op();
+				bn_opline->opcode = ZEND_INIT_FCALL_BY_NAME;
+				bn_opline->op2_type = IS_CONST;
+				/* zend_add_func_name_literal consumes the reference. */
+				bn_opline->op2.constant = zend_add_func_name_literal(mono_lc);
+				bn_opline->result.num = zend_alloc_cache_slot();
+				zend_compile_call_common(result, args_ast, NULL, ast->lineno, type, NULL, ZEND_VERIFY_ARITY_KIND_NONE, NULL);
+				return;
+			}
 		}
 
 		if (turbofish_ast == NULL

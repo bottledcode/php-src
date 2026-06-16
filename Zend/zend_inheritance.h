@@ -109,6 +109,16 @@ static zend_always_inline bool zend_class_is_monomorph(const zend_class_entry *c
 ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 	zend_string *name, uint32_t flags);
 
+ZEND_API zend_type zend_substitute_function_type_param(zend_type t, const zend_type *args, uint32_t arity);
+
+/* Synthesize (or return the cached) concrete specialization of generic function
+ * `base` for the given type args, registered in EG(function_table) as
+ * `base<arg0,...>`. Returns NULL when args are not concrete or base isn't generic. */
+ZEND_API zend_function *zend_synthesize_function_monomorph(
+	zend_function *base, const zend_type *args, uint32_t arity);
+
+ZEND_API zend_function *zend_try_synthesize_function_monomorph_by_name(zend_string *lc_name);
+
 void zend_verify_abstract_class(zend_class_entry *ce);
 void zend_build_properties_info_table(zend_class_entry *ce);
 ZEND_API zend_class_entry *zend_try_early_bind(zend_class_entry *ce, zend_class_entry *parent_ce, zend_string *lcname, zval *delayed_early_binding);

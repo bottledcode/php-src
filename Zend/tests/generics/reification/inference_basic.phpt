@@ -18,7 +18,7 @@ try {
     echo "TypeError: ", $e->getMessage(), "\n";
 }
 ?>
---EXPECT--
+--EXPECTF--
 Foo
 Bar
-TypeError: kind(): Argument #1 ($x) must be of type Foo, Bar given
+TypeError: kind(): Argument #1 ($x) must be of type Foo, Bar given, called in %s on line %d
