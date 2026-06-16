@@ -12,6 +12,6 @@ $inmost = $inner->getGenericArguments()[0];
 echo $inmost->getName(), "\n";
 ?>
 --EXPECT--
-Box
+Box<Box<int>>
 Box
 int
