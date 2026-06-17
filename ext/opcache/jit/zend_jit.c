@@ -3315,6 +3315,25 @@ int zend_jit_op_array(zend_op_array *op_array, zend_script *script)
 		return FAILURE;
 	}
 
+	/* Reified-generic monomorphs are shallow copies of their base op_array that
+	 * SHARE the opcode buffer (see zend_synthesize_function_monomorph). The JIT
+	 * keys compiled code and patched opline handlers on opcode addresses and
+	 * bakes op_array-specific constants (arg_info for RECV / VERIFY_RETURN_TYPE,
+	 * inferred operand types, cached literals). Those are valid for exactly one
+	 * arg_info layout, but every monomorph that shares these opcodes carries a
+	 * DIFFERENT substituted layout — so compiling the base (or any one
+	 * monomorph) corrupts its siblings: a sibling's call enters a trace baked
+	 * for a different binding and the wrong type is enforced. The interpreter
+	 * avoids this through the TRAIT_CLONE slow-path RECV; the JIT has no
+	 * equivalent. Until per-monomorph JIT state exists, keep monomorphizable
+	 * generics and their monomorphs interpreted. */
+	if (op_array->generic_parameters
+			|| (op_array->fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS)
+			|| (op_array->scope && op_array->scope->generic_parameters)) {
+		ZEND_SET_FUNC_INFO(op_array, NULL);
+		return SUCCESS;
+	}
+
 	if (JIT_G(trigger) == ZEND_JIT_ON_FIRST_EXEC) {
 		zend_jit_op_array_extension *jit_extension;
 		zend_op *opline = op_array->opcodes;
