@@ -7625,9 +7625,10 @@ ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 	zend_string_release(base_name);
 	if (!base) return NULL;
 	if (!base->generic_parameters) {
-		zend_throw_error(NULL,
-			"Type arguments are not allowed on non-generic class %s",
-			ZSTR_VAL(base->name));
+		/* A name like "Plain<int>" where Plain is non-generic does not name an
+		 * existing class. A by-name lookup reports that as "not found" (NULL)
+		 * rather than raising; type arguments in a real type/`new` position are
+		 * rejected at compile time on their own path. */
 		return NULL;
 	}
 
@@ -7648,6 +7649,24 @@ ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 		for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
 		efree(args);
 		return NULL;
+	}
+
+	/* A lookup by name (class_exists(), is-a probes, the autoloader) must not
+	 * raise: a monomorph name whose arguments violate the declared bounds simply
+	 * names a class that does not exist. Validate the supplied arguments against
+	 * the base's bounds here and report "not found" (NULL) on violation, instead
+	 * of letting zend_synthesize_monomorph fatal as the `new` / type-declaration
+	 * paths intentionally do. */
+	uint32_t bound_check_count = count < base->generic_parameters->count
+		? count : base->generic_parameters->count;
+	for (uint32_t i = 0; i < bound_check_count; i++) {
+		zend_type bound = base->generic_parameters->parameters[i].bound;
+		if (ZEND_TYPE_IS_SET(bound)
+				&& zend_check_generic_arg_satisfies_bound(base, args[i], base, bound) != INHERITANCE_SUCCESS) {
+			for (uint32_t j = 0; j < count; j++) zend_type_release(args[j], false);
+			efree(args);
+			return NULL;
+		}
 	}
 
 	zend_class_entry *mono = zend_synthesize_monomorph(base, args, count);
