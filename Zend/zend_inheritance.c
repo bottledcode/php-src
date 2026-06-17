@@ -905,6 +905,27 @@ static zend_type zend_substitute_leaf_type_param_origin(zend_type t, const zend_
 		}
 
 		zend_type result = args[ref->index];
+
+		/* When the binding is itself a concrete generic instantiation
+		 * (e.g. `T = DBox<L2<int>>`, supplied as a pre-erasure
+		 * NAMED_WITH_ARGS type), fold it to a plain CLASS reference to the
+		 * monomorph — the erased shape the runtime arg/property/return checks
+		 * understand. This mirrors the named-with-args branch below; without
+		 * it the substituted leaf keeps its NWA payload and zend_fetch_ce_from_type
+		 * reads that payload as a zend_string, dereferencing garbage (a bogus
+		 * multi-terabyte allocation, or a spurious TypeError at shallower depth). */
+		if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(result)
+				&& !zend_type_contains_type_parameter(result)) {
+			const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(result);
+			zend_string *canonical = zend_generic_canonical_class_name(
+				nwa->name, nwa->args, nwa->count);
+			bool result_nullable = (ZEND_TYPE_FULL_MASK(result) & _ZEND_TYPE_NULLABLE_BIT) != 0;
+			result = (zend_type) ZEND_TYPE_INIT_CLASS(canonical, 0, 0);
+			if (result_nullable) {
+				ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
+			}
+		}
+
 		if (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_NULLABLE_BIT) {
 			ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
 		}
