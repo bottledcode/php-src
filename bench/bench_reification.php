@@ -811,6 +811,222 @@ $bd5_ns = bench("new BX<...x5 nested...>  (depth 5)",                      'bnd_
 compare("delta: d3 vs d1               (3x deeper)", $bd3_ns, "d3", $bd1_ns, "d1");
 compare("delta: d5 vs d1               (5x deeper)", $bd5_ns, "d5", $bd1_ns, "d1");
 
+// --------------------------------------------------------------------------
+// Scenario 24: inference cost isolation — inferred call vs turbofish vs plain.
+// The commenter's concern: "inference is expensive". Inference is ~10 lines:
+// peek at Z_OBJCE_P(arg)->name for each unbound inferable slot. No
+// unification, no constraint-solving, no new compiler phase.
+// --------------------------------------------------------------------------
+
+// 24a: single-param inference with different class hierarchy depths
+class Shallow {}
+class Mid extends Shallow {}
+class Deep extends Mid {}
+
+function infer_id<T>(T $x): T { return $x; }
+function plain_id(object $x): object { return $x; }
+
+function bench_infer_shallow(int $n): void {
+    $v = new Shallow();
+    for ($i = 0; $i < $n; $i++) { infer_id($v); }
+}
+function bench_infer_deep_hierarchy(int $n): void {
+    $v = new Deep();
+    for ($i = 0; $i < $n; $i++) { infer_id($v); }
+}
+function bench_turbofish_shallow(int $n): void {
+    $v = new Shallow();
+    for ($i = 0; $i < $n; $i++) { infer_id::<Shallow>($v); }
+}
+function bench_plain_object(int $n): void {
+    $v = new Shallow();
+    for ($i = 0; $i < $n; $i++) { plain_id($v); }
+}
+
+// 24b: multi-param inference — the "int and float, T could be int|float" worry.
+// In this implementation, each parameter maps to exactly one T slot.
+// Scalars are NOT inferred (only objects). No ambiguity exists.
+class TypeA {}
+class TypeB {}
+class TypeC {}
+class TypeD {}
+
+function infer_two_params<T, U>(T $a, U $b): T { return $a; }
+function infer_three_params<T, U, V>(T $a, U $b, V $c): T { return $a; }
+function infer_four_params<T, U, V, W>(T $a, U $b, V $c, W $d): T { return $a; }
+function plain_four_params(TypeA $a, TypeB $b, TypeC $c, TypeD $d): TypeA { return $a; }
+
+function bench_infer_2param(int $n): void {
+    $a = new TypeA(); $b = new TypeB();
+    for ($i = 0; $i < $n; $i++) { infer_two_params($a, $b); }
+}
+function bench_infer_3param(int $n): void {
+    $a = new TypeA(); $b = new TypeB(); $c = new TypeC();
+    for ($i = 0; $i < $n; $i++) { infer_three_params($a, $b, $c); }
+}
+function bench_infer_4param(int $n): void {
+    $a = new TypeA(); $b = new TypeB(); $c = new TypeC(); $d = new TypeD();
+    for ($i = 0; $i < $n; $i++) { infer_four_params($a, $b, $c, $d); }
+}
+function bench_turbofish_4param(int $n): void {
+    $a = new TypeA(); $b = new TypeB(); $c = new TypeC(); $d = new TypeD();
+    for ($i = 0; $i < $n; $i++) { infer_four_params::<TypeA, TypeB, TypeC, TypeD>($a, $b, $c, $d); }
+}
+function bench_plain_4param(int $n): void {
+    $a = new TypeA(); $b = new TypeB(); $c = new TypeC(); $d = new TypeD();
+    for ($i = 0; $i < $n; $i++) { plain_four_params($a, $b, $c, $d); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 25: inference through inheritance chains — the "expensive when
+// nested in inheritance chains" worry. The monomorph for GenChild<int> is
+// synthesized once and cached in the class table. Inference reads the
+// already-resolved ce->name from the object — it doesn't walk chains.
+// --------------------------------------------------------------------------
+class GenBase<T> {
+    public function id(T $x): T { return $x; }
+}
+class GenMid<T> extends GenBase<T> {}
+class GenChild<T> extends GenMid<T> {}
+class GenGrandchild<T> extends GenChild<T> {}
+
+function infer_from_chain<T>(T $x): T { return $x; }
+
+function bench_infer_chain_d1(int $n): void {
+    $v = new GenBase::<int>();
+    for ($i = 0; $i < $n; $i++) { infer_from_chain($v); }
+}
+function bench_infer_chain_d2(int $n): void {
+    $v = new GenMid::<int>();
+    for ($i = 0; $i < $n; $i++) { infer_from_chain($v); }
+}
+function bench_infer_chain_d3(int $n): void {
+    $v = new GenChild::<int>();
+    for ($i = 0; $i < $n; $i++) { infer_from_chain($v); }
+}
+function bench_infer_chain_d4(int $n): void {
+    $v = new GenGrandchild::<int>();
+    for ($i = 0; $i < $n; $i++) { infer_from_chain($v); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 26: inferred call inside a generic function (forwarding). This is
+// the nested case: `outer<U>` calls `inner(u)` which infers T=U from the
+// runtime value. The inner call can't cache (inference depends on runtime
+// value), but the work per call is still just a ce->name read.
+// --------------------------------------------------------------------------
+function inner_infer<T>(T $x): T { return $x; }
+function outer_calls_inferred<U>(U $x): U { return inner_infer($x); }
+function outer_calls_turbofish<U>(U $x): U { return inner_infer::<U>($x); }
+function outer_plain(Foo $x): Foo { return $x; }
+
+function bench_nested_infer(int $n): void {
+    $f = new Foo();
+    for ($i = 0; $i < $n; $i++) { outer_calls_inferred::<Foo>($f); }
+}
+function bench_nested_turbofish(int $n): void {
+    $f = new Foo();
+    for ($i = 0; $i < $n; $i++) { outer_calls_turbofish::<Foo>($f); }
+}
+function bench_nested_plain(int $n): void {
+    $f = new Foo();
+    for ($i = 0; $i < $n; $i++) { outer_plain($f); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 27: bounded inference — the callee has `T : SomeBase`, so after
+// inferring T from the value's class, the bound must also be checked. This
+// is the same covariance check as turbofish, not an extra cost of inference.
+// --------------------------------------------------------------------------
+class Animal {}
+class Dog extends Animal {}
+class Puppy extends Dog {}
+
+function infer_bounded_obj<T : Animal>(T $x): T { return $x; }
+function turbofish_bounded_obj(Animal $x): Animal { return $x; }
+
+function bench_infer_bounded_shallow(int $n): void {
+    $v = new Dog();
+    for ($i = 0; $i < $n; $i++) { infer_bounded_obj($v); }
+}
+function bench_infer_bounded_deep(int $n): void {
+    $v = new Puppy();
+    for ($i = 0; $i < $n; $i++) { infer_bounded_obj($v); }
+}
+function bench_turbofish_bounded_equiv(int $n): void {
+    $v = new Dog();
+    for ($i = 0; $i < $n; $i++) { infer_bounded_obj::<Dog>($v); }
+}
+function bench_plain_bounded_equiv(int $n): void {
+    $v = new Dog();
+    for ($i = 0; $i < $n; $i++) { turbofish_bounded_obj($v); }
+}
+
+// --------------------------------------------------------------------------
+// Scenario 28: inference with monomorphised receiver in inheritance chain.
+// The object's ce->name is already the resolved monomorph name (e.g.
+// "GenChild<int>"). Inference just copies that string — no chain walking.
+// --------------------------------------------------------------------------
+function bench_infer_mono_receiver_d1(int $n): void {
+    $r = new GenBase::<int>();
+    $acc = 0;
+    for ($i = 0; $i < $n; $i++) { $acc = $r->id($acc); }
+}
+function bench_infer_mono_receiver_d4(int $n): void {
+    $r = new GenGrandchild::<int>();
+    $acc = 0;
+    for ($i = 0; $i < $n; $i++) { $acc = $r->id($acc); }
+}
+
+section("24. Inference cost isolation");
+$is_ns  = bench("infer_id(\$shallow)          — inferred, flat class",   'bench_infer_shallow');
+$idh_ns = bench("infer_id(\$deep)             — inferred, 3-deep class", 'bench_infer_deep_hierarchy');
+$ts_ns  = bench("infer_id::<Shallow>(\$v)     — turbofish equiv",        'bench_turbofish_shallow');
+$po_ns  = bench("plain_id(\$v)                — non-generic",            'bench_plain_object');
+compare("delta: inferred               vs turbofish",   $is_ns, "inf", $ts_ns, "tf");
+compare("delta: inferred               vs plain",       $is_ns, "inf", $po_ns, "plain");
+compare("delta: deep hierarchy class    vs shallow",     $idh_ns, "deep", $is_ns, "shallow");
+
+section("24b. Multi-param inference scaling");
+$i2_ns  = bench("infer_two_params(\$a,\$b)     — 2 params inferred",     'bench_infer_2param');
+$i3_ns  = bench("infer_three_params(\$a,\$b,\$c) — 3 params inferred",   'bench_infer_3param');
+$i4_ns  = bench("infer_four_params(\$a...\$d)  — 4 params inferred",     'bench_infer_4param');
+$t4_ns  = bench("turbofish::<A,B,C,D>(\$a...) — 4 params turbofish",    'bench_turbofish_4param');
+$p4_ns  = bench("plain_four_params(\$a...\$d)  — non-generic",           'bench_plain_4param');
+compare("delta: 4-param infer          vs 2-param infer",  $i4_ns, "4p", $i2_ns, "2p");
+compare("delta: 4-param infer          vs 4-param turbo",  $i4_ns, "inf", $t4_ns, "tf");
+compare("delta: 4-param infer          vs 4-param plain",  $i4_ns, "inf", $p4_ns, "plain");
+
+section("25. Inference through inheritance chains");
+$ic1_ns = bench("infer_from_chain(GenBase<int>)       — chain depth 1",  'bench_infer_chain_d1');
+$ic2_ns = bench("infer_from_chain(GenMid<int>)        — chain depth 2",  'bench_infer_chain_d2');
+$ic3_ns = bench("infer_from_chain(GenChild<int>)      — chain depth 3",  'bench_infer_chain_d3');
+$ic4_ns = bench("infer_from_chain(GenGrandchild<int>) — chain depth 4",  'bench_infer_chain_d4');
+compare("delta: chain d2               vs chain d1",    $ic2_ns, "d2", $ic1_ns, "d1");
+compare("delta: chain d4               vs chain d1",    $ic4_ns, "d4", $ic1_ns, "d1");
+
+section("26. Nested generic call with inner inference");
+$ni_ns  = bench("outer<Foo> → inner inferred           — inner infers",  'bench_nested_infer');
+$nt_ns  = bench("outer<Foo> → inner::<U> turbofish     — inner forwarded",'bench_nested_turbofish');
+$np_ns  = bench("outer_plain(\$f)                       — non-generic",   'bench_nested_plain');
+compare("delta: nested infer            vs nested turbo",  $ni_ns, "inf", $nt_ns, "tf");
+compare("delta: nested infer            vs plain",         $ni_ns, "inf", $np_ns, "plain");
+compare("delta: nested turbo            vs plain",         $nt_ns, "tf",  $np_ns, "plain");
+
+section("27. Bounded inference (covariance check)");
+$ibs_ns = bench("infer_bounded(Dog)          — shallow subtype",         'bench_infer_bounded_shallow');
+$ibd_ns = bench("infer_bounded(Puppy)        — deeper subtype",          'bench_infer_bounded_deep');
+$tbe_ns = bench("infer_bounded::<Dog>(Dog)   — turbofish+bound",         'bench_turbofish_bounded_equiv');
+$pbe_ns = bench("plain_bounded(Dog)          — non-generic typed",       'bench_plain_bounded_equiv');
+compare("delta: infer+bound             vs turbofish+bound", $ibs_ns, "inf", $tbe_ns, "tf");
+compare("delta: infer+bound             vs plain typed",     $ibs_ns, "inf", $pbe_ns, "plain");
+compare("delta: deeper subtype          vs shallow subtype", $ibd_ns, "deep", $ibs_ns, "shallow");
+
+section("28. Method dispatch on monomorphised inheritance chain receiver");
+$mrd1_ns = bench("GenBase<int>->id()           — chain depth 1",         'bench_infer_mono_receiver_d1');
+$mrd4_ns = bench("GenGrandchild<int>->id()     — chain depth 4",         'bench_infer_mono_receiver_d4');
+compare("delta: chain d4 receiver       vs chain d1",  $mrd4_ns, "d4", $mrd1_ns, "d1");
+
 $opcache_loaded = extension_loaded('Zend OPcache');
 $opcache_on = $opcache_loaded
     && function_exists('opcache_get_status')
