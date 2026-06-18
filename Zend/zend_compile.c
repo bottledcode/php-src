@@ -2078,6 +2078,21 @@ static zend_type zend_compile_pre_erasure_typename(zend_ast *ast)
 			/* All members folded into the scalar mask. */
 			efree(type_list);
 			ZEND_TYPE_FULL_MASK(result) |= merged_scalar_mask;
+		} else if (is_union && out_count == 1
+				&& (merged_scalar_mask & _ZEND_TYPE_MAY_BE_MASK & ~_ZEND_TYPE_NULLABLE_BIT) == 0) {
+			/* Degenerate union `T|null` (or `Box<int>|null`): collapse to the
+			 * single complex member carrying the nullable bit, the same shape
+			 * `?T` compiles to and that zend_substitute_leaf_type_param produces
+			 * for the substituted form. Keeping a one-element LIST here makes
+			 * `T|null` diverge from `?T` in the inheritance variance check: the
+			 * LIST escapes the bare-type-parameter fallback `?T` takes, so a
+			 * child's `T|null` ends up compared against the parent's erased
+			 * `mixed` and is wrongly rejected. */
+			result = type_list->types[0];
+			if (merged_scalar_mask & _ZEND_TYPE_NULLABLE_BIT) {
+				ZEND_TYPE_FULL_MASK(result) |= _ZEND_TYPE_NULLABLE_BIT;
+			}
+			efree(type_list);
 		} else {
 			type_list->num_types = out_count;
 			ZEND_TYPE_SET_PTR(result, type_list);
