@@ -7780,6 +7780,23 @@ ZEND_API zend_function *zend_synthesize_function_monomorph(
 		base->common.function_name, args, arity);
 	zend_string *lc_name = zend_string_tolower(display_name);
 
+	/* A method's mangled name carries only the method name + type args, so the
+	 * same method name in two classes collides (E::pick<...> and F::pick<...>
+	 * both mangle to pick<...>). Qualify the EG(function_table) key with the
+	 * lowercased declaring scope so distinct classes get distinct monomorphs.
+	 * The "::" can never appear in a free-function monomorph name, so a
+	 * scope-qualified key is never mistaken for a by-name-dispatchable one. */
+	if (base->common.scope) {
+		zend_string *lc_scope = zend_string_tolower(base->common.scope->name);
+		zend_string *scoped = zend_string_concat3(
+			ZSTR_VAL(lc_scope), ZSTR_LEN(lc_scope),
+			"::", 2,
+			ZSTR_VAL(lc_name), ZSTR_LEN(lc_name));
+		zend_string_release(lc_scope);
+		zend_string_release(lc_name);
+		lc_name = scoped;
+	}
+
 	zend_function *existing = zend_hash_find_ptr(EG(function_table), lc_name);
 	if (existing) {
 		zend_string_release(display_name);
