@@ -5,7 +5,7 @@ Variance: a generic class referencing itself by name in a covariant return posit
 final readonly class Pair<+L, +R> {
     public function __construct(public L $left, public R $right) {}
     public function swap(): Pair<R, L> {
-        return new Pair($this->right, $this->left);
+        return new Pair::<R, L>($this->right, $this->left);
     }
 }
 

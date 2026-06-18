@@ -6112,20 +6112,32 @@ ZEND_VM_HANDLER(68, ZEND_NEW, UNUSED|CLASS_FETCH|CONST|VAR, UNUSED|CACHE_SLOT, N
 		ce = Z_CE_P(EX_VAR(opline->op1.var));
 	}
 
-	/* Naked `new` of a bare generic class (via `new static()`, `new $name`,
-	 * or any path that didn't go through compile-time canonical-name rewrite).
-	 * Skip when ZEND_VERIFY_GENERIC_ARGUMENTS follows — that opcode handles
-	 * the synthesis-and-swap for the turbofish path. Otherwise: if every
-	 * type parameter has a default, synthesize and use the defaults monomorph.
-	 * For `new static()` / lexical paths with no defaults, fall back to a
-	 * bare instance (preserves the lexical-self semantic for generic classes
-	 * whose authors didn't declare defaults). For dynamic `new $name()` we
-	 * throw — the caller spelled out a generic class by name and a bare
-	 * instance with erased T is almost never what they want.
+	/* Naked `new` of a bare generic class that didn't go through the
+	 * compile-time canonical-name rewrite: `new self()`/`new static()`,
+	 * `new $name`, and `new C()` when C was declared at runtime (it uses a trait
+	 * or a parameterized `implements`, so the compiler couldn't see its ce to
+	 * rewrite the name). A monomorph has no generic_parameters, so once the
+	 * rewrite (or the synthesis below) has run, ce is concrete and this block is
+	 * a no-op. Skip when ZEND_VERIFY_GENERIC_ARGUMENTS follows — that opcode
+	 * handles the synthesis-and-swap for the turbofish path.
 	 *
-	 * OP1_TYPE distinguishes: IS_UNUSED → static/self/parent (lenient);
-	 * IS_VAR → dynamic name resolved via FETCH_CLASS (strict). */
-	if (UNEXPECTED(OP1_TYPE != IS_CONST && ce->generic_parameters
+	 * Resolution, in order:
+	 *   - every type parameter has a default -> the defaults monomorph, so all
+	 *     naked-new spellings agree on identity (frame-independent; cached);
+	 *   - `new self()` -> the monomorph carrying the executing frame's binding,
+	 *     e.g. `new self()` in a `C<int>` method yields `C<int>`. `self` names
+	 *     "this class with my type arguments", so this is unambiguous and is the
+	 *     clone idiom (frame-dependent; not cached). `static` already resolves
+	 *     to the called scope before this block; only a `static` that lands on
+	 *     the bare generic itself reaches here, with no binding;
+	 *   - otherwise it is an error to name a generic class with no type
+	 *     arguments and no in-scope binding — the same rule the compiler
+	 *     enforces for an early-bound `new C()`. A by-name `new C()` is genuinely
+	 *     ambiguous (its type arguments could differ from the frame's, as in a
+	 *     `swap(): Pair<R,L>`), so it must be spelled `new C::<...>()`. Dynamic
+	 *     `new $name()` keeps its own diagnostic; everything else gets "type
+	 *     parameter X has no default" from zend_get_defaults_monomorph. */
+	if (UNEXPECTED(ce->generic_parameters
 			&& (opline + 1)->opcode != ZEND_VERIFY_GENERIC_ARGUMENTS)) {
 		if (ce->ce_flags & ZEND_ACC_GENERIC_ALL_DEFAULTS) {
 			ce = zend_synthesize_monomorph(ce, NULL, 0);
@@ -6133,15 +6145,33 @@ ZEND_VM_HANDLER(68, ZEND_NEW, UNUSED|CLASS_FETCH|CONST|VAR, UNUSED|CACHE_SLOT, N
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				HANDLE_EXCEPTION();
 			}
-		} else if (OP1_TYPE == IS_VAR) {
-			zend_throw_error(NULL,
-				"Cannot instantiate generic class %s without type arguments "
-				"via dynamic class name; no defaults declared",
-				ZSTR_VAL(ce->name));
-			ZVAL_UNDEF(EX_VAR(opline->result.var));
-			HANDLE_EXCEPTION();
+			if (OP1_TYPE == IS_CONST) {
+				/* Frame-independent: re-point the inline cache at the monomorph
+				 * so later instantiations resolve it directly (the monomorph has
+				 * no generic_parameters, so this block won't fire again). */
+				CACHE_PTR(opline->op2.num, ce);
+			}
+		} else {
+			/* No defaults: only `new self()` can be resolved, from the frame. */
+			zend_class_entry *mono = (OP1_TYPE == IS_UNUSED
+					&& (opline->op1.num & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_SELF)
+				? zend_resolve_lexical_self_monomorph(ce, execute_data)
+				: NULL;
+			if (mono) {
+				ce = mono;
+			} else {
+				if (OP1_TYPE == IS_VAR) {
+					zend_throw_error(NULL,
+						"Cannot instantiate generic class %s without type arguments "
+						"via dynamic class name; no defaults declared",
+						ZSTR_VAL(ce->name));
+				} else {
+					(void) zend_get_defaults_monomorph(ce);
+				}
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				HANDLE_EXCEPTION();
+			}
 		}
-		/* IS_UNUSED with no defaults: fall through with the bare ce. */
 	}
 
 	result = EX_VAR(opline->result.var);

@@ -27,7 +27,10 @@ var_dump($intCls::whoAmI());
 var_dump($strCls::whoAmI());
 var_dump(StrBox::whoAmI());
 
-// static::$prop sees the late-bound class's storage.
+// static::$prop sees the late-bound class's storage. Monomorphs share the
+// base's static property (Box<int> and Box<string> are one slot); StrBox
+// redeclares $count, so it gets its own — exactly as a subclass does in
+// stock PHP.
 $intCls::bump();
 $intCls::bump();
 $strCls::bump();
@@ -50,8 +53,8 @@ var_dump($b::class);
 string(8) "Box<int>"
 string(11) "Box<string>"
 string(6) "StrBox"
-int(2)
-int(1)
+int(3)
+int(3)
 int(101)
 string(3) "Box"
 string(6) "StrBox"

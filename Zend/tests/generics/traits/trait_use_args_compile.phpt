@@ -8,10 +8,10 @@ trait Holder<X> {
 class Box<T : object> {
     use Holder<T>;
 }
-$b = new Box;
+$b = new Box::<stdClass>();
 echo get_class($b), "\n";
 echo "ok\n";
 ?>
 --EXPECT--
-Box
+Box<stdClass>
 ok
