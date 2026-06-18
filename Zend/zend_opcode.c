@@ -880,8 +880,13 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 	 * The NEW form of the same opcodes (op1_type != IS_UNUSED) instead caches a
 	 * resolved monomorph zend_class_entry* in slot[0]. That entry is owned by
 	 * EG(class_table), NOT by the cache slot, so it must be left untouched here
-	 * — freeing it as a type_arg_table corrupts the heap. */
+	 * — freeing it as a type_arg_table corrupts the heap.
+	 *
+	 * Gate on ZEND_ACC_HEAP_RT_CACHE: SHM/preload op_arrays share the per-request
+	 * map_ptr cache region, already freed by the time they are destroyed — reading
+	 * the stale cache here would be a use-after-free. */
 	if ((op_array->fn_flags2 & ZEND_ACC2_HAS_GENERIC_CALL_OPS)
+	 && (op_array->fn_flags & ZEND_ACC_HEAP_RT_CACHE)
 	 && op_array->opcodes && ZEND_MAP_PTR(op_array->run_time_cache)) {
 		char *cache_buf = (char *) ZEND_MAP_PTR_GET(op_array->run_time_cache);
 		if (cache_buf) {

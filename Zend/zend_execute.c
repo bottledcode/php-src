@@ -4303,7 +4303,10 @@ static zend_always_inline void i_free_compiled_variables(zend_execute_data *exec
 		count--;
 	}
 	if (UNEXPECTED(execute_data->type_args)) {
-		zend_type_arg_table_destroy(execute_data->type_args);
+		/* Persisted monomorph tables are not frame-owned; only free request-built tables. */
+		if (!execute_data->type_args->persisted) {
+			zend_type_arg_table_destroy(execute_data->type_args);
+		}
 		execute_data->type_args = NULL;
 	}
 }

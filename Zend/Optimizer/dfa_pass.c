@@ -27,6 +27,7 @@
 #include "zend_call_graph.h"
 #include "zend_inference.h"
 #include "zend_dump.h"
+#include "zend_inheritance.h"
 
 #ifndef ZEND_DEBUG_DFA
 # define ZEND_DEBUG_DFA ZEND_DEBUG
@@ -401,6 +402,601 @@ static bool variable_defined_or_used_in_range(zend_ssa *ssa, int var, int start,
 		start++;
 	}
 	return false;
+}
+
+/* SSA arg types reflect the call-site value, not the declared type, so inferring T from them is sound. */
+static bool zend_dfa_send_concrete_type(
+		const zend_op_array *op_array, const zend_ssa *ssa,
+		const zend_op *send, zend_type *out)
+{
+	/* By-ref / unusual sends: the callee could observe a reference; skip. */
+	if (send->opcode == ZEND_SEND_REF
+			|| send->opcode == ZEND_SEND_VAR_NO_REF
+			|| send->opcode == ZEND_SEND_VAR_NO_REF_EX
+			|| send->opcode == ZEND_SEND_USER) {
+		return false;
+	}
+
+	if (send->op1_type == IS_CONST) {
+		const zval *zv = CT_CONSTANT_EX(op_array, send->op1.constant);
+		switch (Z_TYPE_P(zv)) {
+			case IS_LONG:   *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_LONG, 0, 0);   return true;
+			case IS_DOUBLE: *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_DOUBLE, 0, 0); return true;
+			case IS_STRING: *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_STRING, 0, 0); return true;
+			default:        return false;
+		}
+	}
+
+	int var = ssa->ops[send - op_array->opcodes].op1_use;
+	if (var < 0) {
+		return false;
+	}
+	const zend_ssa_var_info *info = &ssa->var_info[var];
+	if (info->type & (MAY_BE_UNDEF | MAY_BE_REF)) {
+		return false;
+	}
+	uint32_t pure = info->type & MAY_BE_ANY;
+	switch (pure) {
+		case MAY_BE_LONG:   *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_LONG, 0, 0);   return true;
+		case MAY_BE_DOUBLE: *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_DOUBLE, 0, 0); return true;
+		case MAY_BE_STRING: *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_STRING, 0, 0); return true;
+	}
+	/* Exact class only: !is_instanceof matches what runtime inference binds T to. */
+	if (pure == MAY_BE_OBJECT && info->ce && !info->is_instanceof) {
+		*out = (zend_type) ZEND_TYPE_INIT_CLASS(zend_string_copy(info->ce->name), 0, 0);
+		return true;
+	}
+	return false;
+}
+
+static zend_op *zend_dfa_find_call_verify(zend_op_array *op_array, const zend_call_info *call_info)
+{
+	if (!call_info->caller_call_opline || !call_info->caller_init_opline) {
+		return NULL;
+	}
+	zend_op *p = call_info->caller_call_opline;
+	while (p > call_info->caller_init_opline) {
+		p--;
+		if (p->opcode == ZEND_NOP || p->opcode == ZEND_EXT_NOP
+				|| p->opcode == ZEND_EXT_FCALL_BEGIN) {
+			continue;
+		}
+		/* VERIFY extended_value 0 = speculative non-turbofish site, != 0 = turbofish; INSTALL always turbofish. */
+		if ((p->opcode == ZEND_VERIFY_GENERIC_ARGUMENTS
+				|| p->opcode == ZEND_INSTALL_GENERIC_ARGS)
+				&& p->op1_type == IS_UNUSED) {
+			return p;
+		}
+		return NULL;
+	}
+	return NULL;
+}
+
+static bool zend_dfa_try_direct_dispatch(zend_op_array *op_array,
+		const zend_call_info *ci, zend_op *site, const zend_function *fbc)
+{
+	if (!op_array->generic_types || !op_array->generic_types->turbofish_args) {
+		return false;
+	}
+	zend_op *init = ci->caller_init_opline;
+	if (!init || (init->opcode != ZEND_INIT_FCALL
+			&& init->opcode != ZEND_INIT_FCALL_BY_NAME
+			&& init->opcode != ZEND_INIT_NS_FCALL_BY_NAME)) {
+		return false;
+	}
+	zend_turbofish_args_entry *entry = zend_hash_index_find_ptr(
+		op_array->generic_types->turbofish_args, site->extended_value);
+	if (!entry || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(entry->args_box)) {
+		return false;
+	}
+	const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(entry->args_box);
+	for (uint32_t i = 0; i < nwa->count; i++) {
+		if (zend_type_contains_type_parameter(nwa->args[i])) {
+			return false;
+		}
+	}
+
+	zend_string *mangled = zend_generic_canonical_class_name(
+		fbc->common.function_name, nwa->args, nwa->count);
+	zend_string *lc = zend_string_tolower(mangled);
+	zend_string_hash_val(mangled);
+	zend_string_hash_val(lc);
+	zval zv;
+	ZVAL_STR(&zv, mangled);
+	uint32_t lit = zend_optimizer_add_literal(op_array, &zv);  /* orig name */
+	ZVAL_STR(&zv, lc);
+	zend_optimizer_add_literal(op_array, &zv);                 /* lc name at lit+1 */
+
+	init->opcode = ZEND_INIT_FCALL_BY_NAME;
+	init->op1_type = IS_UNUSED;
+	init->op1.num = 0;
+	init->op2_type = IS_CONST;
+	init->op2.constant = lit;
+	/* result.num keeps the existing 1-slot function cache. */
+	MAKE_NOP(site);
+	return true;
+}
+
+/* On a final class the called scope is always one of its own monomorphs, so static ≡ the own-params turbofish. */
+static uint32_t zend_dfa_selfize_generic_new(zend_op_array *op_array)
+{
+	zend_class_entry *scope = op_array->scope;
+	if (!scope || !scope->generic_parameters
+			|| !(scope->ce_flags & ZEND_ACC_FINAL)
+			|| !op_array->generic_types || !op_array->generic_types->turbofish_args) {
+		return 0;
+	}
+	uint32_t pcount = scope->generic_parameters->count;
+	uint32_t changed = 0;
+	for (uint32_t i = 0; i < op_array->last; i++) {
+		zend_op *verify = &op_array->opcodes[i];
+		if (verify->opcode != ZEND_VERIFY_GENERIC_ARGUMENTS
+				|| verify->op1_type == IS_UNUSED
+				|| verify->extended_value == 0) {
+			continue;
+		}
+		zend_op *newop = NULL;
+		for (uint32_t j = i; j > 0; j--) {
+			zend_op *p = &op_array->opcodes[j - 1];
+			if (p->opcode == ZEND_NEW
+					&& p->result_type == IS_TMP_VAR
+					&& p->result.var == verify->op1.var) {
+				newop = p;
+				break;
+			}
+		}
+		if (!newop || newop->op1_type != IS_CONST) {
+			continue;
+		}
+		zend_string *cname = Z_STR(op_array->literals[newop->op1.constant]);
+		if (!zend_string_equals_ci(cname, scope->name)) {
+			continue;
+		}
+		zend_turbofish_args_entry *entry = zend_hash_index_find_ptr(
+			op_array->generic_types->turbofish_args, verify->extended_value);
+		if (!entry || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(entry->args_box)) {
+			continue;
+		}
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(entry->args_box);
+		if (nwa->count != pcount) {
+			continue;
+		}
+		bool identity = true;
+		for (uint32_t a = 0; a < nwa->count; a++) {
+			if (!ZEND_TYPE_HAS_TYPE_PARAMETER(nwa->args[a])
+					|| (ZEND_TYPE_FULL_MASK(nwa->args[a]) & MAY_BE_NULL)) {
+				identity = false;
+				break;
+			}
+			const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(nwa->args[a]);
+			if (ref->origin != ZEND_GENERIC_ORIGIN_CLASS_LIKE || ref->index != a) {
+				identity = false;
+				break;
+			}
+		}
+		if (!identity) {
+			continue;
+		}
+		newop->op1_type = IS_UNUSED;
+		newop->op1.num = ZEND_FETCH_CLASS_STATIC | ZEND_FETCH_CLASS_EXCEPTION;
+		newop->op2_type = IS_UNUSED;
+		newop->op2.num = 0;
+		MAKE_NOP(verify);
+		changed++;
+	}
+	return changed;
+}
+
+static uint32_t zend_dfa_optimize_generic_calls(zend_op_array *op_array, zend_ssa *ssa)
+{
+	const zend_func_info *func_info = ZEND_FUNC_INFO(op_array);
+	uint32_t changed = 0;
+
+	if (!func_info || !func_info->callee_info) {
+		return 0;
+	}
+
+	for (const zend_call_info *ci = func_info->callee_info; ci; ci = ci->next_callee) {
+		const zend_function *fbc = ci->callee_func;
+		if (!fbc || ci->is_prototype || ci->named_args || ci->send_unpack) {
+			continue;
+		}
+		if (!ZEND_USER_CODE(fbc->common.type)) {
+			continue;
+		}
+		const zend_generic_parameter_list *params = fbc->op_array.generic_parameters;
+		if (!params || params->count == 0) {
+			continue;
+		}
+
+		zend_op *verify = zend_dfa_find_call_verify(op_array, ci);
+		if (!verify) {
+			continue;
+		}
+
+		/* Turbofish site needs no value inference, so runs even for callees with no inferable params. */
+		if (verify->extended_value != 0) {
+			if (zend_dfa_try_direct_dispatch(op_array, ci, verify, fbc)) {
+				changed++;
+				continue;
+			}
+			uint8_t opcode = zend_generic_try_install_resolved_turbofish(
+				op_array, fbc, verify->extended_value, verify->op2.num);
+			if (opcode != ZEND_NOP) {
+				verify->opcode = opcode;
+				changed++;
+			}
+			continue;
+		}
+
+		if (params->inferable_mask == 0
+				|| !fbc->op_array.generic_types || !fbc->op_array.generic_types->parameters) {
+			continue;
+		}
+
+		uint32_t total = params->count;
+		uint32_t required = 0;
+		while (required < total
+				&& !ZEND_TYPE_IS_SET(params->parameters[required].default_type)) {
+			required++;
+		}
+		if (total > ZEND_GENERIC_MAX_PARAMS) {
+			continue;
+		}
+
+		/* Bare top-level T only, matching zend_build_generic_call_type_args. */
+		int arg_pos_for_gp[ZEND_GENERIC_MAX_PARAMS];
+		for (uint32_t i = 0; i < total; i++) {
+			arg_pos_for_gp[i] = -1;
+		}
+		HashTable *pre = fbc->op_array.generic_types->parameters;
+		zend_ulong arg_idx;
+		zend_type *pe;
+		ZEND_HASH_FOREACH_NUM_KEY_PTR(pre, arg_idx, pe) {
+			if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe)) continue;
+			if (ZEND_TYPE_FULL_MASK(*pe) & MAY_BE_NULL) continue;
+			const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pe);
+			if (ref->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) continue;
+			if (ref->index >= total) continue;
+			if (arg_pos_for_gp[ref->index] == -1 && arg_idx < ci->num_args) {
+				arg_pos_for_gp[ref->index] = (int) arg_idx;
+			}
+		} ZEND_HASH_FOREACH_END();
+
+		zend_type inferred[ZEND_GENERIC_MAX_PARAMS];
+		uint32_t arity = 0;
+		for (uint32_t g = 0; g < total; g++) {
+			int pos = arg_pos_for_gp[g];
+			if (pos < 0 || !ci->arg_info[pos].opline) {
+				break;
+			}
+			zend_type entry;
+			if (!zend_dfa_send_concrete_type(op_array, ssa, ci->arg_info[pos].opline, &entry)) {
+				break;
+			}
+			inferred[arity++] = entry;
+		}
+		/* arity 0 would underflow ZEND_TYPE_NAMED_WITH_ARGS_SIZE; stay generic. */
+		if (arity == 0 || arity < required) {
+			for (uint32_t i = 0; i < arity; i++) {
+				zend_type_release(inferred[i], /* persistent */ false);
+			}
+			continue;
+		}
+
+		uint32_t args_id = 0;
+		uint8_t opcode = zend_generic_install_inferred_call(
+			op_array, fbc, inferred, arity, &args_id);
+		if (opcode == ZEND_NOP) {
+			continue;
+		}
+		verify->opcode = opcode;
+		verify->op2.num = arity;
+		verify->extended_value = args_id;
+		zend_dfa_try_direct_dispatch(op_array, ci, verify, fbc);
+		changed++;
+	}
+
+	return changed;
+}
+
+static uint32_t zend_aot_rewrite_new_sites(zend_op_array *op_array)
+{
+	if (!op_array->generic_types || !op_array->generic_types->turbofish_args
+			|| !op_array->generic_types->monomorph_type_args) {
+		return 0;
+	}
+	const zend_type_arg_table *binds = op_array->generic_types->monomorph_type_args;
+	if (binds->count > ZEND_GENERIC_MAX_PARAMS) {
+		return 0;
+	}
+	zend_type bindv[ZEND_GENERIC_MAX_PARAMS];
+	uint32_t bindc = binds->count;
+	for (uint32_t i = 0; i < bindc; i++) {
+		const zend_type *t = zend_type_arg_entry_type(&binds->entries[i]);
+		bindv[i] = t ? *t : (zend_type) ZEND_TYPE_INIT_NONE(0);
+	}
+
+	uint32_t changed = 0;
+	for (uint32_t i = 0; i < op_array->last; i++) {
+		zend_op *verify = &op_array->opcodes[i];
+		if (verify->opcode != ZEND_VERIFY_GENERIC_ARGUMENTS
+				|| verify->op1_type == IS_UNUSED
+				|| verify->extended_value == 0) {
+			continue;
+		}
+		zend_op *newop = NULL;
+		for (uint32_t j = i; j > 0; j--) {
+			zend_op *p = &op_array->opcodes[j - 1];
+			if (p->opcode == ZEND_NEW
+					&& p->result_type == IS_TMP_VAR
+					&& p->result.var == verify->op1.var) {
+				newop = p;
+				break;
+			}
+		}
+		if (!newop || newop->op1_type != IS_CONST) {
+			continue; /* self/static/dynamic base: leave the runtime VERIFY. */
+		}
+
+		zend_turbofish_args_entry *entry = zend_hash_index_find_ptr(
+			op_array->generic_types->turbofish_args, verify->extended_value);
+		if (!entry || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(entry->args_box)) {
+			continue;
+		}
+		const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(entry->args_box);
+		if (nwa->count == 0 || nwa->count > ZEND_GENERIC_MAX_PARAMS) {
+			continue;
+		}
+		zend_type resolved[ZEND_GENERIC_MAX_PARAMS];
+		bool ok = true;
+		for (uint32_t a = 0; a < nwa->count; a++) {
+			zend_type r = bindc
+				? zend_substitute_function_type_param(nwa->args[a], bindv, bindc)
+				: nwa->args[a];
+			if (zend_type_contains_type_parameter(r)) {
+				ok = false;
+				break;
+			}
+			resolved[a] = r;
+		}
+		if (!ok) {
+			continue;
+		}
+
+		zend_string *base_name = Z_STR(op_array->literals[newop->op1.constant]);
+		zend_string *canonical = zend_generic_canonical_class_name(
+			base_name, resolved, nwa->count);
+		zend_string *lc = zend_string_tolower(canonical);
+		zend_string_hash_val(canonical);
+		zend_string_hash_val(lc);
+
+		zval zv;
+		ZVAL_STR(&zv, canonical);
+		uint32_t lit = zend_optimizer_add_literal(op_array, &zv);  /* full name */
+		ZVAL_STR(&zv, lc);
+		zend_optimizer_add_literal(op_array, &zv);                 /* lc at lit+1 */
+
+		newop->op1.constant = lit;     /* keep op2.num cache slot (caches mono ce) */
+		MAKE_NOP(verify);
+		changed++;
+	}
+	return changed;
+}
+
+/* Per-monomorph ONCE: re-running zend_optimize_script would corrupt SSA. */
+static void zend_aot_optimize_monomorph(zend_op_array *op_array, zend_script *script, zend_long opt_level)
+{
+	if (op_array->last_try_catch) {
+		/* dfa bails on try/catch; do the SSA-free class-`new` rewrite, leave the rest generic. */
+		zend_revert_pass_two(op_array);
+		zend_aot_rewrite_new_sites(op_array);
+		zend_redo_pass_two(op_array);
+		return;
+	}
+	zend_optimizer_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.arena = zend_arena_create(64 * 1024);
+	ctx.script = script;
+	ctx.optimization_level = opt_level;
+
+	zend_func_info *func_info = zend_arena_calloc(&ctx.arena, 1, sizeof(zend_func_info));
+	ZEND_SET_FUNC_INFO(op_array, func_info);
+
+	zend_revert_pass_two(op_array);
+	zend_aot_rewrite_new_sites(op_array);
+	zend_analyze_calls(&ctx.arena, script, 0, op_array, func_info);
+	func_info->call_map = zend_build_call_map(&ctx.arena, func_info, op_array);
+	if (zend_dfa_analyze_op_array(op_array, &ctx, &func_info->ssa) == SUCCESS) {
+		zend_dfa_optimize_op_array(op_array, &ctx, &func_info->ssa, func_info->call_map);
+	}
+	zend_redo_pass_two(op_array);
+
+	ZEND_SET_FUNC_INFO(op_array, NULL);
+	zend_arena_destroy(ctx.arena);
+}
+
+/* Returns the case-preserved (+0) name, not the lc one: arg_info needs the original case. */
+static zend_string *zend_aot_mangled_call_name(const zend_op_array *op_array, const zend_op *op)
+{
+	if (op->op2_type != IS_CONST) {
+		return NULL;
+	}
+	zend_string *display;
+	if (op->opcode == ZEND_INIT_FCALL_BY_NAME || op->opcode == ZEND_INIT_NS_FCALL_BY_NAME) {
+		display = Z_STR_P(RT_CONSTANT(op, op->op2));
+	} else {
+		return NULL;
+	}
+	return memchr(ZSTR_VAL(display), '<', ZSTR_LEN(display)) ? display : NULL;
+}
+
+/* Synthesizes each direct-dispatch callee; its own calls become the next round's work (fixpoint). */
+ZEND_API uint32_t zend_aot_monomorphize_script(zend_script *script, zend_long opt_level)
+{
+	/* Collect names first: synthesis rehashes function_table mid-iteration. */
+	zend_string *wanted[4096];
+	uint32_t want_count = 0;
+	zend_op_array *op_array;
+	/* wanted[] holds display names; table is keyed by lc, so lowercase only for the existence check. */
+	#define ZEND_AOT_SCAN_OPS(oa) do { \
+		zend_op_array *zoa = (oa); \
+		if (zoa->type == ZEND_USER_FUNCTION && zoa->opcodes) { \
+			for (uint32_t _i = 0; _i < zoa->last && want_count < (sizeof(wanted)/sizeof(wanted[0])); _i++) { \
+				zend_string *_disp = zend_aot_mangled_call_name(zoa, &zoa->opcodes[_i]); \
+				if (_disp) { \
+					zend_string *_lc = zend_string_tolower(_disp); \
+					if (!zend_hash_exists(&script->function_table, _lc)) { \
+						wanted[want_count++] = _disp; \
+					} \
+					zend_string_release(_lc); \
+				} \
+			} \
+		} \
+	} while (0)
+	ZEND_HASH_MAP_FOREACH_PTR(&script->function_table, op_array) {
+		ZEND_AOT_SCAN_OPS(op_array);
+	} ZEND_HASH_FOREACH_END();
+	zend_class_entry *ce;
+	ZEND_HASH_MAP_FOREACH_PTR(&script->class_table, ce) {
+		zend_function *m;
+		ZEND_HASH_MAP_FOREACH_PTR(&ce->function_table, m) {
+			ZEND_AOT_SCAN_OPS(&m->op_array);
+		} ZEND_HASH_FOREACH_END();
+	} ZEND_HASH_FOREACH_END();
+	#undef ZEND_AOT_SCAN_OPS
+
+	zend_op_array *new_monos[4096];
+	uint32_t new_count = 0;
+	for (uint32_t i = 0; i < want_count; i++) {
+		zend_string *lc = zend_string_tolower(wanted[i]);
+		bool exists = zend_hash_exists(&script->function_table, lc);
+		zend_string_release(lc);
+		if (exists) {
+			continue; /* synthesized as a duplicate request earlier this round. */
+		}
+		zend_function *mono = zend_synthesize_specialized_monomorph_by_name(
+			&script->function_table, wanted[i]);
+		if (mono && new_count < (sizeof(new_monos)/sizeof(new_monos[0]))) {
+			new_monos[new_count++] = &mono->op_array;
+		}
+	}
+
+	for (uint32_t i = 0; i < new_count; i++) {
+		zend_aot_optimize_monomorph(new_monos[i], script, opt_level);
+	}
+	return new_count;
+}
+
+/* Upgrade INIT_FCALL_BY_NAME -> INIT_FCALL (+ DO_UCALL): safe since AOT persists the callee. */
+static zend_always_inline bool zend_aot_is_call_open(uint8_t opcode)
+{
+	switch (opcode) {
+		case ZEND_INIT_FCALL:
+		case ZEND_INIT_FCALL_BY_NAME:
+		case ZEND_INIT_NS_FCALL_BY_NAME:
+		case ZEND_INIT_METHOD_CALL:
+		case ZEND_INIT_STATIC_METHOD_CALL:
+		case ZEND_INIT_DYNAMIC_CALL:
+		case ZEND_INIT_USER_CALL:
+		case ZEND_INIT_PARENT_PROPERTY_HOOK_CALL:
+		case ZEND_NEW:
+			return true;
+		default:
+			return false;
+	}
+}
+
+static uint32_t zend_aot_upgrade_op_array_to_ucall(zend_op_array *op_array, zend_script *script)
+{
+	if (!op_array->opcodes) {
+		return 0;
+	}
+	/* Nesting stack matches each call-open to its closing DO_FCALL*; fbc resolved at INIT for the SENDs. */
+	struct { uint32_t init_i; zend_function *fbc; } stack[512];
+	uint32_t sp = 0;
+	uint32_t changed = 0;
+	for (uint32_t i = 0; i < op_array->last; i++) {
+		zend_op *op = &op_array->opcodes[i];
+		if (zend_aot_is_call_open(op->opcode)) {
+			if (sp >= sizeof(stack)/sizeof(stack[0])) {
+				return changed; /* pathological nesting — stop, stay correct. */
+			}
+			/* Both by-name forms keep the registered lc name at the +1 literal. */
+			zend_function *fbc = NULL;
+			if ((op->opcode == ZEND_INIT_FCALL_BY_NAME
+					|| op->opcode == ZEND_INIT_NS_FCALL_BY_NAME)
+					&& op->op2_type == IS_CONST) {
+				zend_string *lc = Z_STR_P(RT_CONSTANT(op, op->op2) + 1);
+				if (memchr(ZSTR_VAL(lc), '<', ZSTR_LEN(lc))) {
+					zend_function *f = zend_hash_find_ptr(&script->function_table, lc);
+					if (f && f->type == ZEND_USER_FUNCTION) {
+						fbc = f;
+					}
+				}
+			}
+			stack[sp].init_i = i;
+			stack[sp].fbc = fbc;
+			sp++;
+			continue;
+		}
+		if (op->opcode == ZEND_CALLABLE_CONVERT) {
+			if (sp > 0) sp--; /* first-class callable closes its frame, no DO. */
+			continue;
+		}
+		if (sp > 0 && stack[sp - 1].fbc
+				&& op->opcode == ZEND_SEND_VAR_EX
+				&& op->op2_type != IS_CONST
+				&& !ARG_SHOULD_BE_SENT_BY_REF(stack[sp - 1].fbc, op->op2.num)) {
+			op->opcode = ZEND_SEND_VAR;
+			zend_vm_set_opcode_handler(op);
+		}
+		bool is_do = op->opcode == ZEND_DO_FCALL || op->opcode == ZEND_DO_FCALL_BY_NAME
+			|| op->opcode == ZEND_DO_ICALL || op->opcode == ZEND_DO_UCALL;
+		if (!is_do || sp == 0) {
+			continue;
+		}
+		zend_function *fbc = stack[sp - 1].fbc;
+		zend_op *init = &op_array->opcodes[stack[sp - 1].init_i];
+		sp--;
+		if (!fbc) {
+			continue; /* not a resolved monomorph dispatch site. */
+		}
+		init->opcode = ZEND_INIT_FCALL;
+		init->op1_type = IS_UNUSED;
+		init->op1.num = zend_vm_calc_used_stack(init->extended_value, fbc);
+		/* INIT_FCALL reads op2 directly: advance one zval to the +1 lc literal it resolves. */
+		init->op2.constant += sizeof(zval);
+		zend_vm_set_opcode_handler(init);
+
+		/* Skip deprecated/nodiscard (as zend_get_call_op does) so warnings still fire. */
+		if (op->opcode == ZEND_DO_FCALL_BY_NAME
+				&& !(fbc->common.fn_flags & (ZEND_ACC_DEPRECATED | ZEND_ACC_NODISCARD))) {
+			op->opcode = ZEND_DO_UCALL;
+			zend_vm_set_opcode_handler(op);
+		}
+		changed++;
+	}
+	return changed;
+}
+
+ZEND_API uint32_t zend_aot_upgrade_dispatch_to_ucall(zend_script *script)
+{
+	uint32_t changed = 0;
+	zend_op_array *op_array;
+	ZEND_HASH_MAP_FOREACH_PTR(&script->function_table, op_array) {
+		changed += zend_aot_upgrade_op_array_to_ucall(op_array, script);
+	} ZEND_HASH_FOREACH_END();
+	zend_class_entry *ce;
+	ZEND_HASH_MAP_FOREACH_PTR(&script->class_table, ce) {
+		zend_function *m;
+		ZEND_HASH_MAP_FOREACH_PTR(&ce->function_table, m) {
+			if (m->type == ZEND_USER_FUNCTION) {
+				changed += zend_aot_upgrade_op_array_to_ucall(&m->op_array, script);
+			}
+		} ZEND_HASH_FOREACH_END();
+	} ZEND_HASH_FOREACH_END();
+	return changed;
 }
 
 static uint32_t zend_dfa_optimize_calls(zend_op_array *op_array, zend_ssa *ssa)
@@ -1068,6 +1664,10 @@ void zend_dfa_optimize_op_array(zend_op_array *op_array, zend_optimizer_ctx *ctx
 #endif
 			if (ZEND_FUNC_INFO(op_array)) {
 				if (zend_dfa_optimize_calls(op_array, ssa)) {
+					remove_nops = 1;
+				}
+				zend_dfa_optimize_generic_calls(op_array, ssa);
+				if (zend_dfa_selfize_generic_new(op_array)) {
 					remove_nops = 1;
 				}
 			}

@@ -211,6 +211,14 @@ ZEND_API void zend_generic_type_table_set_implements(zend_generic_type_table *t,
 ZEND_API void zend_generic_type_table_set_trait_use(zend_generic_type_table *t, uint32_t idx, zend_type type);
 ZEND_API void zend_generic_type_table_set_turbofish_args(zend_generic_type_table *t, uint32_t op_num, zend_type type);
 
+/* Takes ownership of arg_types. */
+ZEND_API uint8_t zend_generic_install_inferred_call(zend_op_array *caller,
+	const zend_function *fbc, zend_type *arg_types, uint32_t arity,
+	uint32_t *out_args_id);
+
+ZEND_API uint8_t zend_generic_try_install_resolved_turbofish(zend_op_array *caller,
+	const zend_function *fbc, uint32_t args_id, uint32_t arity);
+
 ZEND_API void zend_check_generic_param_list_size(zend_ast *list_ast);
 ZEND_API void zend_check_generic_arg_list_size(zend_ast *list_ast);
 

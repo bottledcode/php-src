@@ -5836,10 +5836,14 @@ ZEND_VM_HOT_HANDLER(63, ZEND_RECV, NUM, UNUSED)
 
 	/* The inline op2.num mask was baked in at the origin's compile time. A
 	 * generic-inheritance clone may carry a tighter substituted arg_info that
-	 * the mask doesn't reflect, so force the slow path when the function is a
-	 * clone with substituted types. */
+	 * the mask doesn't reflect. Check that concrete arg_info mask inline: an exact
+	 * type match needs no coercion/instanceof (just like a typed RECV), so only a
+	 * mismatch (scalar coercion, class instanceof, union miss) falls to the helper. */
 	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
-		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
+		uint32_t _cmask = (uint32_t) ZEND_TYPE_FULL_MASK(EX(func)->op_array.arg_info[arg_num - 1].type);
+		if (UNEXPECTED(!(_cmask & (1u << Z_TYPE_P(param))))) {
+			ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
+		}
 	}
 
 	ZEND_VM_NEXT_OPCODE();
@@ -5855,11 +5859,14 @@ ZEND_VM_HOT_TYPE_SPEC_HANDLER(ZEND_RECV, op->op2.num == MAY_BE_ANY, ZEND_RECV_NO
 	}
 
 	/* Origin compiled this parameter as mixed (MAY_BE_ANY), but a generic
-	 * inheritance clone may carry a substituted type in arg_info that we must
-	 * verify against. */
+	 * inheritance clone may carry a substituted type in arg_info. Check that
+	 * concrete mask inline; only a mismatch needs the verifying helper. */
 	if (UNEXPECTED(EX(func)->common.fn_flags & ZEND_ACC_TRAIT_CLONE)) {
 		zval *param = EX_VAR(opline->result.var);
-		ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
+		uint32_t _cmask = (uint32_t) ZEND_TYPE_FULL_MASK(EX(func)->op_array.arg_info[arg_num - 1].type);
+		if (UNEXPECTED(!(_cmask & (1u << Z_TYPE_P(param))))) {
+			ZEND_VM_DISPATCH_TO_HELPER(zend_verify_recv_arg_type_helper, op_1, param);
+		}
 	}
 
 	ZEND_VM_NEXT_OPCODE();

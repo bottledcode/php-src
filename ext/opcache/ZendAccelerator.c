@@ -4371,7 +4371,11 @@ static void preload_fix_trait_op_array(zend_op_array *op_array)
 	}
 
 	const zend_op_array *orig_op_array = zend_shared_alloc_get_xlat_entry(op_array->refcount);
-	ZEND_ASSERT(orig_op_array && "Must be in xlat table");
+	if (!orig_op_array) {
+		/* Monomorph clones reuse ZEND_ACC_TRAIT_CLONE but have no original; re-sync would clobber their substituted arg_info. */
+		ZEND_ASSERT(zend_class_is_monomorph(op_array->scope));
+		return;
+	}
 
 	zend_string *function_name = op_array->function_name;
 	zend_class_entry *scope = op_array->scope;
@@ -4434,6 +4438,15 @@ static void preload_optimize(zend_persistent_script *script)
 
 	zend_optimize_script(&script->script, ZCG(accel_directives).optimization_level, ZCG(accel_directives).opt_debug_level);
 	zend_accel_finalize_delayed_early_binding_list(script);
+
+	/* Loop to fixpoint over the transitive closure of reachable instantiations. */
+	for (int aot_round = 0; aot_round < 32; aot_round++) {
+		if (zend_aot_monomorphize_script(&script->script,
+				ZCG(accel_directives).optimization_level) == 0) {
+			break;
+		}
+	}
+	zend_aot_upgrade_dispatch_to_ucall(&script->script);
 
 	ZEND_HASH_MAP_FOREACH_PTR(&script->script.class_table, ce) {
 		preload_fix_trait_methods(ce);

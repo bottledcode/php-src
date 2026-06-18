@@ -92,6 +92,8 @@ typedef void (*zend_optimizer_pass_t)(zend_script *, void *context);
 
 BEGIN_EXTERN_C()
 ZEND_API void zend_optimize_script(zend_script *script, zend_long optimization_level, zend_long debug_level);
+ZEND_API uint32_t zend_aot_monomorphize_script(zend_script *script, zend_long opt_level);
+ZEND_API uint32_t zend_aot_upgrade_dispatch_to_ucall(zend_script *script);
 ZEND_API int zend_optimizer_register_pass(zend_optimizer_pass_t pass);
 ZEND_API void zend_optimizer_unregister_pass(int idx);
 zend_result zend_optimizer_startup(void);

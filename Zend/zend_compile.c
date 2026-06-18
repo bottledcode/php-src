@@ -438,6 +438,9 @@ void zend_init_compiler_data_structures(void) /* {{{ */
 	CG(generic_scope) = NULL;
 	CG(in_static_member_type) = false;
 	CG(inheritance_binding_cache) = NULL;
+	CG(inheritance_binding_hint).target = NULL;
+	CG(inheritance_binding_hint).args = NULL;
+	CG(inheritance_binding_hint).arity = 0;
 }
 /* }}} */
 
@@ -1757,7 +1760,7 @@ static zend_type_arg_table *zend_build_concrete_call_type_args(
 
 /* If this turbofish CALL site is concrete, build the resolved type-arg table now
  * and stash it on the turbofish entry so persist can relocate it into SHM. */
-static bool zend_try_attach_concrete_call_table(
+static bool zend_try_attach_concrete_call_table_for(zend_op_array *caller,
 		const zend_function *fbc, const zend_type *args_box, uint32_t args_id)
 {
 	if (!fbc || !args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
@@ -1776,7 +1779,7 @@ static bool zend_try_attach_concrete_call_table(
 	if (!ct) {
 		return false;
 	}
-	zend_generic_type_table *gtt = CG(active_op_array)->generic_types;
+	zend_generic_type_table *gtt = caller->generic_types;
 	zend_turbofish_args_entry *entry =
 		zend_hash_index_find_ptr(gtt->turbofish_args, args_id);
 	ZEND_ASSERT(entry != NULL);
@@ -1789,7 +1792,169 @@ static bool zend_try_attach_concrete_call_table(
 	return true;
 }
 
-static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t kind, const znode *new_result, const zend_function *fbc)
+/* Literals only: inferring T from a variable's declared type is unsound, as the
+ * variable may be reassigned before the call. */
+static bool zend_infer_literal_arg_pre_erasure(zend_ast *arg, zend_type *out)
+{
+	if (arg->kind != ZEND_AST_ZVAL) {
+		return false;
+	}
+	const zval *zv = zend_ast_get_zval(arg);
+	switch (Z_TYPE_P(zv)) {
+		case IS_LONG:   *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_LONG, 0, 0);   return true;
+		case IS_DOUBLE: *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_DOUBLE, 0, 0); return true;
+		case IS_STRING: *out = (zend_type) ZEND_TYPE_INIT_CODE(IS_STRING, 0, 0); return true;
+		default:        return false;
+	}
+}
+
+static const zend_type *zend_infer_call_type_args(
+		const zend_function *fbc, zend_ast *args_ast,
+		uint32_t *out_arity, uint32_t *out_args_id)
+{
+	if (!fbc || !ZEND_USER_CODE(fbc->common.type)) {
+		return NULL;
+	}
+	const zend_generic_parameter_list *params = fbc->op_array.generic_parameters;
+	if (!params || params->count == 0 || params->inferable_mask == 0) {
+		return NULL;
+	}
+	const zend_op_array *callee = &fbc->op_array;
+	if (!callee->generic_types || !callee->generic_types->parameters) {
+		return NULL;
+	}
+	if (!args_ast || args_ast->kind != ZEND_AST_ARG_LIST) {
+		return NULL;
+	}
+	zend_ast_list *args = zend_ast_get_list(args_ast);
+	for (uint32_t i = 0; i < args->children; i++) {
+		zend_ast_kind k = args->child[i]->kind;
+		if (k == ZEND_AST_UNPACK || k == ZEND_AST_NAMED_ARG) {
+			return NULL;
+		}
+	}
+
+	uint32_t required, total;
+	zend_compute_generic_required_total(params, &required, &total);
+	if (total == 0 || total > ZEND_GENERIC_MAX_PARAMS) {
+		return NULL;
+	}
+
+	int arg_pos_for_gp[ZEND_GENERIC_MAX_PARAMS];
+	for (uint32_t i = 0; i < total; i++) {
+		arg_pos_for_gp[i] = -1;
+	}
+	{
+		HashTable *pre = callee->generic_types->parameters;
+		zend_ulong arg_idx;
+		zend_type *pe_type_ptr;
+		ZEND_HASH_FOREACH_NUM_KEY_PTR(pre, arg_idx, pe_type_ptr) {
+			if (!ZEND_TYPE_HAS_TYPE_PARAMETER(*pe_type_ptr)) continue;
+			if (ZEND_TYPE_FULL_MASK(*pe_type_ptr) & MAY_BE_NULL) continue;
+			const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*pe_type_ptr);
+			if (ref->origin != ZEND_GENERIC_ORIGIN_FUNCTION_LIKE) continue;
+			if (ref->index >= total) continue;
+			if (arg_pos_for_gp[ref->index] == -1 && arg_idx < (zend_ulong) args->children) {
+				arg_pos_for_gp[ref->index] = (int) arg_idx;
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+
+	zend_type inferred[ZEND_GENERIC_MAX_PARAMS];
+	uint32_t arity = 0;
+	for (uint32_t g = 0; g < total; g++) {
+		int pos = arg_pos_for_gp[g];
+		if (pos < 0) {
+			break;
+		}
+		zend_type entry;
+		if (!zend_infer_literal_arg_pre_erasure(args->child[pos], &entry)) {
+			break;
+		}
+		inferred[arity++] = entry;
+	}
+
+	if (arity == 0 || arity < required) {
+		for (uint32_t i = 0; i < arity; i++) {
+			zend_type_release(inferred[i], /* persistent */ false);
+		}
+		return NULL;
+	}
+
+	zend_type_named_with_args *payload = emalloc(ZEND_TYPE_NAMED_WITH_ARGS_SIZE(arity));
+	payload->name = NULL;
+	payload->name_attr = 0;
+	payload->count = arity;
+	for (uint32_t i = 0; i < arity; i++) {
+		payload->args[i] = inferred[i];
+	}
+	zend_type box = ZEND_TYPE_INIT_NONE(0);
+	ZEND_TYPE_SET_PTR(box, payload);
+	ZEND_TYPE_FULL_MASK(box) |= _ZEND_TYPE_NAMED_WITH_ARGS_BIT;
+
+	zend_generic_type_table *table =
+		zend_generic_get_or_create_op_array_table(CG(active_op_array));
+	uint32_t args_id = (table->turbofish_args ? zend_hash_num_elements(table->turbofish_args) : 0) + 1;
+	zend_generic_type_table_set_turbofish_args(table, args_id, box);
+
+	*out_arity = arity;
+	*out_args_id = args_id;
+	return zend_hash_index_find_ptr(table->turbofish_args, args_id);
+}
+
+ZEND_API uint8_t zend_generic_install_inferred_call(zend_op_array *caller,
+		const zend_function *fbc, zend_type *arg_types, uint32_t arity,
+		uint32_t *out_args_id)
+{
+	/* arity == 0 would underflow ZEND_TYPE_NAMED_WITH_ARGS_SIZE (count-1). */
+	if (arity == 0) {
+		return ZEND_NOP;
+	}
+	zend_type_named_with_args *payload = emalloc(ZEND_TYPE_NAMED_WITH_ARGS_SIZE(arity));
+	payload->name = NULL;
+	payload->name_attr = 0;
+	payload->count = arity;
+	for (uint32_t i = 0; i < arity; i++) {
+		payload->args[i] = arg_types[i];
+	}
+	zend_type box = ZEND_TYPE_INIT_NONE(0);
+	ZEND_TYPE_SET_PTR(box, payload);
+	ZEND_TYPE_FULL_MASK(box) |= _ZEND_TYPE_NAMED_WITH_ARGS_BIT;
+
+	if (!zend_can_install_call_args_statically(fbc, &box, arity)) {
+		zend_type_release(box, /* persistent */ false);
+		return ZEND_NOP;
+	}
+
+	zend_generic_type_table *table = zend_generic_get_or_create_op_array_table(caller);
+	uint32_t args_id = (table->turbofish_args ? zend_hash_num_elements(table->turbofish_args) : 0) + 1;
+	zend_generic_type_table_set_turbofish_args(table, args_id, box);
+	const zend_type *args_box = zend_hash_index_find_ptr(table->turbofish_args, args_id);
+	zend_try_attach_concrete_call_table_for(caller, fbc, args_box, args_id);
+
+	*out_args_id = args_id;
+	return ZEND_INSTALL_GENERIC_ARGS;
+}
+
+ZEND_API uint8_t zend_generic_try_install_resolved_turbofish(zend_op_array *caller,
+		const zend_function *fbc, uint32_t args_id, uint32_t arity)
+{
+	if (!caller->generic_types || !caller->generic_types->turbofish_args) {
+		return ZEND_NOP;
+	}
+	const zend_turbofish_args_entry *entry =
+		zend_hash_index_find_ptr(caller->generic_types->turbofish_args, args_id);
+	if (!entry) {
+		return ZEND_NOP;
+	}
+	if (!zend_can_install_call_args_statically(fbc, &entry->args_box, arity)) {
+		return ZEND_NOP;
+	}
+	zend_try_attach_concrete_call_table_for(caller, fbc, &entry->args_box, args_id);
+	return ZEND_INSTALL_GENERIC_ARGS;
+}
+
+static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t kind, const znode *new_result, const zend_function *fbc, zend_ast *call_args_ast)
 {
 	uint32_t arity = 0;
 	uint32_t args_id = 0;
@@ -1817,6 +1982,13 @@ static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t 
 				|| !fbc->op_array.generic_parameters)) {
 			return;
 		}
+		if (fbc) {
+			const zend_type *inferred =
+				zend_infer_call_type_args(fbc, call_args_ast, &arity, &args_id);
+			if (inferred) {
+				args_box = inferred;
+			}
+		}
 	}
 
 	/* Replace the runtime VERIFY with INSTALL when arity+bound check is
@@ -1826,11 +1998,11 @@ static void zend_emit_verify_generic_arguments(zend_ast *turbofish_ast, uint8_t 
 	if (kind == ZEND_VERIFY_ARITY_KIND_CALL
 			&& zend_can_install_call_args_statically(fbc, args_box, arity)) {
 		opcode = ZEND_INSTALL_GENERIC_ARGS;
-		zend_try_attach_concrete_call_table(fbc, args_box, args_id);
-	} else if (kind == ZEND_VERIFY_ARITY_KIND_CALL && turbofish_ast && args_id) {
+		zend_try_attach_concrete_call_table_for(CG(active_op_array), fbc, args_box, args_id);
+	} else if (kind == ZEND_VERIFY_ARITY_KIND_CALL && args_id) {
 		/* Concrete args but VERIFY stays (bounds not statically decidable);
 		 * still attach the invariant table for the handler to install. */
-		zend_try_attach_concrete_call_table(fbc, args_box, args_id);
+		zend_try_attach_concrete_call_table_for(CG(active_op_array), fbc, args_box, args_id);
 	}
 
 	zend_op *opline = get_next_op();
@@ -2201,7 +2373,8 @@ static zend_type zend_compile_pre_erasure_typename(zend_ast *ast)
 					result = (zend_type) ZEND_TYPE_INIT_CODE(code, 0, 0);
 				}
 			} else {
-				zend_string_addref(name);
+				/* Resolve against namespace/use, else `f::<C>` in `namespace N` stays "C" not "N\C". */
+				name = zend_resolve_class_name(name, ast->attr);
 				result = (zend_type) ZEND_TYPE_INIT_CLASS(name, 0, 0);
 			}
 		}
@@ -6242,7 +6415,7 @@ static bool zend_compile_call_common(znode *result, zend_ast *args_ast, const ze
 	 * monomorph's substituted arg_info; CALL emits it after args so inference
 	 * from arg values can fill type-parameter slots. */
 	if (verify_kind == ZEND_VERIFY_ARITY_KIND_NEW) {
-		zend_emit_verify_generic_arguments(turbofish_ast, verify_kind, new_result, fbc);
+		zend_emit_verify_generic_arguments(turbofish_ast, verify_kind, new_result, fbc, NULL);
 	}
 
 	if (args_ast->kind == ZEND_AST_CALLABLE_CONVERT) {
@@ -6279,7 +6452,7 @@ static bool zend_compile_call_common(znode *result, zend_ast *args_ast, const ze
 	uint32_t arg_count = zend_compile_args(args_ast, fbc, &may_have_extra_named_args);
 
 	if (verify_kind == ZEND_VERIFY_ARITY_KIND_CALL) {
-		zend_emit_verify_generic_arguments(turbofish_ast, verify_kind, new_result, fbc);
+		zend_emit_verify_generic_arguments(turbofish_ast, verify_kind, new_result, fbc, args_ast);
 	}
 
 	zend_do_extended_fcall_begin();

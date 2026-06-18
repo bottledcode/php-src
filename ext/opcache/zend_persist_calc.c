@@ -347,6 +347,8 @@ static void zend_persist_turbofish_args_ht_calc(HashTable *ht)
 	ADD_SIZE(sizeof(HashTable));
 }
 
+static void zend_persist_type_arg_table_calc(zend_type_arg_table *table);
+
 static void zend_persist_generic_type_table_calc(zend_generic_type_table *table)
 {
 	if (!table) {
@@ -386,6 +388,10 @@ static void zend_persist_generic_type_table_calc(zend_generic_type_table *table)
 
 	if (table->turbofish_args) {
 		zend_persist_turbofish_args_ht_calc(table->turbofish_args);
+	}
+
+	if (table->monomorph_type_args) {
+		zend_persist_type_arg_table_calc(table->monomorph_type_args);
 	}
 
 	/* Mirror the value-check plan reservation in zend_persist_generic_type_table. */

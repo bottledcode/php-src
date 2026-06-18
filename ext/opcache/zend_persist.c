@@ -601,7 +601,8 @@ static zend_type_arg_table *zend_persist_type_arg_table(
 	if (!table) {
 		return NULL;
 	}
-	const zend_type_named_with_args *new_nwa = zend_persist_mono_binding_nwa(ce);
+	/* ce == NULL: function-level table with concrete owned_type entries, no binding to rebind against. */
+	const zend_type_named_with_args *new_nwa = ce ? zend_persist_mono_binding_nwa(ce) : NULL;
 	for (uint32_t i = 0; i < table->count; i++) {
 		if (table->entries[i].name) {
 			zend_accel_store_interned_string(table->entries[i].name);
@@ -658,6 +659,11 @@ static zend_generic_type_table *zend_persist_generic_type_table(zend_generic_typ
 
 	if (persisted->turbofish_args) {
 		persisted->turbofish_args = zend_persist_turbofish_args_ht(persisted->turbofish_args);
+	}
+
+	if (persisted->monomorph_type_args) {
+		persisted->monomorph_type_args =
+			zend_persist_type_arg_table(persisted->monomorph_type_args, NULL);
 	}
 
 	/* Precompute the value-check plan into SHM (relocated via the persist arena,

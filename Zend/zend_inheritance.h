@@ -126,6 +126,12 @@ ZEND_API bool zend_type_is_reifiable_leaf_composite(zend_type t);
 ZEND_API zend_function *zend_synthesize_function_monomorph(
 	zend_function *base, const zend_type *args, uint32_t arity);
 
+ZEND_API zend_function *zend_synthesize_specialized_monomorph_into(
+	HashTable *fn_table, zend_function *base, const zend_type *args, uint32_t arity);
+
+ZEND_API zend_function *zend_synthesize_specialized_monomorph_by_name(
+	HashTable *fn_table, zend_string *lc_name);
+
 ZEND_API zend_function *zend_try_synthesize_function_monomorph_by_name(zend_string *lc_name);
 
 void zend_verify_abstract_class(zend_class_entry *ce);

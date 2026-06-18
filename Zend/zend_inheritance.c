@@ -7771,7 +7771,7 @@ ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 /* Build a concrete arg_info block by substituting the FUNCTION_LIKE T-refs in
  * the base's pre-erasure generic types with the concrete args. */
 static zend_arg_info *zend_monomorph_build_arg_info(
-		const zend_op_array *base, const zend_type *args, uint32_t arity)
+		const zend_op_array *base, const zend_type *args, uint32_t arity, bool use_arena)
 {
 	uint32_t num_args = base->num_args;
 	bool has_return = (base->fn_flags & ZEND_ACC_HAS_RETURN_TYPE) != 0;
@@ -7782,7 +7782,9 @@ static zend_arg_info *zend_monomorph_build_arg_info(
 	}
 
 	const zend_arg_info *orig_block = base->arg_info - (has_return ? 1 : 0);
-	zend_arg_info *new_block = zend_arena_alloc(&CG(arena), sizeof(zend_arg_info) * total);
+	zend_arg_info *new_block = use_arena
+		? zend_arena_alloc(&CG(arena), sizeof(zend_arg_info) * total)
+		: emalloc(sizeof(zend_arg_info) * total);
 	memcpy(new_block, orig_block, sizeof(zend_arg_info) * total);
 
 	const HashTable *pre_params = base->generic_types ? base->generic_types->parameters : NULL;
@@ -7823,10 +7825,11 @@ static zend_arg_info *zend_monomorph_build_arg_info(
 			}
 		}
 		if (substitute) {
-			zend_type_copy_ctor(&sub, /* use_arena */ true, /* persistent */ false);
+			/* use_arena false on the AOT/preload path: emalloc, not arena. */
+			zend_type_copy_ctor(&sub, use_arena, /* persistent */ false);
 			new_block[slot].type = sub;
 		} else {
-			zend_type_copy_ctor(&new_block[slot].type, /* use_arena */ true, /* persistent */ false);
+			zend_type_copy_ctor(&new_block[slot].type, use_arena, /* persistent */ false);
 		}
 		if (new_block[slot].name) {
 			zend_string_addref(new_block[slot].name);
@@ -7902,12 +7905,16 @@ ZEND_API zend_function *zend_synthesize_function_monomorph(
 
 	zend_function *existing = zend_hash_find_ptr(EG(function_table), lc_name);
 	if (existing) {
+		/* Preload reaches INSTALL via here, not zend_fetch_function: init run_time_cache or cached opcodes hit NULL. */
+		if (existing->type == ZEND_USER_FUNCTION) {
+			zend_init_func_run_time_cache(&existing->op_array);
+		}
 		zend_string_release(display_name);
 		zend_string_release(lc_name);
 		return existing;
 	}
 
-	zend_arg_info *new_arg_info = zend_monomorph_build_arg_info(&base->op_array, args, arity);
+	zend_arg_info *new_arg_info = zend_monomorph_build_arg_info(&base->op_array, args, arity, true);
 
 	zend_op_array *mono = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
 	memcpy(mono, &base->op_array, sizeof(zend_op_array));
@@ -7983,6 +7990,214 @@ ZEND_API zend_function *zend_synthesize_function_monomorph(
 	return mono_fn;
 }
 
+ZEND_API zend_function *zend_synthesize_specialized_monomorph_into(
+		HashTable *fn_table, zend_function *base, const zend_type *args, uint32_t arity)
+{
+#if ZEND_USE_ABS_CONST_ADDR
+	/* The combined opcode+literal buffer below assumes relative literal layout; caller uses shared synth. */
+	(void) fn_table; (void) base; (void) args; (void) arity;
+	return NULL;
+#else
+	if (!fn_table) {
+		fn_table = EG(function_table);
+	}
+	if (!base || base->type != ZEND_USER_FUNCTION) {
+		return NULL;
+	}
+	const zend_generic_parameter_list *params = base->op_array.generic_parameters;
+	if (!params || params->count == 0) {
+		return NULL;
+	}
+
+	zend_type filled[ZEND_GENERIC_MAX_PARAMS];
+	uint32_t total = params->count;
+	if (arity > total) {
+		return NULL;
+	}
+	if (arity < total) {
+		for (uint32_t i = 0; i < arity; i++) filled[i] = args[i];
+		for (uint32_t i = arity; i < total; i++) {
+			const zend_generic_parameter *p = &params->parameters[i];
+			const zend_type *def = ZEND_TYPE_IS_SET(p->default_pre_erasure)
+				? &p->default_pre_erasure
+				: (ZEND_TYPE_IS_SET(p->default_type) ? &p->default_type : NULL);
+			if (!def) {
+				return NULL;
+			}
+			filled[i] = *def;
+		}
+		args = filled;
+		arity = total;
+	}
+	for (uint32_t i = 0; i < arity; i++) {
+		if (zend_type_contains_type_parameter(args[i])) {
+			return NULL;
+		}
+	}
+
+	zend_string *display_name = zend_generic_canonical_class_name(
+		base->common.function_name, args, arity);
+	zend_string *lc_name = zend_string_tolower(display_name);
+
+	zend_function *existing = zend_hash_find_ptr(fn_table, lc_name);
+	if (existing) {
+		zend_string_release(display_name);
+		zend_string_release(lc_name);
+		return existing;
+	}
+
+	/* Unlike the shared synth, opcodes+literals are a fresh OWN copy the optimizer rewrites in place. */
+	const zend_op_array *src = &base->op_array;
+	zend_op_array *mono = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
+	memcpy(mono, src, sizeof(zend_op_array));
+	/* reserved[] memcpy'd from base may point into a transient arena: clear to avoid a dangling pointer. */
+	memset(mono->reserved, 0, sizeof(mono->reserved));
+
+	/* persist efree()s opcodes and _put_free()s arg_info/vars/etc., so each must be an OWN heap alloc. */
+	size_t ops_sz = ZEND_MM_ALIGNED_SIZE_EX(sizeof(zend_op) * src->last, 16);
+	size_t lit_sz = sizeof(zval) * src->last_literal;
+	char *buf = emalloc(ops_sz + lit_sz);
+	memcpy(buf, src->opcodes, ops_sz);
+	mono->opcodes = (zend_op *) buf;
+	if (src->last_literal) {
+		zval *dst_lit = (zval *) (buf + ops_sz);
+		memcpy(dst_lit, src->literals, lit_sz);
+		for (uint32_t i = 0; i < src->last_literal; i++) {
+			Z_TRY_ADDREF(dst_lit[i]);
+		}
+		mono->literals = dst_lit;
+	}
+
+	if (src->last_var) {
+		mono->vars = emalloc(sizeof(zend_string *) * src->last_var);
+		for (uint32_t i = 0; i < src->last_var; i++) {
+			mono->vars[i] = zend_string_copy(src->vars[i]);
+		}
+	} else {
+		mono->vars = NULL;
+	}
+
+	zend_arg_info *new_arg_info = zend_monomorph_build_arg_info(src, args, arity, /* use_arena */ false);
+
+	zend_type_arg_table *mono_targs = emalloc(ZEND_TYPE_ARG_TABLE_SIZE(total));
+	mono_targs->count = total;
+	mono_targs->generation = 0;
+	mono_targs->persisted = false;
+	for (uint32_t i = 0; i < total; i++) {
+		mono_targs->entries[i].name = NULL;
+		mono_targs->entries[i].type_ref = NULL;
+		mono_targs->entries[i].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
+		if (i < arity && ZEND_TYPE_IS_SET(args[i])) {
+			zend_type owned = args[i];
+			zend_type_copy_ctor(&owned, /* use_arena */ false, /* persistent */ false);
+			mono_targs->entries[i].owned_type = owned;
+			mono_targs->entries[i].name = zend_type_arg_canonical_name(args[i]);
+		}
+	}
+	{
+		zend_generic_type_table *gt = emalloc(sizeof(zend_generic_type_table));
+		memset(gt, 0, sizeof(*gt));
+		/* Deep-copy base's turbofish_args: the copied body references its boxes and persist frees the table (else double-free). */
+		if (src->generic_types && src->generic_types->turbofish_args) {
+			zend_ulong tf_idx;
+			zend_turbofish_args_entry *tf_entry;
+			ZEND_HASH_FOREACH_NUM_KEY_PTR(src->generic_types->turbofish_args, tf_idx, tf_entry) {
+				zend_type box = tf_entry->args_box;
+				zend_type_copy_ctor(&box, /* use_arena */ false, /* persistent */ false);
+				zend_generic_type_table_set_turbofish_args(gt, (uint32_t) tf_idx, box);
+			} ZEND_HASH_FOREACH_END();
+		}
+		gt->persisted = false;
+		gt->monomorph_type_args = mono_targs;
+		mono->generic_types = gt;
+	}
+	mono->generic_parameters = NULL;  /* concrete; and persist would free a shared list */
+
+	/* persist _put_free's these: own live_range/try_catch, drop doc_comment/attributes. */
+	if (src->last_live_range) {
+		mono->live_range = emalloc(sizeof(zend_live_range) * src->last_live_range);
+		memcpy(mono->live_range, src->live_range, sizeof(zend_live_range) * src->last_live_range);
+	} else {
+		mono->live_range = NULL;
+	}
+	if (src->last_try_catch) {
+		mono->try_catch_array = emalloc(sizeof(zend_try_catch_element) * src->last_try_catch);
+		memcpy(mono->try_catch_array, src->try_catch_array, sizeof(zend_try_catch_element) * src->last_try_catch);
+	} else {
+		mono->try_catch_array = NULL;
+	}
+	mono->doc_comment = NULL;
+	mono->attributes = NULL;
+
+	/* Own the dynamic_func_defs array (persist _put_free's it); the closures stay shared (persist xlat-dedups). */
+	if (src->num_dynamic_func_defs) {
+		mono->dynamic_func_defs = emalloc(sizeof(zend_function *) * src->num_dynamic_func_defs);
+		memcpy(mono->dynamic_func_defs, src->dynamic_func_defs,
+			sizeof(zend_function *) * src->num_dynamic_func_defs);
+	} else {
+		mono->dynamic_func_defs = NULL;
+	}
+
+	mono->fn_flags2 |= ZEND_ACC2_MONOMORPH_TYPE_ARGS;
+
+	mono->refcount = NULL;
+	mono->fn_flags &= ~(ZEND_ACC_IMMUTABLE | ZEND_ACC_HEAP_RT_CACHE | ZEND_ACC_PRELOADED);
+	mono->fn_flags |= ZEND_ACC_TRAIT_CLONE;
+	mono->function_name = zend_string_copy(src->function_name);
+	/* Own a filename ref: persist consumes one, and base's is shared with EG(included_files) (else double-free). */
+	mono->filename = zend_string_copy(src->filename);
+	if (new_arg_info) {
+		mono->arg_info = new_arg_info;
+
+		/* Bake each RECV mask to the concrete arg_info and drop TRAIT_CLONE, only if all RECV params are mask-only (no NAMED). */
+		bool can_fast_recv = !(mono->fn_flags & ZEND_ACC_VARIADIC);
+		for (uint32_t i = 0; can_fast_recv && i < mono->last; i++) {
+			zend_op *op = &mono->opcodes[i];
+			if (op->opcode != ZEND_RECV) {
+				continue;
+			}
+			uint32_t an = op->op1.num;
+			if (an == 0 || an > mono->num_args) {
+				can_fast_recv = false;
+				break;
+			}
+			zend_type *t = &new_arg_info[an - 1].type;
+			if (ZEND_TYPE_IS_SET(*t) && !ZEND_TYPE_IS_ONLY_MASK(*t)) {
+				can_fast_recv = false;
+				break;
+			}
+		}
+		if (can_fast_recv) {
+			for (uint32_t i = 0; i < mono->last; i++) {
+				zend_op *op = &mono->opcodes[i];
+				if (op->opcode == ZEND_RECV) {
+					op->op2.num = (uint32_t) ZEND_TYPE_FULL_MASK(new_arg_info[op->op1.num - 1].type);
+				}
+			}
+			mono->fn_flags &= ~ZEND_ACC_TRAIT_CLONE;
+		}
+	}
+
+	mono->static_variables = src->static_variables
+		? zend_array_dup(src->static_variables) : NULL;
+	/* No run_time_cache slot here: persist assigns it; allocating now corrupts the per-request map_ptr table. */
+	ZEND_MAP_PTR_INIT(mono->run_time_cache, NULL);
+	ZEND_MAP_PTR_INIT(mono->static_variables_ptr, NULL);
+
+	zend_function *mono_fn = (zend_function *) mono;
+	if (!zend_hash_add_ptr(fn_table, lc_name, mono_fn)) {
+		existing = zend_hash_find_ptr(fn_table, lc_name);
+		zend_string_release(display_name);
+		zend_string_release(lc_name);
+		return existing ? existing : NULL;
+	}
+
+	zend_string_release(display_name);
+	zend_string_release(lc_name);
+	return mono_fn;
+#endif
+}
+
 ZEND_API zend_function *zend_try_synthesize_function_monomorph_by_name(zend_string *lc_name)
 {
 	size_t lt_pos, args_len;
@@ -8034,6 +8249,47 @@ ZEND_API zend_function *zend_try_synthesize_function_monomorph_by_name(zend_stri
 	}
 
 	zend_function *mono = zend_synthesize_function_monomorph(base, args, count);
+	for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+	efree(args);
+	return mono;
+}
+
+ZEND_API zend_function *zend_synthesize_specialized_monomorph_by_name(
+		HashTable *fn_table, zend_string *name)
+{
+	/* `name` is case-preserved: lowercase only the base part for the table lookup, parse args as-is. */
+	size_t lt_pos, args_len;
+	if (!zend_mp_split_name(name, &lt_pos, &args_len)) return NULL;
+
+	zend_string *base_part = zend_string_init(ZSTR_VAL(name), lt_pos, 0);
+	zend_string *base_lc = zend_string_tolower(base_part);
+	zend_string_release(base_part);
+	zend_function *base = zend_hash_find_ptr(fn_table, base_lc);
+	zend_string_release(base_lc);
+	if (!base || base->type != ZEND_USER_FUNCTION || !base->op_array.generic_parameters) {
+		return NULL;
+	}
+
+	zend_monomorph_parser parser = {
+		.p = ZSTR_VAL(name) + lt_pos + 1,
+		.end = ZSTR_VAL(name) + ZSTR_LEN(name) - 1,
+		.error = false,
+	};
+	uint32_t cap = 4, count = 0;
+	zend_type *args = emalloc(sizeof(zend_type) * cap);
+	do {
+		if (count == cap) { cap *= 2; args = erealloc(args, sizeof(zend_type) * cap); }
+		args[count++] = zend_mp_parse_type(&parser);
+		if (parser.error) break;
+	} while (zend_mp_eat(&parser, ','));
+	zend_mp_skip_ws(&parser);
+	if (parser.error || parser.p != parser.end) {
+		for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
+		efree(args);
+		return NULL;
+	}
+
+	zend_function *mono = zend_synthesize_specialized_monomorph_into(fn_table, base, args, count);
 	for (uint32_t i = 0; i < count; i++) zend_type_release(args[i], false);
 	efree(args);
 	return mono;
