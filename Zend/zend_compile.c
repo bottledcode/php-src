@@ -699,7 +699,12 @@ static uintptr_t zend_compute_call_cache_key(
  * i.e. no inference will fire that could plug an unset slot from a runtime
  * value. Inference depends on argument classes — not part of the key — so a
  * call that triggers it must be excluded from caching even if the
- * caller-binding fingerprint matches. */
+ * caller-binding fingerprint matches.
+ *
+ * Any inferable slot not pinned by a turbofish arg makes the call uncacheable,
+ * even when the slot has a declared default: inference outranks the default
+ * (see the phase order in zend_build_generic_call_type_args), so an object
+ * argument still resolves the slot from a runtime value. */
 static bool zend_call_is_cacheable_against_args(
 		const zend_function *fbc, const zend_type *args_box)
 {
@@ -715,7 +720,6 @@ static bool zend_call_is_cacheable_against_args(
 	for (uint32_t i = 0; i < params->count && i < 64; i++) {
 		if (!(inferable & ((uint64_t) 1 << i))) continue;
 		if (i < passed) continue;
-		if (ZEND_TYPE_IS_SET(params->parameters[i].default_type)) continue;
 		return false;
 	}
 	return true;
@@ -831,6 +835,15 @@ ZEND_API zend_function *zend_get_or_synthesize_call_monomorph(
 	if (!args_box || !ZEND_TYPE_HAS_NAMED_WITH_ARGS(*args_box)) {
 		return NULL;
 	}
+
+	/* A partial turbofish that leaves an inferable slot unset must NOT be
+	 * monomorphized on the turbofish args alone: the unset slot is filled by
+	 * value-directed inference (a runtime value), so the resolved signature
+	 * varies per call. Fall back to the erased VERIFY path, which infers. */
+	if (!zend_call_is_cacheable_against_args(base, args_box)) {
+		return NULL;
+	}
+
 	const zend_type_named_with_args *nwa = ZEND_TYPE_NAMED_WITH_ARGS(*args_box);
 
 	/* Enforce arity + bounds as the erased VERIFY path does (first call only). */
@@ -1055,9 +1068,13 @@ ZEND_API void zend_apply_generic_new(
 }
 
 /* Slots left NULL mean "fall back to the parameter's bound". Order of resolution
- * for each slot: explicit turbofish arg → parameter's declared default →
- * value-directed inference from any argument whose pre-erasure type is a
- * direct TYPE_PARAMETER reference to this slot. */
+ * for each slot (highest precedence first): explicit turbofish arg →
+ * value-directed inference from any argument whose pre-erasure type is a direct
+ * TYPE_PARAMETER reference to this slot → parameter's declared default. The
+ * default is the *lowest* precedence: it only fills a slot that neither an
+ * explicit turbofish arg nor inference could pin, so `function f<A = mixed>(A $a)`
+ * called as `f($x)` reifies A from $x rather than collapsing to the `mixed`
+ * default. */
 ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(
 		zend_execute_data *call, const zend_type *args_box)
 {
@@ -1082,14 +1099,11 @@ ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(
 	}
 
 	zend_execute_data *caller = EG(current_execute_data);
-	for (uint32_t i = 0; i < params->count; i++) {
-		const zend_type *src = NULL;
-		if (i < passed) {
-			src = &passed_args[i];
-		} else if (ZEND_TYPE_IS_SET(params->parameters[i].default_type)) {
-			src = &params->parameters[i].default_type;
-		}
-		if (!src || !ZEND_TYPE_IS_SET(*src)) {
+	/* Phase 1: explicit turbofish args (highest precedence). Defaults are
+	 * deferred to phase 3 so inference can pin an inferable slot first. */
+	for (uint32_t i = 0; i < passed && i < params->count; i++) {
+		const zend_type *src = &passed_args[i];
+		if (!ZEND_TYPE_IS_SET(*src)) {
 			continue;
 		}
 		/* A turbofish arg can itself name an outer generic parameter (e.g.
@@ -1116,7 +1130,7 @@ ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(
 		table->entries[i].type_ref = src;
 	}
 
-	/* Inference for unset slots. Composite shapes (array<T>, Box<T>, ?T) are
+	/* Phase 2: inference for unset slots. Composite shapes (array<T>, Box<T>, ?T) are
 	 * skipped — only bare top-level T at a value-parameter position. The
 	 * inferable_mask short-circuits when no inferable slot remains unset. */
 	uint64_t unbound_inferable = params->inferable_mask;
@@ -1153,6 +1167,33 @@ ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(
 					(zend_type) ZEND_TYPE_INIT_CLASS(inferred_name, 0, 0);
 			}
 		} ZEND_HASH_FOREACH_END();
+	}
+
+	/* Phase 3: declared defaults (lowest precedence) — fill only slots that
+	 * neither a turbofish arg nor inference pinned. A default may itself name
+	 * an outer generic parameter, resolved against the caller frame exactly as
+	 * a turbofish arg is in phase 1. */
+	for (uint32_t i = 0; i < params->count; i++) {
+		if (table->entries[i].name) {
+			continue;
+		}
+		const zend_type *src = &params->parameters[i].default_type;
+		if (!ZEND_TYPE_IS_SET(*src)) {
+			continue;
+		}
+		if (ZEND_TYPE_HAS_TYPE_PARAMETER(*src)) {
+			const zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(*src);
+			if (ref->origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE
+					&& caller && caller->type_args
+					&& ref->index < caller->type_args->count
+					&& caller->type_args->entries[ref->index].name) {
+				table->entries[i].name = zend_string_copy(caller->type_args->entries[ref->index].name);
+				table->entries[i].type_ref = zend_type_arg_entry_type(&caller->type_args->entries[ref->index]);
+			}
+			continue;
+		}
+		table->entries[i].name = zend_type_arg_canonical_name(*src);
+		table->entries[i].type_ref = src;
 	}
 
 	return table;
