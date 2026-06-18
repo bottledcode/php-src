@@ -6901,6 +6901,23 @@ ZEND_API zend_class_entry *zend_get_defaults_monomorph(zend_class_entry *base)
 	ZEND_UNREACHABLE();
 }
 
+/* For a naked `new self()` / `new ThisClass()` that lexically names the generic
+ * class `lexical`, return the monomorph carrying the current frame's class-level
+ * binding: walk from the called scope up to the monomorph whose base is
+ * `lexical` (the same walk zend_resolve_generic_type_param uses to find a
+ * class-level T-ref's binding). Returns NULL when no such binding is in scope
+ * (e.g. a static call on the bare generic itself), so the caller can fall back
+ * to defaults or raise an error. */
+ZEND_API zend_class_entry *zend_resolve_lexical_self_monomorph(
+	zend_class_entry *lexical, const zend_execute_data *ex)
+{
+	zend_class_entry *cur = ex ? zend_get_called_scope(ex) : NULL;
+	while (cur && cur->parent != lexical) {
+		cur = cur->parent;
+	}
+	return (cur && cur->parent == lexical) ? cur : NULL;
+}
+
 /* When `new C::<...>(...)` is compiled inside a generic function/class, the
  * turbofish args may reference enclosing-scope T parameters by ref. The op_array
  * side-table stores those refs verbatim — at synth time they must be resolved
@@ -7160,25 +7177,6 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph(
 		zend_hash_del(EG(class_table), lc_canonical);
 		zend_string_release(lc_canonical);
 		return NULL;
-	}
-
-	/* Isolate static-property storage from the base class. Inheritance normally
-	 * makes the child's `default_static_members_table` slots IS_INDIRECT back to
-	 * the parent so that all subclasses share the same live storage. For
-	 * monomorphs that's the wrong semantic: `Box<int>::$count` and
-	 * `Box<string>::$count` should be independent counters. Convert each
-	 * INDIRECT slot to a direct copy of the underlying default; at first access
-	 * `zend_class_init_statics` will then allocate the monomorph its own live
-	 * slot and `ZVAL_COPY_OR_DUP` the default into it. */
-	if (linked->default_static_members_count) {
-		for (uint32_t i = 0; i < linked->default_static_members_count; i++) {
-			zval *slot = &linked->default_static_members_table[i];
-			if (Z_TYPE_P(slot) == IS_INDIRECT) {
-				zval *src = Z_INDIRECT_P(slot);
-				ZVAL_DEINDIRECT(src);
-				ZVAL_COPY_OR_DUP(slot, src);
-			}
-		}
 	}
 
 	/* Substitute T-typed implements on the inherited interface chain. When

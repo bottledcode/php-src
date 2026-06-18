@@ -14,8 +14,9 @@ class Box<T : object> {
 // original unbounded "mixed".
 echo (new ReflectionClass('Box'))->getMethod('tag')->getReturnType()->getName(), "\n";
 
-// On a bare (unmonomorphed) Box, the runtime check enforces the bound.
-$b = new Box;
+// On a monomorph Box<stdClass>, the trait method's X is substituted to the
+// concrete argument and the runtime check enforces it.
+$b = new Box::<stdClass>();
 echo get_class($b), "\n";
 var_dump($b->tag(new stdClass) instanceof stdClass);
 
@@ -27,6 +28,6 @@ try {
 ?>
 --EXPECTF--
 object
-Box
+Box<stdClass>
 bool(true)
-rejected: Box::tag(): Argument #1 ($x) must be of type object, int given%S
+rejected: Box::tag(): Argument #1 ($x) must be of type stdClass, int given%S

@@ -6,7 +6,7 @@ interface Box<T> {}
 interface Wrapper<U> extends Box<U> {}
 
 class C<T> implements Wrapper<T>, Box<int> {}
-$c = new C();
+$c = new C::<int>();
 var_dump($c instanceof Box, $c instanceof Wrapper);
 ?>
 --EXPECT--

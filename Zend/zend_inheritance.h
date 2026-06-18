@@ -86,6 +86,13 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph_resolved(
  * `new static()` and dynamic `new $name()` paths. */
 ZEND_API zend_class_entry *zend_get_defaults_monomorph(zend_class_entry *base);
 
+/* Resolve a naked `new self()` / lexical `new ThisClass()` to the monomorph that
+ * carries the executing frame's class-level binding (e.g. `new self()` in a
+ * `C<int>` instance method -> `C<int>`). Returns NULL when no binding is in
+ * scope. See the definition in zend_inheritance.c. */
+ZEND_API zend_class_entry *zend_resolve_lexical_self_monomorph(
+	zend_class_entry *lexical, const zend_execute_data *ex);
+
 /* True when the name has monomorph-canonical shape (contains `<`). The canonical
  * encoding for synthesized monomorphs embeds `<...>` in the class name, which is
  * invalid in any user-declared class. Use these helpers rather than open-coding
