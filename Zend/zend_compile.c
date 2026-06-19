@@ -8097,6 +8097,27 @@ static void zend_compile_new(znode *result, zend_ast *ast) /* {{{ */
 		}
 	}
 
+	/* `new static::<...>` is always rejected at compile time. The type
+	 * arguments are written in the lexical scope — they name the enclosing
+	 * class's (`self`'s) type parameters — but `static` is the *runtime* type,
+	 * whose parameter list is unknown here and need not match: it may be a
+	 * generic subclass with a different parameter list, or a non-generic
+	 * subclass of a monomorph (e.g. `class IntBox extends Box<int>`) with no
+	 * type parameters at all. `static` already carries its own bindings, so
+	 * `new static()` reproduces the exact runtime type; `new self::<...>`
+	 * re-applies the lexical template. */
+	if (opline->op1_type == IS_UNUSED && turbofish_ast
+			&& (opline->op1.num & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_STATIC) {
+		zend_ast_list *tf_list = zend_ast_get_list(turbofish_ast);
+		if (tf_list->children > 0) {
+			zend_error_noreturn(E_COMPILE_ERROR,
+				"Type arguments cannot be applied to \"static\": "
+				"\"static\" is the runtime type and already carries its type arguments. "
+				"Use \"new static()\" to construct the exact runtime type, "
+				"or \"new self::<...>\" to apply type arguments to the enclosing class");
+		}
+	}
+
 	/* Reject turbofish on a known non-generic class at compile time so the
 	 * error matches the type-position behavior (rather than waiting for
 	 * VERIFY_GENERIC_ARGUMENTS to throw ArgumentCountError at runtime). */
