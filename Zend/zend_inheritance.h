@@ -118,6 +118,8 @@ ZEND_API zend_class_entry *zend_try_synthesize_monomorph_by_name(
 
 ZEND_API zend_type zend_substitute_function_type_param(zend_type t, const zend_type *args, uint32_t arity);
 
+ZEND_API bool zend_type_is_reifiable_leaf_composite(zend_type t);
+
 /* Synthesize (or return the cached) concrete specialization of generic function
  * `base` for the given type args, registered in EG(function_table) as
  * `base<arg0,...>`. Returns NULL when args are not concrete or base isn't generic. */

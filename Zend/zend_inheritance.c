@@ -881,6 +881,65 @@ static bool zend_get_inheritance_binding(
 	return false;
 }
 
+/* True when `t` carries a NAMED_WITH_ARGS payload (`Box<T>`) anywhere inside it.
+ * Building block for zend_type_is_reifiable_leaf_composite below. */
+static bool zend_type_contains_named_with_args(zend_type t)
+{
+	if (ZEND_TYPE_HAS_NAMED_WITH_ARGS(t)) return true;
+	if (ZEND_TYPE_HAS_LIST(t)) {
+		const zend_type *member;
+		ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(t), member) {
+			if (zend_type_contains_named_with_args(*member)) return true;
+		} ZEND_TYPE_LIST_FOREACH_END();
+	}
+	return false;
+}
+
+/* A union/intersection whose leaves include a type parameter but which carries
+ * no `Box<T>`-style NAMED_WITH_ARGS reifies to a concrete erased-model shape
+ * (`T|Other` -> `Foo|Other`). An NWA composite stays erased — folding its
+ * monomorph name into a check would reject the plain instances a body emits, so
+ * callers leave it alone. A bare top-level T-ref is handled separately by
+ * callers (they substitute the leaf directly). Shared by the return-opcode
+ * elision (zend_emit_return_type_check) and the monomorph arg_info builder so
+ * the two decisions can't drift. */
+ZEND_API bool zend_type_is_reifiable_leaf_composite(zend_type t)
+{
+	return ZEND_TYPE_HAS_LIST(t)
+		&& zend_type_contains_type_parameter(t)
+		&& !zend_type_contains_named_with_args(t);
+}
+
+/* Two union members are "the same" for dedup purposes when they name the same
+ * class (case-insensitively) or refer to the same type parameter. Substituting a
+ * binding that already appears as a sibling member (`T|Other` with `T = Other`)
+ * would otherwise leave a redundant `Other|Other` in the list. */
+static bool zend_union_member_equals(zend_type a, zend_type b)
+{
+	if (ZEND_TYPE_HAS_NAME(a) && ZEND_TYPE_HAS_NAME(b)) {
+		return zend_string_equals_ci(ZEND_TYPE_NAME(a), ZEND_TYPE_NAME(b));
+	}
+	if (ZEND_TYPE_HAS_TYPE_PARAMETER(a) && ZEND_TYPE_HAS_TYPE_PARAMETER(b)) {
+		const zend_type_parameter_ref *ra = ZEND_TYPE_TYPE_PARAMETER(a);
+		const zend_type_parameter_ref *rb = ZEND_TYPE_TYPE_PARAMETER(b);
+		return ra->origin == rb->origin && ra->index == rb->index;
+	}
+	return false;
+}
+
+/* Append `member` to a union-build buffer unless an equal member (per
+ * zend_union_member_equals) is already present. */
+static zend_always_inline void zend_union_push_unique(
+		zend_type *out, uint32_t *out_count, zend_type member)
+{
+	for (uint32_t j = 0; j < *out_count; j++) {
+		if (zend_union_member_equals(out[j], member)) {
+			return;
+		}
+	}
+	out[(*out_count)++] = member;
+}
+
 /* Substitutes class-scope T-refs with their bound arguments.
  *
  * Handles three shapes:
@@ -1024,16 +1083,48 @@ static zend_type zend_substitute_leaf_type_param_origin(zend_type t, const zend_
 		& ~_ZEND_TYPE_UNION_BIT & ~_ZEND_TYPE_INTERSECTION_BIT;
 	uint32_t merged_mask = carried_flags;
 
+	/* Substitute every member up front, then size the output: a union binding
+	 * spliced into a union flattens (PHP unions can't nest), so reserve room for
+	 * each of its members rather than one slot. */
+	ALLOCA_FLAG(sub_heap)
+	zend_type *subbed = (zend_type *) do_alloca(sizeof(zend_type) * src_list->num_types, sub_heap);
+	uint32_t cap = 0;
+	for (uint32_t i = 0; i < src_list->num_types; i++) {
+		subbed[i] = zend_substitute_leaf_type_param_origin(src_list->types[i], args, arity, origin);
+		if (!is_intersection && ZEND_TYPE_HAS_LIST(subbed[i])
+				&& !ZEND_TYPE_IS_INTERSECTION(subbed[i])) {
+			cap += ZEND_TYPE_LIST(subbed[i])->num_types;
+		} else {
+			cap += 1;
+		}
+	}
+
 	ALLOCA_FLAG(use_heap)
-	zend_type *out = (zend_type *) do_alloca(sizeof(zend_type) * src_list->num_types, use_heap);
+	zend_type *out = (zend_type *) do_alloca(sizeof(zend_type) * cap, use_heap);
 	uint32_t out_count = 0;
 
 	for (uint32_t i = 0; i < src_list->num_types; i++) {
-		zend_type substituted = zend_substitute_leaf_type_param_origin(src_list->types[i], args, arity, origin);
+		zend_type substituted = subbed[i];
+		/* The substituted scalar contribution is OR'd into the outer mask in case
+		 * it carries a NULLABLE bit (or, for a union binding, member scalars). */
+		merged_mask |= ZEND_TYPE_PURE_MASK(substituted);
+
+		/* Flatten a union binding spliced into a union: (Foo|Other)|Other
+		 * collapses to Foo|Other|Other (then dedupes). A nested union member
+		 * would otherwise reach the runtime union check, which only expects
+		 * plain or intersection members. */
+		bool flatten = !is_intersection && ZEND_TYPE_HAS_LIST(substituted)
+			&& !ZEND_TYPE_IS_INTERSECTION(substituted);
+		if (flatten) {
+			const zend_type *member;
+			ZEND_TYPE_LIST_FOREACH(ZEND_TYPE_LIST(substituted), member) {
+				zend_union_push_unique(out, &out_count, *member);
+			} ZEND_TYPE_LIST_FOREACH_END();
+			continue;
+		}
 
 		/* Keep complex elements (named types, intersection sublists, unresolved
-		 * T-refs) in the list; their scalar contribution is also OR'd into the
-		 * outer mask in case the substituted type carries a NULLABLE bit. */
+		 * T-refs) in the list. */
 		bool keeps_complex = ZEND_TYPE_HAS_LIST(substituted)
 			|| ZEND_TYPE_HAS_NAME(substituted)
 			|| ZEND_TYPE_HAS_LITERAL_NAME(substituted)
@@ -1041,10 +1132,10 @@ static zend_type zend_substitute_leaf_type_param_origin(zend_type t, const zend_
 			|| ZEND_TYPE_HAS_NAMED_WITH_ARGS(substituted);
 
 		if (keeps_complex) {
-			out[out_count++] = substituted;
+			zend_union_push_unique(out, &out_count, substituted);
 		}
-		merged_mask |= ZEND_TYPE_PURE_MASK(substituted);
 	}
+	free_alloca(subbed, sub_heap);
 
 	zend_type result;
 	if (out_count == 0) {
@@ -7709,15 +7800,29 @@ static zend_arg_info *zend_monomorph_build_arg_info(
 			pre = zv ? (const zend_type *) Z_PTR_P(zv) : NULL;
 		}
 
-		/* Only specialize a BARE FUNCTION_LIKE type-parameter leaf (`T $x`).
-		 * Composite generic types keep the base's erased arg_info: the erased model
-		 * represents generic instances by their plain class, so folding to a
-		 * monomorph name would make RECV reject the plain instances the body emits. */
+		/* Specialize a BARE FUNCTION_LIKE type-parameter leaf (`T $x`), and also a
+		 * union/intersection of leaves (`T|Other`, `A|B`): substitute the function
+		 * T-refs and, when every member is then ground, install the concrete type so
+		 * RECV/return checks enforce it. A composite carrying a `Box<T>`-style
+		 * NAMED_WITH_ARGS stays erased — the erased model represents generic instances
+		 * by their plain class, so folding to a monomorph name would make RECV reject
+		 * the plain instances the body emits. */
 		bool is_bare_leaf = pre && ZEND_TYPE_IS_SET(*pre)
 			&& ZEND_TYPE_HAS_TYPE_PARAMETER(*pre)
 			&& ZEND_TYPE_TYPE_PARAMETER(*pre)->origin == ZEND_GENERIC_ORIGIN_FUNCTION_LIKE;
-		if (is_bare_leaf) {
-			zend_type sub = zend_substitute_function_type_param(*pre, args, arity);
+		bool is_leaf_union = !is_bare_leaf && pre && ZEND_TYPE_IS_SET(*pre)
+			&& zend_type_is_reifiable_leaf_composite(*pre);
+		zend_type sub;
+		bool substitute = is_bare_leaf || is_leaf_union;
+		if (substitute) {
+			sub = zend_substitute_function_type_param(*pre, args, arity);
+			/* A composite that didn't fully ground (an unbound T remains) keeps
+			 * the erased arg_info; a bare leaf always grounds here. */
+			if (is_leaf_union && zend_type_contains_type_parameter(sub)) {
+				substitute = false;
+			}
+		}
+		if (substitute) {
 			zend_type_copy_ctor(&sub, /* use_arena */ true, /* persistent */ false);
 			new_block[slot].type = sub;
 		} else {

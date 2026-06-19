@@ -6,4 +6,4 @@ class Foo {}
 function x<T : string>(): T & Foo {}
 ?>
 --EXPECTF--
-Fatal error: Type parameter T with bound string cannot be part of an intersection type; use an object-shaped bound (e.g. T: object) in %s on line %d
+Fatal error: Type parameter T with bound string cannot be part of an intersection type; bound it to a class or interface (e.g. T: SomeInterface) in %s on line %d
