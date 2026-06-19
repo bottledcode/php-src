@@ -4801,14 +4801,18 @@ static void zend_emit_return_type_check(
 			}
 		}
 
-		/* Generic functions: if the return is a T-ref, the runtime opcode
-		 * is the only place the reified binding gets checked. Detect that
-		 * here so the two elision paths below don't drop the opcode. */
+		/* Generic functions: if the return references a type parameter, the
+		 * runtime opcode is the only place the reified binding gets checked.
+		 * Detect that here so the two elision paths below don't drop the opcode.
+		 * Besides a bare `T`, a leaf union/intersection (`T|Other`, `A|B`) also
+		 * reifies (see zend_monomorph_build_arg_info); a `Box<T>`-style
+		 * NAMED_WITH_ARGS composite stays erased, so it needs no opcode. */
 		zend_op_array *active = CG(active_op_array);
 		const zend_type *pre_return =
 			active->generic_types ? active->generic_types->return_type : NULL;
 		bool return_is_generic = pre_return
-			&& ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_return);
+			&& (ZEND_TYPE_HAS_TYPE_PARAMETER(*pre_return)
+				|| zend_type_is_reifiable_leaf_composite(*pre_return));
 
 		if (expr && ZEND_TYPE_PURE_MASK(type) == MAY_BE_ANY) {
 			/* Mixed normally needs no run-time check, but if the return is a
@@ -10350,7 +10354,7 @@ static zend_type zend_compile_typename_ex(
 				if (t_param) {
 					zend_error_noreturn(E_COMPILE_ERROR,
 						"Type parameter %s with bound %s cannot be part of an intersection type; "
-						"use an object-shaped bound (e.g. %s: object)",
+						"bound it to a class or interface (e.g. %s: SomeInterface)",
 						ZSTR_VAL(t_param->name), ZSTR_VAL(standard_type_str),
 						ZSTR_VAL(t_param->name));
 				}
@@ -10363,7 +10367,7 @@ static zend_type zend_compile_typename_ex(
 				if (t_param) {
 					zend_error_noreturn(E_COMPILE_ERROR,
 						"Type parameter %s with bound %s cannot be part of an intersection type; "
-						"use an object-shaped bound (e.g. %s: object)",
+						"bound it to a class or interface (e.g. %s: SomeInterface)",
 						ZSTR_VAL(t_param->name), ZSTR_VAL(standard_type_str),
 						ZSTR_VAL(t_param->name));
 				}
