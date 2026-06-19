@@ -1165,6 +1165,30 @@ ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(
 				zend_string *inferred_name = zend_string_copy(arg_ce->name);
 				table->entries[ref->index].owned_type =
 					(zend_type) ZEND_TYPE_INIT_CLASS(inferred_name, 0, 0);
+			} else {
+				/* Scalar/array values infer to their builtin type. Map the
+				 * zval type to a type code, synthesise a mask owned_type, and
+				 * take its canonical name ("int", "string", ...) so reflection
+				 * and a reified `: T` return enforce the inferred type instead
+				 * of collapsing to the default. IS_TRUE/IS_FALSE both map to
+				 * bool; IS_NULL and other non-reifiable kinds (resources) are
+				 * left for the declared default. */
+				uint32_t type_mask = 0;
+				switch (Z_TYPE_P(arg)) {
+					case IS_LONG:   type_mask = MAY_BE_LONG;   break;
+					case IS_DOUBLE: type_mask = MAY_BE_DOUBLE; break;
+					case IS_STRING: type_mask = MAY_BE_STRING; break;
+					case IS_ARRAY:  type_mask = MAY_BE_ARRAY;  break;
+					case IS_TRUE:
+					case IS_FALSE:  type_mask = MAY_BE_BOOL;   break;
+					default: break;
+				}
+				if (type_mask) {
+					zend_type inferred = (zend_type) ZEND_TYPE_INIT_MASK(type_mask);
+					table->entries[ref->index].name =
+						zend_type_arg_canonical_name(inferred);
+					table->entries[ref->index].owned_type = inferred;
+				}
 			}
 		} ZEND_HASH_FOREACH_END();
 	}
