@@ -29,6 +29,13 @@ function par<T>(T|Other $x): string { return $x::class; }
 var_dump(par::<Foo>(new Foo));
 try { par::<Foo>(42); } catch (TypeError $e) { echo $e->getMessage(), "\n"; }
 
+// Parameters fold/flatten through the same path as returns: T=Other folds the
+// duplicate, and a union binding flattens. The reified param type is observable.
+par::<Other>(new Other);
+var_dump((string) (new ReflectionFunction('par<Other>'))->getParameters()[0]->getType());
+par::<Foo|Other>(new Foo);
+var_dump((string) (new ReflectionFunction('par<Foo|Other>'))->getParameters()[0]->getType());
+
 // Intersection return: T bound to an interface, T&B reifies to A&B.
 function inter<T: A>(mixed $x): T&B { return $x; }
 var_dump(inter::<A>(new AB)::class);
@@ -51,6 +58,8 @@ string(5) "Other"
 two(): Return value must be of type Foo|Other, int returned
 string(3) "Foo"
 par(): Argument #1 ($x) must be of type Foo|Other, int given, called in %s on line %d
+string(5) "Other"
+string(9) "Foo|Other"
 string(2) "AB"
 inter(): Return value must be of type A&B, Foo returned
 string(2) "AB"
