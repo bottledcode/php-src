@@ -261,6 +261,7 @@ typedef struct _zend_type_arg_table {
 	 * as part of a persisted class entry's `generic_type_args`. Tells the
 	 * destroy path to leave the table and its name/type contents alone. */
 	bool persisted;
+	uint32_t refcount;
 	zend_type_arg_entry entries[1];
 } zend_type_arg_table;
 
@@ -335,6 +336,7 @@ static zend_always_inline zend_turbofish_args_entry *zend_generic_get_or_cache_a
 
 ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count);
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table);
+ZEND_API void zend_type_arg_table_release(zend_type_arg_table *table);
 ZEND_API zend_type_arg_table *zend_type_arg_table_capture_clone(const zend_type_arg_table *src);
 ZEND_API zend_string *zend_type_arg_canonical_name(zend_type type);
 ZEND_API zend_type_arg_table *zend_build_generic_call_type_args(zend_execute_data *call, const zend_type *args_box);

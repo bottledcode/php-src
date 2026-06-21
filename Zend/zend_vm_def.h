@@ -4419,6 +4419,8 @@ ZEND_VM_HOT_HANDLER(60, ZEND_DO_FCALL, ANY, ANY, SPEC(RETVAL,OBSERVER))
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -9356,6 +9358,10 @@ ZEND_VM_HANDLER(213, ZEND_INSTALL_GENERIC_ARGS, TMP|UNUSED, UNUSED)
 
 generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
+		if (call->type_args && !call->type_args->persisted) {
+			zend_type_arg_table_destroy(call->type_args);
+			call->type_args = NULL;
+		}
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {

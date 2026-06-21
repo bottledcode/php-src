@@ -2939,6 +2939,9 @@ static void do_inherit_property(zend_property_info *parent_info, zend_string *ke
 							clone->hooks = clone_hooks;
 						}
 
+						if (ZEND_TYPE_HAS_LIST(sub) || ZEND_TYPE_HAS_NAMED_WITH_ARGS(sub)) {
+							zend_type_release(sub, /* persistent */ false);
+						}
 						info = clone;
 					}
 				}
@@ -6107,6 +6110,8 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 	zval *zv;
 	zend_string *synthesized_lc_parent = NULL;
 	zend_class_entry *cache_key_proto = NULL;
+	zend_class_name *detached_interface_names = NULL;
+	uint32_t detached_interface_count = 0;
 	ALLOCA_FLAG(use_heap)
 
 	SET_ALLOCA_FLAG(use_heap);
@@ -6142,10 +6147,12 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 				zend_string_addref(ce->interface_names[k].name);
 				zend_string_addref(ce->interface_names[k].lc_name);
 			}
+			detached_interface_names = ce->interface_names;
+			detached_interface_count = ce->num_interfaces;
 		}
 		if (ce->num_traits) {
 			zend_class_name *src = ce->trait_names;
-			ce->trait_names = emalloc(sizeof(zend_class_name) * ce->num_traits);
+			ce->trait_names = zend_arena_alloc(&CG(arena), sizeof(zend_class_name) * ce->num_traits);
 			memcpy(ce->trait_names, src, sizeof(zend_class_name) * ce->num_traits);
 			for (uint32_t k = 0; k < ce->num_traits; k++) {
 				zend_string_addref(ce->trait_names[k].name);
@@ -6230,9 +6237,8 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 				? ce->generic_types->trait_uses : NULL;
 		bool ce_is_mono_for_trait = zend_class_is_monomorph(ce);
 		bool *trait_skip_mono = NULL;
-		ALLOCA_FLAG(trait_skip_use_heap)
 		if (trait_uses_table_for_synth && ce->num_traits > 1) {
-			trait_skip_mono = do_alloca(sizeof(bool) * ce->num_traits, trait_skip_use_heap);
+			trait_skip_mono = emalloc(sizeof(bool) * ce->num_traits);
 			zend_mark_duplicate_lc_names(ce->trait_names, ce->num_traits, trait_skip_mono);
 		}
 
@@ -6257,14 +6263,14 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 					ZEND_FETCH_CLASS_TRAIT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(base_trait == NULL)) {
 					free_alloca(traits_and_interfaces, use_heap);
-					if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+					if (trait_skip_mono) efree(trait_skip_mono);
 					return NULL;
 				}
 				if (UNEXPECTED(!(base_trait->ce_flags & ZEND_ACC_TRAIT))) {
 					zend_throw_error(NULL, "%s cannot use %s - it is not a trait",
 						ZSTR_VAL(ce->name), ZSTR_VAL(base_trait->name));
 					free_alloca(traits_and_interfaces, use_heap);
-					if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+					if (trait_skip_mono) efree(trait_skip_mono);
 					return NULL;
 				}
 				if (base_trait->generic_parameters) {
@@ -6273,7 +6279,7 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 					if (EG(exception)) {
 						check_unrecoverable_load_failure(ce);
 						free_alloca(traits_and_interfaces, use_heap);
-						if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+						if (trait_skip_mono) efree(trait_skip_mono);
 						return NULL;
 					}
 					zend_class_entry *mono = zend_synthesize_monomorph(
@@ -6281,7 +6287,7 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 					if (!mono) {
 						check_unrecoverable_load_failure(ce);
 						free_alloca(traits_and_interfaces, use_heap);
-						if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+						if (trait_skip_mono) efree(trait_skip_mono);
 						return NULL;
 					}
 					zend_string_release(ce->trait_names[i].name);
@@ -6295,20 +6301,20 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 				ce->trait_names[i].lc_name, ZEND_FETCH_CLASS_TRAIT | ZEND_FETCH_CLASS_EXCEPTION);
 			if (UNEXPECTED(trait == NULL)) {
 				free_alloca(traits_and_interfaces, use_heap);
-				if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+				if (trait_skip_mono) efree(trait_skip_mono);
 				return NULL;
 			}
 			if (UNEXPECTED(!(trait->ce_flags & ZEND_ACC_TRAIT))) {
 				zend_throw_error(NULL, "%s cannot use %s - it is not a trait", ZSTR_VAL(ce->name), ZSTR_VAL(trait->name));
 				free_alloca(traits_and_interfaces, use_heap);
-				if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+				if (trait_skip_mono) efree(trait_skip_mono);
 				return NULL;
 			}
 			if (UNEXPECTED(trait->ce_flags & ZEND_ACC_DEPRECATED)) {
 				zend_use_of_deprecated_trait(trait, ce->name);
 				if (UNEXPECTED(EG(exception))) {
 					free_alloca(traits_and_interfaces, use_heap);
-					if (trait_skip_mono) free_alloca(trait_skip_mono, trait_skip_use_heap);
+					if (trait_skip_mono) efree(trait_skip_mono);
 					return NULL;
 				}
 			}
@@ -6339,7 +6345,7 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 			}
 		}
 		if (trait_skip_mono) {
-			free_alloca(trait_skip_mono, trait_skip_use_heap);
+			efree(trait_skip_mono);
 		}
 	}
 
@@ -6559,6 +6565,13 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 				   sizeof(zend_class_entry *) * ce->num_interfaces);
 
 			zend_do_implement_interfaces(ce, interfaces);
+			if (detached_interface_names) {
+				for (uint32_t k = 0; k < detached_interface_count; k++) {
+					zend_string_release_ex(detached_interface_names[k].name, 0);
+					zend_string_release_ex(detached_interface_names[k].lc_name, 0);
+				}
+				efree(detached_interface_names);
+			}
 		} else if (parent && parent->num_interfaces) {
 			zend_do_inherit_interfaces(ce, parent);
 		}
@@ -7925,17 +7938,12 @@ ZEND_API zend_function *zend_synthesize_function_monomorph(
 	zend_type_arg_table *mono_targs = NULL;
 	{
 		uint32_t tcount = params->count;
-		mono_targs = zend_arena_alloc(&CG(arena), ZEND_TYPE_ARG_TABLE_SIZE(tcount));
-		mono_targs->count = tcount;
-		mono_targs->generation = 0;
+		mono_targs = zend_type_arg_table_alloc(tcount);
 		mono_targs->persisted = true;
 		for (uint32_t i = 0; i < tcount; i++) {
-			mono_targs->entries[i].name = NULL;
-			mono_targs->entries[i].type_ref = NULL;
-			mono_targs->entries[i].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
 			if (i < arity && ZEND_TYPE_IS_SET(args[i])) {
 				zend_type owned = args[i];
-				zend_type_copy_ctor(&owned, /* use_arena */ true, /* persistent */ false);
+				zend_type_copy_ctor(&owned, /* use_arena */ false, /* persistent */ false);
 				mono_targs->entries[i].owned_type = owned;
 				zend_string *cname = zend_type_arg_canonical_name(args[i]);
 				mono_targs->entries[i].name = cname;
@@ -8079,14 +8087,9 @@ ZEND_API zend_function *zend_synthesize_specialized_monomorph_into(
 
 	zend_arg_info *new_arg_info = zend_monomorph_build_arg_info(src, args, arity, /* use_arena */ false);
 
-	zend_type_arg_table *mono_targs = emalloc(ZEND_TYPE_ARG_TABLE_SIZE(total));
-	mono_targs->count = total;
-	mono_targs->generation = 0;
-	mono_targs->persisted = false;
+	zend_type_arg_table *mono_targs = zend_type_arg_table_alloc(total);
+	mono_targs->persisted = true;
 	for (uint32_t i = 0; i < total; i++) {
-		mono_targs->entries[i].name = NULL;
-		mono_targs->entries[i].type_ref = NULL;
-		mono_targs->entries[i].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
 		if (i < arity && ZEND_TYPE_IS_SET(args[i])) {
 			zend_type owned = args[i];
 			zend_type_copy_ctor(&owned, /* use_arena */ false, /* persistent */ false);

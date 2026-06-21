@@ -794,7 +794,8 @@ ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(
 			return (zend_type_arg_table *)cache_slot[0];
 		}
 		zend_type_arg_table *nt = zend_build_generic_call_type_args(call, NULL);
-		if (nt && nkey && !cache_slot[0]) {
+		if (nt && nkey && !cache_slot[0]
+				&& (EG(current_execute_data)->func->common.fn_flags & ZEND_ACC_HEAP_RT_CACHE)) {
 			cache_slot[0] = nt;
 			cache_slot[1] = (void *)nkey;
 			nt->persisted = true;
@@ -808,7 +809,8 @@ ZEND_API zend_type_arg_table *zend_build_or_get_cached_type_args(
 	}
 	zend_type_arg_table *t = zend_build_generic_call_type_args(call, args_box);
 	if (t && key && cache_slot && !cache_slot[0]
-			&& zend_call_is_cacheable_against_args(call->func, args_box)) {
+			&& zend_call_is_cacheable_against_args(call->func, args_box)
+			&& (caller->func->common.fn_flags & ZEND_ACC_HEAP_RT_CACHE)) {
 		cache_slot[0] = t;
 		cache_slot[1] = (void *)key;
 		t->persisted = true;
@@ -831,7 +833,8 @@ ZEND_API zend_function *zend_get_or_synthesize_call_monomorph(
 	if (cache_slot
 			&& (uintptr_t) cache_slot[1] == ZEND_TURBOFISH_CACHE_KEY_MONOMORPH
 			&& cache_slot[3] == (void *) base) {
-		*out_type_args = (zend_type_arg_table *) cache_slot[4];
+		zend_type_arg_table *cached = (zend_type_arg_table *) cache_slot[4];
+		*out_type_args = cached ? cached : zend_build_concrete_call_type_args(base, args_box);
 		return (zend_function *) cache_slot[0];
 	}
 
@@ -861,7 +864,9 @@ ZEND_API zend_function *zend_get_or_synthesize_call_monomorph(
 	}
 
 	zend_type_arg_table *table = zend_build_concrete_call_type_args(base, args_box);
-	if (table) {
+	bool can_cache_table = table && cache_slot && EG(current_execute_data)
+			&& (EG(current_execute_data)->func->common.fn_flags & ZEND_ACC_HEAP_RT_CACHE);
+	if (can_cache_table) {
 		table->persisted = true;
 	}
 
@@ -869,7 +874,7 @@ ZEND_API zend_function *zend_get_or_synthesize_call_monomorph(
 		cache_slot[0] = mono;
 		cache_slot[1] = (void *) ZEND_TURBOFISH_CACHE_KEY_MONOMORPH;
 		cache_slot[3] = (void *) base;
-		cache_slot[4] = table;
+		cache_slot[4] = can_cache_table ? table : NULL;
 	}
 	*out_type_args = table;
 	return mono;
@@ -1783,6 +1788,9 @@ static bool zend_try_attach_concrete_call_table_for(zend_op_array *caller,
 	zend_turbofish_args_entry *entry =
 		zend_hash_index_find_ptr(gtt->turbofish_args, args_id);
 	ZEND_ASSERT(entry != NULL);
+	if (entry->concrete_table && !entry->concrete_table->persisted) {
+		zend_type_arg_table_destroy(entry->concrete_table);
+	}
 	entry->concrete_table = ct;
 	entry->concrete_skip_value_check =
 		fbc->op_array.generic_types

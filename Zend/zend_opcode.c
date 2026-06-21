@@ -335,12 +335,28 @@ ZEND_API zend_type_arg_table *zend_type_arg_table_alloc(uint32_t count) {
 	table->count = count;
 	table->generation = zend_type_arg_table_generation_counter++;
 	table->persisted = false;
+	table->refcount = 1;
 	for (uint32_t i = 0; i < count; i++) {
 		table->entries[i].name = NULL;
 		table->entries[i].type_ref = NULL;
 		table->entries[i].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
 	}
 	return table;
+}
+
+ZEND_API void zend_type_arg_table_release(zend_type_arg_table *table) {
+	if (!table || table->refcount == 0 || --table->refcount > 0) {
+		return;
+	}
+	for (uint32_t i = 0; i < table->count; i++) {
+		if (table->entries[i].name) {
+			zend_string_release(table->entries[i].name);
+		}
+		if (ZEND_TYPE_IS_SET(table->entries[i].owned_type)) {
+			zend_type_release(table->entries[i].owned_type, false);
+		}
+	}
+	efree(table);
 }
 
 ZEND_API void zend_type_arg_table_destroy(zend_type_arg_table *table) {
@@ -657,6 +673,12 @@ ZEND_API void destroy_zend_class(zval *zv)
 				if (ce->num_traits > 0) {
 					_destroy_zend_class_traits_info(ce);
 				}
+			} else if (ce->num_traits > 0) {
+				uint32_t i;
+				for (i = 0; i < ce->num_traits; i++) {
+					zend_string_release_ex(ce->trait_names[i].name, 0);
+					zend_string_release_ex(ce->trait_names[i].lc_name, 0);
+				}
 			}
 
 			if (ce->default_properties_table) {
@@ -698,6 +720,10 @@ ZEND_API void destroy_zend_class(zval *zv)
 						}
 					}
 				} else if (prop_info->flags & ZEND_ACC_GENERIC_CLONE) {
+					zend_type_release(prop_info->type, /* persistent */ false);
+					if (prop_info->name) {
+						zend_string_release_ex(prop_info->name, 0);
+					}
 					if (prop_info->hooks) {
 						for (uint32_t i = 0; i < ZEND_PROPERTY_HOOK_COUNT; i++) {
 							if (prop_info->hooks[i]) {
@@ -867,6 +893,36 @@ ZEND_API void zend_destroy_static_vars(zend_op_array *op_array)
 	}
 }
 
+static void zend_release_transient_monomorph(zend_function *cm)
+{
+	if (!cm || cm->type != ZEND_USER_FUNCTION
+			|| !(cm->common.fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS)
+			|| (cm->common.fn_flags & ZEND_ACC_IMMUTABLE)) {
+		return;
+	}
+	zend_op_array *moa = &cm->op_array;
+	if (moa->generic_types && moa->generic_types->monomorph_type_args) {
+		zend_type_arg_table_release(moa->generic_types->monomorph_type_args);
+		moa->generic_types->monomorph_type_args = NULL;
+	}
+	if (moa->arg_info) {
+		bool has_ret = (moa->fn_flags & ZEND_ACC_HAS_RETURN_TYPE) != 0;
+		uint32_t total = moa->num_args + (has_ret ? 1 : 0)
+			+ ((moa->fn_flags & ZEND_ACC_VARIADIC) ? 1 : 0);
+		zend_arg_info *block = moa->arg_info - (has_ret ? 1 : 0);
+		for (uint32_t a = 0; a < total; a++) {
+			zend_type_release(block[a].type, 0);
+			if (block[a].name) {
+				zend_string_release(block[a].name);
+			}
+			if (block[a].doc_comment) {
+				zend_string_release(block[a].doc_comment);
+			}
+		}
+		moa->arg_info = NULL;
+	}
+}
+
 ZEND_API void destroy_op_array(zend_op_array *op_array)
 {
 	uint32_t i;
@@ -892,6 +948,14 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 		if (cache_buf) {
 			for (uint32_t op_idx = 0; op_idx < op_array->last; op_idx++) {
 				const zend_op *op = &op_array->opcodes[op_idx];
+				if ((op->opcode == ZEND_INIT_FCALL_BY_NAME
+						|| op->opcode == ZEND_INIT_NS_FCALL_BY_NAME)
+						&& op->result.num) {
+					void **cache_slot = (void **) (cache_buf + op->result.num);
+					zend_release_transient_monomorph((zend_function *) cache_slot[0]);
+					cache_slot[0] = NULL;
+					continue;
+				}
 				if ((op->opcode == ZEND_VERIFY_GENERIC_ARGUMENTS
 						|| op->opcode == ZEND_INSTALL_GENERIC_ARGS)
 						&& op->op1_type == IS_UNUSED
@@ -906,6 +970,7 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 							zend_type_arg_table_destroy(mt);
 							cache_slot[4] = NULL;
 						}
+						zend_release_transient_monomorph((zend_function *) cache_slot[0]);
 						cache_slot[0] = NULL;
 						cache_slot[1] = NULL;
 						continue;
@@ -929,6 +994,14 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 
 	if (op_array->function_name) {
 		zend_string_release_ex(op_array->function_name, 0);
+	}
+
+	if ((op_array->fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS)
+			&& !(op_array->fn_flags & ZEND_ACC_IMMUTABLE)
+			&& op_array->generic_types
+			&& op_array->generic_types->monomorph_type_args) {
+		zend_type_arg_table_release(op_array->generic_types->monomorph_type_args);
+		op_array->generic_types->monomorph_type_args = NULL;
 	}
 
 	if (!op_array->refcount || --(*op_array->refcount) > 0) {

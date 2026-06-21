@@ -345,9 +345,16 @@ static zend_always_inline void zend_vm_init_call_frame(zend_execute_data *call, 
 	 * call-frame teardown skips destroying it. VERIFY_GENERIC_ARGUMENTS may
 	 * still overwrite type_args later for explicit-turbofish calls. */
 	if (UNEXPECTED(func->common.fn_flags & ZEND_ACC_CLOSURE)) {
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
 		const zend_closure *closure =
 			(const zend_closure *) ZEND_CLOSURE_OBJECT(func);
 		call->type_args = closure->captured_type_args;
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC diagnostic pop
+#endif
 	} else if (UNEXPECTED(ZEND_USER_CODE(func->type)
 			&& (func->op_array.fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS))) {
 		/* Monomorph reached via by-name dispatch: bind its concrete type-arg table. */

@@ -1994,6 +1994,8 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_D
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -2156,6 +2158,8 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_D
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -2318,6 +2322,8 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -22538,6 +22544,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 
 generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
+		if (call->type_args && !call->type_args->persisted) {
+			zend_type_arg_table_destroy(call->type_args);
+			call->type_args = NULL;
+		}
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -38330,6 +38340,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INSTALL_GENER
 
 generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
+		if (call->type_args && !call->type_args->persisted) {
+			zend_type_arg_table_destroy(call->type_args);
+			call->type_args = NULL;
+		}
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -55923,6 +55937,8 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DO_FCA
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -56085,6 +56101,8 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DO_FCA
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -56247,6 +56265,8 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DO_FC
 				}
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
+				} else if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
 				}
 				EX(call) = call->prev_execute_data;
 				zend_vm_stack_free_call_frame(call);
@@ -76149,6 +76169,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 
 generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
+		if (call->type_args && !call->type_args->persisted) {
+			zend_type_arg_table_destroy(call->type_args);
+			call->type_args = NULL;
+		}
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {
@@ -91941,6 +91965,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INSTALL_GENERIC_AR
 
 generic_install_check_exception:
 	if (UNEXPECTED(EG(exception))) {
+		if (call->type_args && !call->type_args->persisted) {
+			zend_type_arg_table_destroy(call->type_args);
+			call->type_args = NULL;
+		}
 		zend_vm_stack_free_args(call);
 
 		if (call->func->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE) {

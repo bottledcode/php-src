@@ -803,6 +803,11 @@ static void zend_create_closure_ex(zval *res, zend_function *func, zend_class_en
 		if (closure->func.op_array.refcount) {
 			(*closure->func.op_array.refcount)++;
 		}
+		if ((closure->func.common.fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS)
+				&& closure->func.op_array.generic_types
+				&& closure->func.op_array.generic_types->monomorph_type_args) {
+			closure->func.op_array.generic_types->monomorph_type_args->refcount++;
+		}
 
 		/* For fake closures, we want to reuse the static variables of the original function. */
 		HashTable *ht = ZEND_MAP_PTR_GET(func->op_array.static_variables_ptr);
