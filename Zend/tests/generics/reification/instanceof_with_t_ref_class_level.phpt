@@ -1,12 +1,12 @@
 --TEST--
-Reification: instanceof Box<T> with class-level T resolves against the called scope's monomorph args
+Reification: instanceof Box::<T> with class-level T resolves against the called scope's monomorph args
 --FILE--
 <?php
 class Box<T> {}
 
 class Outer<T> {
     public function isBox(mixed $x): bool {
-        return $x instanceof Box<T>;
+        return $x instanceof Box::<T>;
     }
 }
 

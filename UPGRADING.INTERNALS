@@ -231,7 +231,7 @@ PHP 8.6 INTERNALS UPGRADE NOTES
         - ZEND_FETCH_CLASS_TYPE_PARAM_CLASS  (8) — class-level bare
           T-ref; resolves via the called-scope walk.
         - ZEND_FETCH_CLASS_GENERIC_DEFERRED  (9) — generic named type
-          whose args contain T-refs (`instanceof Box<T>`,
+          whose args contain T-refs (`instanceof Box::<T>`,
           `catch (Box<T> $e)`). The args_id sits in the high bits of
           op.num and points into the op_array's
           generic_types->turbofish_args side table.

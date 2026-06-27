@@ -1,5 +1,5 @@
 --TEST--
-Reification: nested T-refs (instanceof Outer<Box<T>>) substitute through and resolve the outermost monomorph
+Reification: nested T-refs (instanceof Outer::<Box<T>>) substitute through and resolve the outermost monomorph
 --FILE--
 <?php
 class Box<U> {}
@@ -7,7 +7,7 @@ class Outer<V> {}
 
 class Holder<T> {
     public function isOuterOfBox(mixed $x): bool {
-        return $x instanceof Outer<Box<T>>;
+        return $x instanceof Outer::<Box<T>>;
     }
 }
 

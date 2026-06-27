@@ -4,7 +4,7 @@ Reification: a monomorph of `B<T> implements I<T>` should report `is_a I<bound>`
 <?php
 // Regression: when `B<T> implements I<T>` is monomorphized as `B<string>`,
 // the implements binding has to be substituted so that `B<string>` is also
-// known to implement `I<string>`. Otherwise `instanceof I<string>` /
+// known to implement `I<string>`. Otherwise `instanceof I::<string>` /
 // `is_a(..., 'I<string>')` returns false even though the type relationship
 // holds, and property writes typed `I<string>` reject `B<string>` values.
 

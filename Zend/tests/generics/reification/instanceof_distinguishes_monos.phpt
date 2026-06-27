@@ -12,10 +12,10 @@ $ba = new Box::<Animal>();
 
 // Each mono extends the bare class but is otherwise distinct.
 var_dump($bd instanceof Box);            // true: parent-name chain
-var_dump($bd instanceof Box<Dog>);       // true: same canonical mono
-var_dump($bd instanceof Box<Animal>);    // false: invariant distinction
-var_dump($ba instanceof Box<Dog>);       // false
-var_dump($ba instanceof Box<Animal>);    // true
+var_dump($bd instanceof Box::<Dog>);       // true: same canonical mono
+var_dump($bd instanceof Box::<Animal>);    // false: invariant distinction
+var_dump($ba instanceof Box::<Dog>);       // false
+var_dump($ba instanceof Box::<Animal>);    // true
 ?>
 --EXPECT--
 bool(true)

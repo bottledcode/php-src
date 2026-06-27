@@ -1,11 +1,11 @@
 --TEST--
-Reification: instanceof Box<T> with function-level T resolves against the current frame's turbofish bindings
+Reification: instanceof Box::<T> with function-level T resolves against the current frame's turbofish bindings
 --FILE--
 <?php
 class Box<T> {}
 
 function isBoxOf<T>(mixed $x): bool {
-    return $x instanceof Box<T>;
+    return $x instanceof Box::<T>;
 }
 
 var_dump(isBoxOf::<int>(new Box::<int>));      // true

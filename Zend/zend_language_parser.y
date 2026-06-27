@@ -50,7 +50,6 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %destructor { zend_ast_destroy($$); } <ast>
 %destructor { if ($$) zend_string_release_ex($$, 0); } <str>
 
-%precedence PREC_NO_TYPE_ARGS
 %precedence T_THROW
 %precedence PREC_ARROW_FUNCTION
 %precedence T_INCLUDE T_INCLUDE_ONCE T_REQUIRE T_REQUIRE_ONCE
@@ -891,7 +890,7 @@ optional_generic_type_parameter_default:
 ;
 
 optional_generic_type_argument_list:
-		%empty %prec PREC_NO_TYPE_ARGS               { $$ = NULL; }
+		%empty                                       { $$ = NULL; }
 	|	generic_type_argument_list                   { $$ = $1; }
 ;
 
@@ -932,7 +931,13 @@ bound_class_name:
 ;
 
 bound_class_name_reference:
-		class_name optional_generic_type_argument_list
+		/* instanceof RHS is an expression, not a type, so type arguments use
+		 * turbofish (`$x instanceof Box::<int>`) rather than the bare `<...>`
+		 * type syntax. Bare `<` would both ambiguate against the comparison
+		 * operator and silently break existing code like `$x instanceof A < $y`,
+		 * which is why turbofish exists for every other expression-position
+		 * generic (`new Box::<int>`, `Box::<int>::method()`). */
+		class_name optional_call_type_argument_list
 			{ $$ = $2 ? zend_ast_create(ZEND_AST_GENERIC_NAMED_TYPE, $1, $2) : $1; }
 	|	new_variable                                      { $$ = $1; }
 	|	'(' expr ')'                                      { $$ = $2; }

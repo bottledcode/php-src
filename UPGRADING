@@ -211,7 +211,7 @@ PHP 8.6 UPGRADE NOTES
     `Box<string>`) synthesises a separate class entry whose canonical
     name is spelled out (`"Box<int>"`), registered in the class table,
     and visible through `get_class()`, `var_dump`, and
-    `instanceof Box<int>`. Function- and method-level generics are
+    `instanceof Box::<int>`. Function- and method-level generics are
     reified per call frame: each call carries its own type-argument
     table, with no persistent `id<int>` function entry (avoiding
     unbounded growth). Closures and generators preserve the table so
@@ -224,7 +224,7 @@ PHP 8.6 UPGRADE NOTES
     actually pass at this slot." Reified type arguments are kept on a
     side table and consulted at well-defined runtime points: monomorph
     synthesis, turbofish argument validation, deferred lookups for
-    `instanceof Box<T>` / `catch (Box<T> $e)`, bare `T`-ref resolution
+    `instanceof Box::<T>` / `catch (Box<T> $e)`, bare `T`-ref resolution
     (`instanceof T`, `catch (T $e)`, `new T()`, `T::method()`),
     inheritance linking, and Reflection.
   . It is now possible to use reference assign on WeakMap without the key
