@@ -2,7 +2,7 @@
 Diamond + nullable: contravariant union propagates null from any operand
 --FILE--
 <?php
-interface Setter<-X> { public function set(X $v): void; }
+interface Setter<in X> { public function set(X $v): void; }
 
 interface Flex extends Setter<?int>, Setter<string> {}
 $r = new ReflectionClass(Flex::class);

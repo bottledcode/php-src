@@ -2,7 +2,7 @@
 Diamond + trait-use: multiple uses of the same generic trait with different bindings merge use-site-variantly at the reflection level
 --FILE--
 <?php
-trait Setter<-X> {
+trait Setter<in X> {
     public function set(X $v): void { echo var_export($v, true), "\n"; }
 }
 

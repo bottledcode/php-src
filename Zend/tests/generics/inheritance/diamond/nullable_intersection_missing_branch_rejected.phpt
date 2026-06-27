@@ -5,7 +5,7 @@ Diamond + nullable intersection: implementer missing one branch is rejected
 interface IFoo {}
 interface IBar {}
 
-interface Getter<+X : object> { public function get(): ?X; }
+interface Getter<out X : object> { public function get(): ?X; }
 interface Flex extends Getter<IFoo>, Getter<IBar> {}
 
 class Bad implements Flex {

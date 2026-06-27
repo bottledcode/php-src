@@ -9,7 +9,7 @@ interface IBaz {}
 final class FooBar implements IFoo, IBar {}
 final class FooBarBaz implements IFoo, IBar, IBaz {}
 
-interface I1Setter<-X> { public function set(X $v): void; }
+interface I1Setter<in X> { public function set(X $v): void; }
 interface I1IntSink extends I1Setter<int> {}
 interface I1StrSink extends I1Setter<string> {}
 interface I1Flex extends I1IntSink, I1StrSink {}
@@ -18,21 +18,21 @@ final class I1Impl implements I1Flex {
     public function set(int|string $v): void { echo "I1: ", var_export($v, true), "\n"; }
 }
 
-interface I2Setter<-X> { public function set(X $v): void; }
+interface I2Setter<in X> { public function set(X $v): void; }
 interface I2Flex extends I2Setter<int>, I2Setter<string> {}
 
 final class I2Impl implements I2Flex {
     public function set(int|string $v): void { echo "I2: ", var_export($v, true), "\n"; }
 }
 
-interface I3Setter<-X> { public function set(X $v): void; }
+interface I3Setter<in X> { public function set(X $v): void; }
 interface I3Flex extends I3Setter<int>, I3Setter<string>, I3Setter<float> {}
 
 final class I3Impl implements I3Flex {
     public function set(int|string|float $v): void { echo "I3: ", var_export($v, true), "\n"; }
 }
 
-interface I4Getter<+X : object> { public function get(): X; }
+interface I4Getter<out X : object> { public function get(): X; }
 interface I4FooSrc extends I4Getter<IFoo> {}
 interface I4BarSrc extends I4Getter<IBar> {}
 interface I4Flex extends I4FooSrc, I4BarSrc {}
@@ -41,14 +41,14 @@ final class I4Impl implements I4Flex {
     public function get(): IFoo&IBar { return new FooBar(); }
 }
 
-interface I5Getter<+X : object> { public function get(): X; }
+interface I5Getter<out X : object> { public function get(): X; }
 interface I5Flex extends I5Getter<IFoo>, I5Getter<IBar>, I5Getter<IBaz> {}
 
 final class I5Impl implements I5Flex {
     public function get(): IFoo&IBar&IBaz { return new FooBarBaz(); }
 }
 
-interface I6IO<+X : object, -Y> {
+interface I6IO<out X : object, in Y> {
     public function get(): X;
     public function set(Y $v): void;
 }
@@ -59,7 +59,7 @@ final class I6Impl implements I6Flex {
     public function set(int|string $v): void { echo "I6.set: ", var_export($v, true), "\n"; }
 }
 
-interface I7Setter<-X> { public function set(X $v): void; }
+interface I7Setter<in X> { public function set(X $v): void; }
 interface I7L1A extends I7Setter<int>    {}
 interface I7L2A extends I7L1A             {}
 interface I7L1B extends I7Setter<string> {}
@@ -70,14 +70,14 @@ final class I7Impl implements I7Flex {
     public function set(int|string $v): void { echo "I7: ", var_export($v, true), "\n"; }
 }
 
-interface I8Setter<-X> { public function set(X $v): void; }
+interface I8Setter<in X> { public function set(X $v): void; }
 interface I8Flex extends I8Setter<int>, I8Setter<string> {}
 
 final class I8Impl implements I8Flex {
     public function set(mixed $v): void { echo "I8: ", var_export($v, true), "\n"; }
 }
 
-interface I9Getter<+X : object> { public function get(): X; }
+interface I9Getter<out X : object> { public function get(): X; }
 interface I9Flex extends I9Getter<IFoo>, I9Getter<IBar> {}
 
 final class I9Impl implements I9Flex {

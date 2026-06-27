@@ -5,11 +5,11 @@ Variance: full happy-path showing every legal combination
 class Animal {}
 class Dog extends Animal {}
 
-interface Producer<+T> { public function produce(): T; }
-interface Consumer<-T> { public function consume(T $x): void; }
+interface Producer<out T> { public function produce(): T; }
+interface Consumer<in T> { public function consume(T $x): void; }
 interface Inv<U> { public function rw(U $x): U; }
 
-class CoProducer<+T> {
+class CoProducer<out T> {
     public readonly T $tag;
     public function __construct(T $tag) { $this->tag = $tag; }
     public function get(): T {}
@@ -17,13 +17,13 @@ class CoProducer<+T> {
     public function makeConsumerOfConsumers(): Consumer<Consumer<T>> {}
 }
 
-class ReadOnlyHooked<+T> {
+class ReadOnlyHooked<out T> {
     private T $backing;
     public function __construct(T $v) { $this->backing = $v; }
     public T $val { get => $this->backing; }
 }
 
-class CoConsumer<-T> {
+class CoConsumer<in T> {
     public function take(T $x): void {}
     public function takeMany(T ...$xs): void {}
     public function makeConsumer(): Consumer<T> {}
@@ -41,21 +41,21 @@ class Holder<T> {
     }
 }
 
-interface Source<+T> { public function fetch(): T; }
+interface Source<out T> { public function fetch(): T; }
 class StringSource implements Source<string> {
     public function fetch(): string { return "ok"; }
 }
 
-class CovariantChain<+T> implements Source<T> {
+class CovariantChain<out T> implements Source<T> {
     public function __construct(public readonly T $value) {}
     public function fetch(): T { return $this->value; }
 }
 
-class MethodLevel<+T> {
+class MethodLevel<out T> {
     public function map<U>(U $key): T {}
 }
 
-trait TraitProducer<+U> {
+trait TraitProducer<out U> {
     public function produceU(): U {}
 }
 class UsesProducerTrait {

@@ -6,7 +6,7 @@ class Animal {}
 class Dog extends Animal {}
 
 // Covariant + bound — the synthesizer's bounds check honours the bound.
-class Box<+T : Animal> {
+class Box<out T : Animal> {
     public function get(): T { return new Animal(); }
 }
 

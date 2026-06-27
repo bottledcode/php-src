@@ -5,9 +5,9 @@ Reflection: namespace-relative `extends`/`implements`/`use` keep their generic a
 
 namespace NSRelExtImpUse;
 
-class Base<+T> {}
-interface Iface<+T> {}
-trait Mixin<+T> {}
+class Base<out T> {}
+interface Iface<out T> {}
+trait Mixin<out T> {}
 
 class FqnExt extends \NSRelExtImpUse\Base<int> {}
 class NsExt extends namespace\Base<int> {}

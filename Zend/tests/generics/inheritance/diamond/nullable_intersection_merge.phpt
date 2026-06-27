@@ -6,7 +6,7 @@ interface IFoo {}
 interface IBar {}
 class FooBar implements IFoo, IBar {}
 
-interface Getter<+X : object> { public function get(): ?X; }
+interface Getter<out X : object> { public function get(): ?X; }
 
 interface Flex extends Getter<IFoo>, Getter<IBar> {}
 $r = new ReflectionClass(Flex::class);

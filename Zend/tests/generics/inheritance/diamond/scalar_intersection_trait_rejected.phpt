@@ -2,7 +2,7 @@
 Diamond + trait-use: scalar bindings at a covariant return position are rejected
 --FILE--
 <?php
-trait Producer<+T> {
+trait Producer<out T> {
     public function make(): T { throw new Error('stub'); }
 }
 

@@ -2,7 +2,7 @@
 Diamond + nullable union: implementer missing null in param is rejected
 --FILE--
 <?php
-interface Setter<-X> { public function set(X $v): void; }
+interface Setter<in X> { public function set(X $v): void; }
 interface Flex extends Setter<?int>, Setter<string> {}
 
 class Bad implements Flex {

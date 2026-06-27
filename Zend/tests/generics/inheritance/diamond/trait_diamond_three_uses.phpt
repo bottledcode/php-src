@@ -2,7 +2,7 @@
 Diamond + trait-use: three uses of the same generic trait fold pairwise into one merged contract
 --FILE--
 <?php
-trait Sink<-X> {
+trait Sink<in X> {
     public function sink(X $v): void { echo var_export($v, true), "\n"; }
 }
 

@@ -211,6 +211,7 @@ ZEND_API void zend_generic_type_table_set_implements(zend_generic_type_table *t,
 ZEND_API void zend_generic_type_table_set_trait_use(zend_generic_type_table *t, uint32_t idx, zend_type type);
 ZEND_API void zend_generic_type_table_set_turbofish_args(zend_generic_type_table *t, uint32_t op_num, zend_type type);
 
+ZEND_API zend_generic_variance zend_parse_generic_variance(zend_ast *keyword_ast);
 ZEND_API void zend_check_generic_param_list_size(zend_ast *list_ast);
 ZEND_API void zend_check_generic_arg_list_size(zend_ast *list_ast);
 

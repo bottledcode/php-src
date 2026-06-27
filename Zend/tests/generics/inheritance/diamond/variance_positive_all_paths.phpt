@@ -10,7 +10,7 @@ interface IBaz {}
 final class FooBar implements IFoo, IBar {}
 final class FooBarBaz implements IFoo, IBar, IBaz {}
 
-interface A1Setter<-X> {
+interface A1Setter<in X> {
     public function set(X $v): void;
 }
 
@@ -18,7 +18,7 @@ final class A1Impl implements A1Setter<int>, A1Setter<string> {
     public function set(int|string $v): void { echo "A1: ", var_export($v, true), "\n"; }
 }
 
-interface A2Setter<-X> {
+interface A2Setter<in X> {
     public function set(X $v): void;
 }
 
@@ -26,7 +26,7 @@ final class A2Impl implements A2Setter<int>, A2Setter<string>, A2Setter<float> {
     public function set(int|string|float $v): void { echo "A2: ", var_export($v, true), "\n"; }
 }
 
-interface A3Setter<-X> {
+interface A3Setter<in X> {
     public function set(X $v): void;
 }
 
@@ -36,7 +36,7 @@ final class A3Impl implements A3IntSink, A3StrSink {
   public function set(int|string $v): void { echo "A3: ", var_export($v, true), "\n"; }
 }
 
-interface A5Setter<-X> {
+interface A5Setter<in X> {
     public function set(X $v): void;
 }
 interface A5IntL1 extends A5Setter<int>    {}
@@ -49,14 +49,14 @@ final class A5Impl implements A5IntL2, A5StrL2 {
 
 class A6Apple {}
 class A6Orange {}
-interface A6Setter<-X> {
+interface A6Setter<in X> {
     public function set(X $v): void;
 }
 final class A6Impl implements A6Setter<A6Apple>, A6Setter<A6Orange> {
     public function set(A6Apple|A6Orange $v): void { echo "A6: ", $v::class, "\n"; }
 }
 
-interface A7Sink<-X> {
+interface A7Sink<in X> {
     public function setOne(X $v): void;
     public function setTwo(X $other): void;
 }
@@ -65,7 +65,7 @@ final class A7Impl implements A7Sink<int>, A7Sink<string> {
     public function setTwo(int|string $other): void { echo "A7.setTwo: ", var_export($other, true), "\n"; }
 }
 
-interface A8Setter<-X> {
+interface A8Setter<in X> {
     public function set(X $v): void;
 }
 final class A8Impl implements A8Setter<int>, A8Setter<string> {
@@ -73,21 +73,21 @@ final class A8Impl implements A8Setter<int>, A8Setter<string> {
 }
 
 
-interface B1Getter<+X : object> {
+interface B1Getter<out X : object> {
     public function get(): X;
 }
 final class B1Impl implements B1Getter<IFoo>, B1Getter<IBar> {
     public function get(): IFoo&IBar { return new FooBar(); }
 }
 
-interface B2Getter<+X : object> {
+interface B2Getter<out X : object> {
     public function get(): X;
 }
 final class B2Impl implements B2Getter<IFoo>, B2Getter<IBar>, B2Getter<IBaz> {
     public function get(): IFoo&IBar&IBaz { return new FooBarBaz(); }
 }
 
-interface B3Getter<+X : object> {
+interface B3Getter<out X : object> {
     public function get(): X;
 }
 interface B3FooSrc extends B3Getter<IFoo> {}
@@ -96,7 +96,7 @@ final class B3Impl implements B3FooSrc, B3BarSrc {
     public function get(): IFoo&IBar { return new FooBar(); }
 }
 
-interface B4Getter<+X : object> {
+interface B4Getter<out X : object> {
     public function get(): X;
 }
 abstract class B4ParentSrc implements B4Getter<IFoo> {
@@ -106,7 +106,7 @@ final class B4Impl extends B4ParentSrc implements B4Getter<IBar> {
     public function get(): IFoo&IBar { return new FooBar(); }
 }
 
-interface B5Getter<+X : object> {
+interface B5Getter<out X : object> {
     public function get(): X;
 }
 interface B5FooL1 extends B5Getter<IFoo> {}
@@ -117,7 +117,7 @@ final class B5Impl implements B5FooL2, B5BarL2 {
     public function get(): IFoo&IBar { return new FooBar(); }
 }
 
-interface B6Getter<+X : object> {
+interface B6Getter<out X : object> {
     public function get(): X;
 }
 final class B6Impl implements B6Getter<IFoo>, B6Getter<IBar> {
@@ -125,7 +125,7 @@ final class B6Impl implements B6Getter<IFoo>, B6Getter<IBar> {
 }
 
 
-interface C1IO<+X : object, -Y> {
+interface C1IO<out X : object, in Y> {
     public function get(): X;
     public function set(Y $v): void;
 }
@@ -134,7 +134,7 @@ final class C1Impl implements C1IO<IFoo, int>, C1IO<IBar, string> {
     public function set(int|string $v): void { echo "C1.set: ", var_export($v, true), "\n"; }
 }
 
-interface C2IO<+X : object, -Y> {
+interface C2IO<out X : object, in Y> {
     public function get(): X;
     public function set(Y $v): void;
 }
@@ -145,7 +145,7 @@ final class C2Impl implements C2FooInt, C2BarStr {
     public function set(int|string $v): void { echo "C2.set: ", var_export($v, true), "\n"; }
 }
 
-interface C3IO<+X : object, -Y> {
+interface C3IO<out X : object, in Y> {
     public function get(): X;
     public function set(Y $v): void;
 }
@@ -159,10 +159,10 @@ final class C3Impl implements C3FooIntL2, C3BarStrL2 {
 }
 
 
-interface D1Setter<-X> {
+interface D1Setter<in X> {
     public function set(X $v): void;
 }
-interface D1Wrap<-Y> extends D1Setter<Y> {}
+interface D1Wrap<in Y> extends D1Setter<Y> {}
 final class D1Impl implements D1Wrap<int>, D1Setter<string> {
     public function set(int|string $v): void { echo "D1: ", var_export($v, true), "\n"; }
 }

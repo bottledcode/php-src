@@ -297,7 +297,6 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %type <ast> optional_call_type_argument_list call_type_argument_list call_type_argument_list_inner
 %type <ast> bound_class_name bound_class_name_reference
 
-%type <num> optional_generic_variance
 
 %type <num> returns_ref function fn is_reference is_variadic property_modifiers property_hook_modifiers
 %type <num> method_modifiers class_const_modifiers member_modifier optional_cpp_modifiers
@@ -868,15 +867,14 @@ generic_type_parameter_list_inner:
 ;
 
 generic_type_parameter:
-		optional_generic_variance T_STRING optional_generic_type_parameter_bound
+		T_STRING optional_generic_type_parameter_bound
 		optional_generic_type_parameter_default
-			{ $$ = zend_ast_create_ex(ZEND_AST_GENERIC_TYPE_PARAMETER, $1, $2, $3, $4); }
-;
-
-optional_generic_variance:
-		%empty   { $$ = 0; }
-	|	'+'      { $$ = 1; }
-	|	'-'      { $$ = 2; }
+			{ $$ = zend_ast_create_ex(ZEND_AST_GENERIC_TYPE_PARAMETER,
+				ZEND_GENERIC_VARIANCE_INVARIANT, $1, $2, $3); }
+	|	T_STRING T_STRING optional_generic_type_parameter_bound
+		optional_generic_type_parameter_default
+			{ $$ = zend_ast_create_ex(ZEND_AST_GENERIC_TYPE_PARAMETER,
+				zend_parse_generic_variance($1), $2, $3, $4); }
 ;
 
 optional_generic_type_parameter_bound:

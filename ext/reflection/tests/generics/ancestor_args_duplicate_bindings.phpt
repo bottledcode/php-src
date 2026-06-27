@@ -6,7 +6,7 @@ interface Foo<T = mixed> {}
 interface Bar<T> {}
 interface Baz<T> extends Bar<T> {}
 
-interface DA<+T> {}
+interface DA<out T> {}
 interface I1 extends DA<int> {}
 interface I2 extends DA<string> {}
 

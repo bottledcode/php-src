@@ -26,7 +26,7 @@ class ChildViaMid extends BaseViaMid {}
 
 interface Leaf extends Mid<bool> {}
 
-interface DA<+T> {}
+interface DA<out T> {}
 interface I1 extends DA<int> {}
 interface I2 extends DA<string> {}
 class Diamond implements I1, I2 {}

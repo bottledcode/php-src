@@ -8726,11 +8726,11 @@ ZEND_METHOD(ReflectionGenericTypeParameter, __toString)
 	GET_GENERIC_PARAMETER_REFERENCE(intern, ref);
 
 	switch (ref->param->variance) {
-		case 1:
-			smart_str_appendc(&str, '+');
+		case 1: /* covariant */
+			smart_str_appends(&str, "out ");
 			break;
-		case 2:
-			smart_str_appendc(&str, '-');
+		case 2: /* contravariant */
+			smart_str_appends(&str, "in ");
 			break;
 		default:
 			break;

@@ -2,7 +2,7 @@
 Diamond + trait-use: only T-touching methods are merged; non-generic methods are unaffected
 --FILE--
 <?php
-trait Box<-X> {
+trait Box<in X> {
     public function set(X $v): void { echo "set ", var_export($v, true), "\n"; }
     public function ping(): string { return "pong"; }
 }

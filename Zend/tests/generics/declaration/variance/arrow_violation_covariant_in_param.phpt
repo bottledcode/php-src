@@ -1,8 +1,8 @@
 --TEST--
-Variance: +T on an arrow function in parameter position is rejected
+Variance: out T on an arrow function in parameter position is rejected
 --FILE--
 <?php
-$f = fn<+T>(T $x): T => $x;
+$f = fn<out T>(T $x): T => $x;
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared covariant (+T) cannot appear in contravariant position in %s on line %d
+Fatal error: Type parameter T declared covariant (out T) cannot appear in contravariant position in %s on line %d

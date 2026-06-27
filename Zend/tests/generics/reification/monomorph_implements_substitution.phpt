@@ -8,7 +8,7 @@ Reification: a monomorph of `B<T> implements I<T>` should report `is_a I<bound>`
 // `is_a(..., 'I<string>')` returns false even though the type relationship
 // holds, and property writes typed `I<string>` reject `B<string>` values.
 
-interface I<+T> {}
+interface I<out T> {}
 class B<T> implements I<T> {}
 
 // 1) Direct monomorph

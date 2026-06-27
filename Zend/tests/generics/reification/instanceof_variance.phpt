@@ -7,8 +7,8 @@ class Dog extends Animal {}
 class Cat extends Animal {}
 
 class Box<T : object> {}        // invariant
-class Producer<+T : object> {}  // covariant
-class Consumer<-T : object> {}  // contravariant
+class Producer<out T : object> {}  // covariant
+class Consumer<in T : object> {}  // contravariant
 
 $dogBox = new Box::<Dog>();
 $dogProd = new Producer::<Dog>();

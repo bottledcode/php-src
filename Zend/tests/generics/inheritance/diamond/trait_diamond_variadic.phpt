@@ -2,7 +2,7 @@
 Diamond + trait-use: variadic contravariant param merges as union
 --FILE--
 <?php
-trait Sink<-X> {
+trait Sink<in X> {
     public function sink(X ...$xs): void {
         foreach ($xs as $x) echo var_export($x, true), "\n";
     }

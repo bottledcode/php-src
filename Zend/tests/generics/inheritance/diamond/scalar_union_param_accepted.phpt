@@ -1,8 +1,8 @@
 --TEST--
-Diamond + contravariant -T: scalar bindings at a parameter position merge as a union (no rejection)
+Diamond + contravariant in T: scalar bindings at a parameter position merge as a union (no rejection)
 --FILE--
 <?php
-interface Sink<-T> {
+interface Sink<in T> {
     public function sink(T $v): void;
 }
 interface IntSink extends Sink<int> {}

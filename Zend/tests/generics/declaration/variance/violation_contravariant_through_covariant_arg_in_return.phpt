@@ -1,12 +1,12 @@
 --TEST--
-Variance: -T composed through Producer<+U> in return (+ × + = +) is rejected
+Variance: in T composed through Producer<out U> in return (+ × + = +) is rejected
 --FILE--
 <?php
-interface Producer<+U> { public function produce(): U; }
+interface Producer<out U> { public function produce(): U; }
 
-class A<-T> {
+class A<in T> {
     public function makeProducer(): Producer<T> {}
 }
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared contravariant (-T) cannot appear in covariant position in %s on line %d
+Fatal error: Type parameter T declared contravariant (in T) cannot appear in covariant position in %s on line %d

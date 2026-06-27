@@ -1,10 +1,10 @@
 --TEST--
-Variance: +T in a read/write typed property (invariant position) is rejected
+Variance: out T in a read/write typed property (invariant position) is rejected
 --FILE--
 <?php
-class A<+T> {
+class A<out T> {
     public T $val;
 }
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared covariant (+T) cannot appear in invariant position in %s on line %d
+Fatal error: Type parameter T declared covariant (out T) cannot appear in invariant position in %s on line %d

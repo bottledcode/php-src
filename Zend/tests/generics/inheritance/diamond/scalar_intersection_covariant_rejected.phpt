@@ -1,8 +1,8 @@
 --TEST--
-Diamond + covariant +T: scalar bindings in a covariant return position are rejected
+Diamond + covariant out T: scalar bindings in a covariant return position are rejected
 --FILE--
 <?php
-interface Producer<+T> {
+interface Producer<out T> {
     public function make(): T;
 }
 interface IntProducer extends Producer<int> {}

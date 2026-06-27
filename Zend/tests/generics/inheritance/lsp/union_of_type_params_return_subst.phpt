@@ -26,7 +26,7 @@ var_dump($q->get());
 
 // Also exercise the interface-implements path, which is what the Psl
 // failure actually hit (UnionType extends Type which implements TypeInterface).
-interface I<+T> {
+interface I<out T> {
     public function read(mixed $v): T;
 }
 

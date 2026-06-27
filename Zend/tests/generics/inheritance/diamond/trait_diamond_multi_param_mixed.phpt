@@ -1,12 +1,12 @@
 --TEST--
-Diamond + trait-use: multi-param mixed +T / -U, declared variance drives merge polarity
+Diamond + trait-use: multi-param mixed out T / in U, declared variance drives merge polarity
 --FILE--
 <?php
 interface IFoo {}
 interface IBar {}
 class FooBar implements IFoo, IBar {}
 
-trait IO<+T : object, -U> {
+trait IO<out T : object, in U> {
     public function get(): T { throw new Error('stub'); }
     public function set(U $v): void { echo var_export($v, true), "\n"; }
 }

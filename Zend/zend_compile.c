@@ -543,6 +543,24 @@ static zend_generic_parameter *zend_generic_lookup(zend_string *name) /* {{{ */
 }
 /* }}} */
 
+ZEND_API zend_generic_variance zend_parse_generic_variance(zend_ast *keyword_ast) /* {{{ */
+{
+	zend_string *keyword = zend_ast_get_str(keyword_ast);
+	if (zend_string_equals_literal_ci(keyword, "out")) {
+		/* `out T`: T may only appear in output (covariant) positions. */
+		return ZEND_GENERIC_VARIANCE_COVARIANT;
+	}
+	if (zend_string_equals_literal_ci(keyword, "in")) {
+		/* `in T`: T may only appear in input (contravariant) positions. */
+		return ZEND_GENERIC_VARIANCE_CONTRAVARIANT;
+	}
+	zend_error_noreturn(E_COMPILE_ERROR,
+		"Unexpected '%s' before generic type parameter name; "
+		"expected 'in' or 'out' variance keyword",
+		ZSTR_VAL(keyword));
+}
+/* }}} */
+
 ZEND_API void zend_check_generic_param_list_size(zend_ast *list_ast) /* {{{ */
 {
 	if (list_ast == NULL) {

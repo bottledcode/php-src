@@ -1,12 +1,12 @@
 --TEST--
-Variance: +T composed through Consumer<-U> in return (+ × - = -) is rejected
+Variance: out T composed through Consumer<in U> in return (+ × - = -) is rejected
 --FILE--
 <?php
-interface Consumer<-U> { public function consume(U $x): void; }
+interface Consumer<in U> { public function consume(U $x): void; }
 
-class A<+T> {
+class A<out T> {
     public function makeConsumer(): Consumer<T> {}
 }
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared covariant (+T) cannot appear in contravariant position in %s on line %d
+Fatal error: Type parameter T declared covariant (out T) cannot appear in contravariant position in %s on line %d

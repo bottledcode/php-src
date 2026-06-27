@@ -2,7 +2,7 @@
 Diamond + variadic: contravariant T variadic merges as union, exercised at runtime
 --FILE--
 <?php
-interface Sink<-X> { public function sink(X ...$xs): void; }
+interface Sink<in X> { public function sink(X ...$xs): void; }
 
 class A implements Sink<int>, Sink<string> {
     public function sink(int|string ...$xs): void {

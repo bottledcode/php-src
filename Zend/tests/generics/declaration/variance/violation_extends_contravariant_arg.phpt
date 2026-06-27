@@ -1,10 +1,10 @@
 --TEST--
-Variance: +T as the type-arg to a contravariant parent's parameter is rejected
+Variance: out T as the type-arg to a contravariant parent's parameter is rejected
 --FILE--
 <?php
-class Cons<-U> {}
+class Cons<in U> {}
 
-class A<+T> extends Cons<T> {}
+class A<out T> extends Cons<T> {}
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared covariant (+T) cannot appear in contravariant position in %s on line %d
+Fatal error: Type parameter T declared covariant (out T) cannot appear in contravariant position in %s on line %d

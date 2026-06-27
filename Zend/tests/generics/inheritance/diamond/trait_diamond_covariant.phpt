@@ -6,7 +6,7 @@ interface IFoo {}
 interface IBar {}
 class FooBar implements IFoo, IBar {}
 
-trait HasGetter<+X : object> {
+trait HasGetter<out X : object> {
     public function get(): X { return new FooBar(); }
 }
 

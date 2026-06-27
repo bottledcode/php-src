@@ -5411,8 +5411,8 @@ static const char *zend_variance_polarity_name(zend_variance_polarity p)
 static const char *zend_variance_marker(zend_generic_variance v)
 {
 	switch (v) {
-		case ZEND_GENERIC_VARIANCE_COVARIANT:     return "+";
-		case ZEND_GENERIC_VARIANCE_CONTRAVARIANT: return "-";
+		case ZEND_GENERIC_VARIANCE_COVARIANT:     return "out";
+		case ZEND_GENERIC_VARIANCE_CONTRAVARIANT: return "in";
 		default:                                  return "";
 	}
 }
@@ -5449,10 +5449,11 @@ static void zend_variance_walk(
 		zend_generic_variance declared = params->parameters[ref->index].variance;
 		if (!zend_variance_compatible(declared, pol)) {
 			zend_error_noreturn(E_COMPILE_ERROR,
-				"Type parameter %s declared %s (%sT) cannot appear in %s position",
+				"Type parameter %s declared %s (%s %s) cannot appear in %s position",
 				ZSTR_VAL(ref->name),
 				zend_variance_polarity_name(zend_variance_polarity_from(declared)),
 				zend_variance_marker(declared),
+				ZSTR_VAL(ref->name),
 				zend_variance_polarity_name(pol));
 		}
 

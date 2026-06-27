@@ -2,7 +2,7 @@
 Inherited methods: substituted clone keeps the erased class-name view when the return type wraps a method-level type parameter
 --FILE--
 <?php
-class Box<+T> {
+class Box<out T> {
     private mixed $value;
     public function __construct(mixed $val) { $this->value = $val; }
     public static function create<O>(O $value): Box<O> { return new self($value); }

@@ -8,7 +8,7 @@ Naked new in a no-defaults generic class: `new self()` binds from the frame, by-
 // of collapsing to a bare instance. `new static()` likewise tracks the called
 // scope. A by-name `new C()` is rejected: its type arguments are ambiguous, so
 // it must be written `new C::<...>()`.
-final readonly class Box<+T> {
+final readonly class Box<out T> {
     public function __construct(public T $value) {}
     public function cloneSelf(): self { return new self($this->value); }
     public function cloneStatic(): static { return new static($this->value); }

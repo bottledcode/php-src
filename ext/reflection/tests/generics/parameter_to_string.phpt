@@ -2,7 +2,7 @@
 Reflection: __toString on type parameter
 --FILE--
 <?php
-class A<X, Y : object, Z = int, +W : object = stdClass> {}
+class A<X, Y : object, Z = int, out W : object = stdClass> {}
 foreach ((new ReflectionClass('A'))->getGenericParameters() as $p) {
     echo $p, "\n";
 }
@@ -11,4 +11,4 @@ foreach ((new ReflectionClass('A'))->getGenericParameters() as $p) {
 X
 Y : object
 Z = int
-+W : object = stdClass
+out W : object = stdClass

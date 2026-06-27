@@ -2,7 +2,7 @@
 Diamond + property hook (get-only): covariant T merges return type as intersection
 --FILE--
 <?php
-interface HasX<+T : object> {
+interface HasX<out T : object> {
     public T $x { get; }
 }
 interface IFoo {}

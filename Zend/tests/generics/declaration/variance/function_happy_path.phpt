@@ -2,17 +2,17 @@
 Variance: function-origin type parameters checked uniformly with class-origin
 --FILE--
 <?php
-function take<-T>(T $x): int { return 0; }
-function make<+T>(): T { return null; }
-function transform<-I, +O>(I $input): O { return null; }
+function take<in T>(T $x): int { return 0; }
+function make<out T>(): T { return null; }
+function transform<in I, out O>(I $input): O { return null; }
 
-$closure_take = function <-T>(T $x): int { return 0; };
-$closure_make = function <+T>(): T { return null; };
-$arrow_take   = fn<-T>(T $x): int => 0;
-$arrow_make   = fn<+T>(): T => null;
+$closure_take = function <in T>(T $x): int { return 0; };
+$closure_make = function <out T>(): T { return null; };
+$arrow_take   = fn<in T>(T $x): int => 0;
+$arrow_make   = fn<out T>(): T => null;
 
-class A<+T = mixed> {
-    public function map<-A_, +B>(A_ $a): B { return null; }
+class A<out T = mixed> {
+    public function map<in A_, out B>(A_ $a): B { return null; }
 }
 
 take(42);

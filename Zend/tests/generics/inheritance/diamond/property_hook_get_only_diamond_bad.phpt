@@ -2,7 +2,7 @@
 Diamond + property hook (get-only): impl missing one branch of the merged intersection is rejected
 --FILE--
 <?php
-interface HasX<+T : object> {
+interface HasX<out T : object> {
     public T $x { get; }
 }
 interface IFoo {}

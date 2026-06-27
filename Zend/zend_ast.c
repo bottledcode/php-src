@@ -2098,10 +2098,10 @@ static ZEND_COLD void zend_ast_export_generic_type_parameter(smart_str *str, zen
 {
 	switch ((zend_generic_variance) ast->attr) {
 		case ZEND_GENERIC_VARIANCE_COVARIANT:
-			smart_str_appendc(str, '+');
+			smart_str_appends(str, "out ");
 			break;
 		case ZEND_GENERIC_VARIANCE_CONTRAVARIANT:
-			smart_str_appendc(str, '-');
+			smart_str_appends(str, "in ");
 			break;
 		case ZEND_GENERIC_VARIANCE_INVARIANT:
 			break;

@@ -10,7 +10,7 @@ Reification: a property typed `I<T>` (T inside a generic class type arg) substit
 // typed as the unsubstituted `I<T>` and any assignment failed with
 // "Cannot assign ... of type I<T>".
 
-interface I<+T> {}
+interface I<out T> {}
 
 class StrImpl implements I<string> {}
 class IntImpl implements I<int> {}

@@ -1,10 +1,10 @@
 --TEST--
-Variance: self<T> in a contravariant parameter position is rejected for +T
+Variance: self<T> in a contravariant parameter position is rejected for out T
 --FILE--
 <?php
-class C<+T> {
+class C<out T> {
     public function take(self<T> $other): void {}
 }
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared covariant (+T) cannot appear in contravariant position in %s on line %d
+Fatal error: Type parameter T declared covariant (out T) cannot appear in contravariant position in %s on line %d

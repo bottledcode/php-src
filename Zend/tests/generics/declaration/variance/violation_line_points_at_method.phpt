@@ -2,7 +2,7 @@
 Variance: a violation inside a method signature reports the method's line, not the class header
 --FILE--
 <?php
-final class LinePointer<+T> {
+final class LinePointer<out T> {
     public function ok(): T {
         throw new RuntimeException();
     }
@@ -13,4 +13,4 @@ final class LinePointer<+T> {
 }
 ?>
 --EXPECTF--
-Fatal error: Type parameter T declared covariant (+T) cannot appear in invariant position in %s on line 7
+Fatal error: Type parameter T declared covariant (out T) cannot appear in invariant position in %s on line 7

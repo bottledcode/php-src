@@ -2,7 +2,7 @@
 Reflection: ReflectionGenericTypeParameter::getVariance()
 --FILE--
 <?php
-class A<+X, -Y, Z> {}
+class A<out X, in Y, Z> {}
 foreach ((new ReflectionClass('A'))->getGenericParameters() as $p) {
     echo $p->getName(), ": ", $p->getVariance()->name, "\n";
 }
