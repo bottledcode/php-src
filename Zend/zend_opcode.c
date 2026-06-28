@@ -130,13 +130,17 @@ ZEND_API void zend_type_release(zend_type type, bool persistent) {
 		for (uint32_t i = 0; i < named->count; i++) {
 			zend_type_release(named->args[i], persistent);
 		}
-		pefree(named, persistent);
+		if (!ZEND_TYPE_USES_ARENA(type)) {
+			pefree(named, persistent);
+		}
 	} else if (ZEND_TYPE_HAS_TYPE_PARAMETER(type)) {
 		zend_type_parameter_ref *ref = ZEND_TYPE_TYPE_PARAMETER(type);
 		if (ref->name) {
 			zend_string_release(ref->name);
 		}
-		pefree(ref, persistent);
+		if (!ZEND_TYPE_USES_ARENA(type)) {
+			pefree(ref, persistent);
+		}
 	} else if (ZEND_TYPE_HAS_NAME(type)) {
 		zend_string_release(ZEND_TYPE_NAME(type));
 	}
@@ -698,6 +702,8 @@ ZEND_API void destroy_zend_class(zval *zv)
 						}
 					}
 				} else if (prop_info->flags & ZEND_ACC_GENERIC_CLONE) {
+					zend_string_release_ex(prop_info->name, 0);
+					zend_type_release(prop_info->type, /* persistent */ false);
 					if (prop_info->hooks) {
 						for (uint32_t i = 0; i < ZEND_PROPERTY_HOOK_COUNT; i++) {
 							if (prop_info->hooks[i]) {
@@ -781,11 +787,13 @@ ZEND_API void destroy_zend_class(zval *zv)
 				} else if (prop_info->flags & ZEND_ACC_GENERIC_CLONE) {
 					/* Cross-class generic clones (e.g., Holder<T>'s property
 					 * cloned into the Holder<Item> monomorph) take their own
-					 * reference on the borrowed name string in
-					 * do_inherit_property; release it here on the holder's
-					 * destruction so the count balances. The prop_info struct
-					 * itself is arena-allocated and freed in bulk. */
+					 * reference on the borrowed name string and a fresh copy of
+					 * the substituted type in do_inherit_property; release both
+					 * here on the holder's destruction so the counts balance.
+					 * The prop_info struct itself is arena-allocated and freed
+					 * in bulk. */
 					zend_string_release(prop_info->name);
+					zend_type_release(prop_info->type, /* persistent */ false);
 				}
 			} ZEND_HASH_FOREACH_END();
 			zend_hash_destroy(&ce->properties_info);
@@ -924,6 +932,58 @@ ZEND_API void destroy_op_array(zend_op_array *op_array)
 
 	if (op_array->function_name) {
 		zend_string_release_ex(op_array->function_name, 0);
+	}
+
+	/* A generic substituted clone shares the base op_array's refcounted opcode
+	 * stream but owns a freshly built (arena-allocated) arg_info block. The
+	 * shared-refcount early-return below would skip the normal arg_info cleanup,
+	 * so release this clone's owned block's contents here. The block itself is
+	 * arena memory and is reclaimed in bulk, so only its refs are released. */
+	if (op_array->fn_flags2 & ZEND_ACC2_OWNS_ARG_INFO) {
+		if (op_array->arg_info) {
+			uint32_t num_args = op_array->num_args;
+			zend_arg_info *arg_info = op_array->arg_info;
+			if (op_array->fn_flags & ZEND_ACC_HAS_RETURN_TYPE) {
+				arg_info--;
+				num_args++;
+			}
+			if (op_array->fn_flags & ZEND_ACC_VARIADIC) {
+				num_args++;
+			}
+			for (i = 0; i < num_args; i++) {
+				if (arg_info[i].name) {
+					zend_string_release_ex(arg_info[i].name, 0);
+				}
+				if (arg_info[i].doc_comment) {
+					zend_string_release_ex(arg_info[i].doc_comment, 0);
+				}
+				zend_type_release(arg_info[i].type, /* persistent */ false);
+			}
+			op_array->arg_info = NULL;
+		}
+		op_array->fn_flags2 &= ~ZEND_ACC2_OWNS_ARG_INFO;
+	}
+
+	/* A synthesized function monomorph shares the base op_array's refcounted
+	 * body but owns an (arena-allocated) monomorph_type_args table holding each
+	 * binding's canonical name and a copy of its type. The shared-refcount
+	 * early-return below skips generic_types teardown, so release those refs
+	 * here. zend_type_release leaves the arena-allocated structures alone. */
+	if ((op_array->fn_flags2 & ZEND_ACC2_MONOMORPH_TYPE_ARGS)
+			&& op_array->generic_types
+			&& op_array->generic_types->monomorph_type_args) {
+		zend_type_arg_table *mt = op_array->generic_types->monomorph_type_args;
+		for (uint32_t mi = 0; mi < mt->count; mi++) {
+			if (mt->entries[mi].name) {
+				zend_string_release(mt->entries[mi].name);
+				mt->entries[mi].name = NULL;
+			}
+			if (ZEND_TYPE_IS_SET(mt->entries[mi].owned_type)) {
+				zend_type_release(mt->entries[mi].owned_type, /* persistent */ false);
+				mt->entries[mi].owned_type = (zend_type) ZEND_TYPE_INIT_NONE(0);
+			}
+		}
+		op_array->generic_types->monomorph_type_args = NULL;
 	}
 
 	if (!op_array->refcount || --(*op_array->refcount) > 0) {

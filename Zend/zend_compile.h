@@ -649,6 +649,9 @@ typedef struct _zend_oparray_context {
 /*                                                        |     |     |     */
 /* synthesized monomorph carrying concrete type-args      |     |     |     */
 #define ZEND_ACC2_MONOMORPH_TYPE_ARGS    (1 << 2)  /*     |  X  |     |     */
+/*                                                        |     |     |     */
+/* generic clone owns its arg_info block (shared opcodes) |     |     |     */
+#define ZEND_ACC2_OWNS_ARG_INFO          (1 << 3)  /*     |  X  |     |     */
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)

@@ -114,21 +114,28 @@ static void zend_type_named_with_args_copy_ctor(
 		zend_string_addref(dst->name);
 	}
 	ZEND_TYPE_SET_PTR(*parent_type, dst);
+	if (use_arena) {
+		ZEND_TYPE_FULL_MASK(*parent_type) |= _ZEND_TYPE_ARENA_BIT;
+	}
 	for (uint32_t i = 0; i < dst->count; i++) {
 		zend_type_copy_ctor(&dst->args[i], use_arena, persistent);
 	}
 }
 
 static void zend_type_parameter_ref_copy_ctor(
-	zend_type *const parent_type, bool persistent)
+	zend_type *const parent_type, bool use_arena, bool persistent)
 {
 	const zend_type_parameter_ref *src = ZEND_TYPE_TYPE_PARAMETER(*parent_type);
-	zend_type_parameter_ref *dst = pemalloc(sizeof(*dst), persistent);
+	zend_type_parameter_ref *dst = use_arena
+		? zend_arena_alloc(&CG(arena), sizeof(*dst)) : pemalloc(sizeof(*dst), persistent);
 	*dst = *src;
 	if (dst->name) {
 		zend_string_addref(dst->name);
 	}
 	ZEND_TYPE_SET_PTR(*parent_type, dst);
+	if (use_arena) {
+		ZEND_TYPE_FULL_MASK(*parent_type) |= _ZEND_TYPE_ARENA_BIT;
+	}
 }
 
 ZEND_API void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent) {
@@ -142,8 +149,8 @@ ZEND_API void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool pe
 		zend_type_named_with_args_copy_ctor(type, use_arena, persistent);
 	} else if (ZEND_TYPE_HAS_TYPE_PARAMETER(*type)) {
 		/* Same story for type-parameter refs: each clone needs its own
-		 * heap-allocated ref so release paths don't collide. */
-		zend_type_parameter_ref_copy_ctor(type, persistent);
+		 * payload so release paths don't collide. */
+		zend_type_parameter_ref_copy_ctor(type, use_arena, persistent);
 	} else if (ZEND_TYPE_HAS_NAME(*type)) {
 		zend_string_addref(ZEND_TYPE_NAME(*type));
 	}
@@ -1039,7 +1046,7 @@ static zend_type zend_substitute_leaf_type_param_origin(zend_type t, const zend_
 				zend_type_copy_ctor(&new_nwa->args[i], /* use_arena */ true, /* persistent */ false);
 			}
 			ZEND_TYPE_SET_PTR(result, new_nwa);
-			ZEND_TYPE_FULL_MASK(result) = ZEND_TYPE_FULL_MASK(t);
+			ZEND_TYPE_FULL_MASK(result) = ZEND_TYPE_FULL_MASK(t) | _ZEND_TYPE_ARENA_BIT;
 		}
 
 		if (ZEND_TYPE_FULL_MASK(t) & _ZEND_TYPE_NULLABLE_BIT) {
@@ -2891,6 +2898,18 @@ static void do_inherit_property(zend_property_info *parent_info, zend_string *ke
 				zend_type sub = have_args
 					? zend_substitute_leaf_type_param(*pre_erasure, bound_args, bound_arity)
 					: (zend_type) ZEND_TYPE_INIT_NONE(0);
+				/* For a bare T-ref the result borrows a binding's payload; for a
+				 * rebuilt union/intersection or a folded canonical class it owns
+				 * fresh string refs. clone->type (and any hook arg_info) below
+				 * copy_ctor from sub, so an owned sub must be released afterwards
+				 * or its refs leak. It is owned iff its payload aliases none of
+				 * the bindings. */
+				bool sub_owned = have_args && sub.ptr != NULL;
+				for (uint32_t k = 0; sub_owned && k < bound_arity; k++) {
+					if (sub.ptr == bound_args[k].ptr) {
+						sub_owned = false;
+					}
+				}
 				free_alloca(bound_args, use_heap);
 				if (have_args) {
 					if (!ZEND_TYPE_HAS_TYPE_PARAMETER(sub)) {
@@ -2931,6 +2950,7 @@ static void do_inherit_property(zend_property_info *parent_info, zend_string *ke
 								zend_function *clone_fn = zend_arena_alloc(&CG(arena), sizeof(zend_op_array));
 								memcpy(clone_fn, orig, sizeof(zend_op_array));
 								clone_fn->op_array.arg_info = new_arg_info + 1;
+								clone_fn->op_array.fn_flags2 |= ZEND_ACC2_OWNS_ARG_INFO;
 								function_add_ref(clone_fn);
 
 								clone_hooks[hi] = clone_fn;
@@ -2940,6 +2960,9 @@ static void do_inherit_property(zend_property_info *parent_info, zend_string *ke
 						}
 
 						info = clone;
+					}
+					if (sub_owned) {
+						zend_type_release(sub, /* persistent */ false);
 					}
 				}
 			}
@@ -3994,6 +4017,7 @@ static void zend_substitute_trait_method_arg_info(
 
 	if (new_block) {
 		new_fn->op_array.arg_info = has_return ? new_block + 1 : new_block;
+		new_fn->op_array.fn_flags2 |= ZEND_ACC2_OWNS_ARG_INFO;
 	}
 }
 

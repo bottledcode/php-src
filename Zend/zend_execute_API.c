@@ -1025,6 +1025,9 @@ cleanup_args:
 				if (ZEND_CALL_INFO(call) & ZEND_CALL_RELEASE_THIS) {
 					OBJ_RELEASE(Z_OBJ(call->This));
 				}
+				if (ZEND_CALL_INFO(call) & ZEND_CALL_CLOSURE) {
+					OBJ_RELEASE(ZEND_CLOSURE_OBJECT(call->func));
+				}
 				zend_vm_stack_free_call_frame(call);
 				EG(fake_scope) = orig_fake_scope;
 				zend_release_fcall_info_cache(fci_cache);

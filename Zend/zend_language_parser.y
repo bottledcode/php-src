@@ -874,7 +874,8 @@ generic_type_parameter:
 	|	T_STRING T_STRING optional_generic_type_parameter_bound
 		optional_generic_type_parameter_default
 			{ $$ = zend_ast_create_ex(ZEND_AST_GENERIC_TYPE_PARAMETER,
-				zend_parse_generic_variance($1), $2, $3, $4); }
+				zend_parse_generic_variance($1), $2, $3, $4);
+			  zend_ast_destroy($1); }
 ;
 
 optional_generic_type_parameter_bound:
