@@ -7132,6 +7132,36 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph_resolved(
 	return zend_synthesize_monomorph(base, resolved, arity);
 }
 
+/* Append `iface`'s own interfaces onto `ce`, skipping ones already present.
+ * The monomorph interfaces below are attached after zend_do_link_class has
+ * already run, so the flattening that zend_do_inherit_interfaces normally
+ * performs never sees them: for `class C<T> implements Mid<T>` where
+ * `interface Mid<T> extends RO<T>`, `C<int>` would list `Mid<int>` but not
+ * `RO<int>`, and `instanceof RO<int>` (plus every arg/return type check
+ * against it) would be false. Only the interface list is extended — methods
+ * and constants of the erased base interfaces were already inherited during
+ * the link. A single pass suffices: each monomorph is fully attached before it
+ * is appended anywhere, so its own list is already transitively complete. */
+static void zend_monomorph_inherit_iface_interfaces(
+	zend_class_entry *ce, const zend_class_entry *iface)
+{
+	for (uint32_t i = 0; i < iface->num_interfaces; i++) {
+		zend_class_entry *entry = iface->interfaces[i];
+		bool already = false;
+		for (uint32_t j = 0; j < ce->num_interfaces; j++) {
+			if (ce->interfaces[j] == entry) { already = true; break; }
+		}
+		if (already || entry == ce) continue;
+
+		ce->interfaces = perealloc(
+			ce->interfaces,
+			sizeof(zend_class_entry *) * (ce->num_interfaces + 1),
+			ce->type == ZEND_INTERNAL_CLASS);
+		ce->interfaces[ce->num_interfaces++] = entry;
+		do_implement_interface(ce, entry);
+	}
+}
+
 ZEND_API zend_class_entry *zend_synthesize_monomorph(
 	zend_class_entry *base, const zend_type *args, uint32_t arity)
 {
@@ -7409,6 +7439,10 @@ ZEND_API zend_class_entry *zend_synthesize_monomorph(
 				do_implement_interface(linked, extras[k]);
 			}
 			linked->num_interfaces = new_count;
+
+			for (uint32_t k = 0; k < extra_count; k++) {
+				zend_monomorph_inherit_iface_interfaces(linked, extras[k]);
+			}
 		}
 		if (extras) free_alloca(extras, extras_use_heap);
 	}
